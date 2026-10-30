@@ -24,14 +24,14 @@ async function registerAndDiagnose(page: Page) {
   await page.getByRole("button", { name: "업무 등록", exact: true }).click();
   await page.getByRole("button", { name: "다음 단계" }).click();
   await page.getByRole("button", { name: "업무 진단 실행", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "결정 지점 확인 (D1~D7)" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "업무 규칙 확인" })).toBeVisible();
 }
 
-async function confirmDecision(page: Page, rowPattern: RegExp, statusLabel: string) {
+async function confirmDecision(page: Page, rowPattern: RegExp, rowId: string) {
   // 기본은 모두 접힘이므로, 이미 펼쳐진 행은 다시 클릭하지 않는다(접힘 방지).
   const head = page.getByRole("button", { name: rowPattern });
   if ((await head.getAttribute("aria-expanded")) !== "true") await head.click();
-  await page.getByLabel(statusLabel).selectOption("확정");
+  await page.locator(`#ax-decision-${rowId}`).getByLabel("상태").selectOption("확정");
 }
 
 test("AX 간소화·COSS 통일: 판단 하단 문구 제거·매트릭스 버튼 제거·다음 행동 형식·로드맵 헤더·확인사항 이동", async ({ page }) => {
@@ -41,13 +41,13 @@ test("AX 간소화·COSS 통일: 판단 하단 문구 제거·매트릭스 버�
   // A. 판단 표에 없는 AS-IS 단계 문구가 표시되지 않는다.
   await expect(page.getByText(/판단 표에 없는 AS-IS 단계/)).toHaveCount(0);
 
-  // D1·D2·D3·D7 확정 → 예시 필수 여부가 정해져 step 4에 예시 미확정 항목이 생긴다.
-  await confirmDecision(page, /D1 대조 기준/, "D1 상태");
-  await confirmDecision(page, /D2 중복 처리/, "D2 상태");
-  await confirmDecision(page, /D3 예외값 처리/, "D3 상태");
-  await confirmDecision(page, /D7 계산 기준/, "D7 상태");
-  await page.locator('section[aria-label="결정 지점 확인"]').getByRole("button", { name: "저장", exact: true }).click();
-  await expect(page.locator('section[aria-label="결정 지점 확인"]').getByText("4/7 확인 완료", { exact: true })).toBeVisible();
+  // D1·D2·D3·D7 확정 → step 4에 예시 미확정 항목이 생기지 않는다 (예시 체계 제거).
+  await confirmDecision(page, /D1 대조 기준/, "D1");
+  await confirmDecision(page, /D2 중복 처리/, "D2");
+  await confirmDecision(page, /D3 예외값 처리/, "D3");
+  await confirmDecision(page, /D7 계산 기준/, "D7");
+  await page.locator('section[aria-label="업무 규칙 확인"]').getByRole("button", { name: "저장", exact: true }).click();
+  await expect(page.locator('section[aria-label="업무 규칙 확인"]').getByText("4/7 확인 완료", { exact: true })).toBeVisible();
 
   // B. 매트릭스 상세 카드 자체가 §9로 제거됐다 (이동 버튼 제거를 넘어 카드 자체가 없음).
   // 이동은 상단 단계 내비게이션으로 한다.
@@ -70,7 +70,7 @@ test("AX 간소화·COSS 통일: 판단 하단 문구 제거·매트릭스 버�
   await expect(precheck).toBeVisible();
   // 반복 문구 제거: 기존 "업무 진단에서 확인" 버튼은 precheck에 남아 있지 않다.
   await expect(precheck.getByRole("button", { name: "업무 진단에서 확인" })).toHaveCount(0);
-  await expect(precheck.getByText("업무 처리 예시 미확정")).toBeVisible();
+  await expect(precheck.getByText("업무 처리 예시 미확정")).toHaveCount(0);
 
   // 계획 생성 후 계획 검토 표가 생기면, 계획 검토 버튼이 해당 표로 이동한다.
   await page.getByRole("button", { name: "Codex용 구현 계획 생성" }).click();
@@ -91,17 +91,11 @@ test("AX 간소화·COSS 통일: 판단 하단 문구 제거·매트릭스 버�
   await expect(page.locator("#ax-decision-D4")).toBeInViewport();
   await expect(page.locator("#ax-decision-D4 .ax-decision-row-head")).toHaveAttribute("aria-expanded", "true");
 
-  // E. 예시 확인 버튼은 업무 처리 예시 영역으로 이동한다.
-  await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
-  await precheck.getByRole("button", { name: "예시 확인" }).click();
-  await expect(page.locator("#ax-example-results")).toBeInViewport();
-
-  // E. 저장 후 결과·로드맵 복귀: 예시를 저장하고 로드맵으로 돌아가면 같은 업무가 유지된다.
-  await page.getByRole("button", { name: "+ 예시 추가", exact: true }).click();
-  await page.getByLabel("예시 1 입력값").fill("운송장 WB-001, 중량 10kg");
-  await page.getByLabel("예시 1 예상 결과 상태").fill("정상");
-  await page.locator('section[aria-label="업무 처리 예시"]').getByRole("button", { name: "저장", exact: true }).click();
-  await expect(page.locator('section[aria-label="업무 처리 예시"]').getByText("업무 처리 예시를 저장했습니다.", { exact: true })).toBeVisible();
+  // E. 범용 규칙 저장 후 결과·로드맵 복귀: 규칙을 저장하고 로드맵으로 돌아가면 같은 업무가 유지된다.
+  await page.locator('section[aria-label="범용 업무 규칙"]').getByRole("button", { name: "+ 규칙 추가", exact: true }).click();
+  await page.locator('section[aria-label="범용 업무 규칙"]').getByLabel("규칙명").fill("운송장 중복 기준");
+  await page.locator('section[aria-label="범용 업무 규칙"]').getByRole("button", { name: "저장", exact: true }).click();
+  await expect(page.locator('section[aria-label="범용 업무 규칙"]').getByText("범용 업무 규칙을 저장했습니다.", { exact: true })).toBeVisible();
   await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
   await expect(page.locator(".ax-report-intro h2")).toContainText("운송장 검증");
   await expect(precheck).toBeVisible();

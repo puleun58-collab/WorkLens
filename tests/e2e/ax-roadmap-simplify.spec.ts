@@ -72,7 +72,7 @@ test("AX roadmap simplify: KPI 2개 · 통합 목록 · 제거 영역 부재 · 
 });
 
 test("AX roadmap simplify: 필수 확인 0건이면 짧은 안내만 표시", async ({ page }) => {
-  // D1·D2·D3·D7 전부 '해당 없음'이면 업무 처리 예시는 권장 대상이 되어 ① 항목이 붙지 않는다.
+  // D1·D2·D3·D7 전부 '해당 없음'이면 예시 체계가 없어 ① 항목이 붙지 않는다.
   const diagnosis: AxDiagnosis = {
     ...diagnosisFixture,
     decisionGate: { verdict: "go", reasons: [] },

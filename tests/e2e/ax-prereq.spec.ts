@@ -64,24 +64,20 @@ test("① 구현 전 확인: 미완료 항목 목록 + 중복 제거", async ({ 
   // Gate conditional: 전체 진행 보류 배지는 표시되지 않고 확인 필요 건수만 표시된다.
   const head = block.locator(".ax-precheck-head");
   await expect(head).not.toContainText("진행 보류");
-  // 8건 = 기존 7건 + '업무 처리 예시 확인 필요' 1건 (픽스처는 예시 0건·결정 지점 미확정 → 확인 필요, 보완 6항 1번)
-  await expect(head).toContainText("확인 필요 8건");
+  // 7건 = 기존 7건 (예시 체계 제거로 '업무 처리 예시 확인 필요' 1건이 사라진다)
+  await expect(head).toContainText("확인 필요 7건");
   // ①은 항상 표시된다 (접힘 아코디언 없음).
   // 추가 확인 사항 박스(제목·표·미확정 배지)는 제거됐다.
   await expect(block.getByRole("heading", { name: "추가 확인 사항" })).toHaveCount(0);
   await expect(block.locator(".ax-prereq-extra, .ax-prereq-table")).toHaveCount(0);
-  // 제거된 박스의 '미확정' 배지는 없어야 한다. 남는 '미확정' 문구는 예시 0건 픽스처의
-  // '업무 처리 예시 확인 필요' 항목(보완 6항 1번) 노트 1건뿐이다.
+  // 제거된 박스의 '미확정' 배지는 없어야 한다. 예시 항목이 사라져 '미확정' 문구도 남지 않는다.
   await expect(block.getByText("미확정", { exact: true })).toHaveCount(0);
-  await expect(block.getByText("미확정", { exact: false })).toHaveCount(1);
-  await expect(block.locator(".ax-precheck-item").filter({ hasText: "업무 처리 예시 확인 필요" }).getByText("미확정", { exact: false })).toHaveCount(1);
+  await expect(block.locator(".ax-precheck-item").filter({ hasText: "업무 처리 예시 확인 필요" })).toHaveCount(0);
   // Items: one per technical check + card-duplicate가 아닌 조건도 같은 목록 영역에 유지된다
-  // (3 technical checks + 3 plan integrations + plan prerequisite + 업무 처리 예시 확인 필요 = 8)
-  // 업무 처리 예시 확인 필요는 예시 0건·결정 지점 미확정 픽스처에 붙는 확인 필요 항목이며,
+  // (3 technical checks + 3 plan integrations + plan prerequisite = 7)
   // 결정 지점 D1~D7은 ① 목록에 들어가지 않는다. 중복 항목이 아님을 아래에서 1건으로 확인한다.
   const items = block.locator(".ax-precheck-item");
-  await expect(items).toHaveCount(8);
-  await expect(items.filter({ hasText: "업무 처리 예시 확인 필요" })).toHaveCount(1);
+  await expect(items).toHaveCount(7);
   await expect(items.first()).toContainText("데이터 형식");
   await expect(items.first().locator(".ax-check-badge").first()).toHaveText("확인 필요");
   await expect(items.first()).not.toContainText("적용 단계 확인 필요");
@@ -90,10 +86,10 @@ test("① 구현 전 확인: 미완료 항목 목록 + 중복 제거", async ({ 
     await expect(block.locator(".ax-precheck-item").filter({ hasText: text }).first()).toBeVisible();
   }
   // 각 항목에는 실제 확인·수정 위치로 이동하는 버튼이 있다.
-  // 반복 문구 "업무 진단에서 확인"은 쓰지 않는다 (7건은 확인 사항, 1건은 규칙 확인).
+  // 반복 문구 "업무 진단에서 확인"은 쓰지 않는다 (예시 항목 제거 후 7건 모두 확인 사항).
   await expect(block.getByRole("button", { name: "업무 진단에서 확인", exact: true })).toHaveCount(0);
   await expect(block.getByRole("button", { name: "확인 사항 보기", exact: true })).toHaveCount(7);
-  await expect(block.getByRole("button", { name: "규칙 확인", exact: true })).toHaveCount(1);
+  await expect(block.getByRole("button", { name: "규칙 확인", exact: true })).toHaveCount(0);
   const overflow = await block.evaluate(el => el.scrollWidth - el.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
   await block.screenshot({ path: reviewShotPath("prereq-desktop-1440x900.png") });
@@ -104,8 +100,8 @@ test("① 구현 전 확인: 모바일 390px 세로 배치 + 가로 스크롤 �
   const section = await openStep4(page);
   const block = section.locator("section[aria-label='구현 전 확인']");
   const items = block.locator(".ax-precheck-item");
-  // 데스크톱과 같은 8건 (기존 7건 + 예시 0건·결정 지점 미확정 픽스처의 '업무 처리 예시 확인 필요' 1건)
-  await expect(items).toHaveCount(8);
+  // 데스크톱과 같은 7건 (예시 체계 제거로 예시 항목 1건이 사라진다)
+  await expect(items).toHaveCount(7);
   // Items stack vertically (기술 점검 항목 + 추가 조건 항목 모두)
   const boxes = await items.evaluateAll(els => els.map(el => el.getBoundingClientRect().top));
   for (let i = 1; i < boxes.length; i++) expect(boxes[i]).toBeGreaterThan(boxes[i - 1]);

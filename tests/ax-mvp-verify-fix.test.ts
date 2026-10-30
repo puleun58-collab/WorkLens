@@ -44,13 +44,18 @@ const REQUIRED_GUARDS = [
 ];
 
 describe("ax mvp verify-fix: 04 invariance", () => {
+  // 의도된 변경(범용 규칙 큐): 04의 §05 제목·3번·5/6번, 미확정 D4 문구,
+  // "확정 예시" 블록 → "업무 규칙 검증" 블록, §06 보고 문구에서 예시 요구를
+  // 확정 규칙 기준으로 교체했다. 구 버전(8543277) 출력과 신 출력의 diff가
+  // 이 6개 지점뿐임을 직접 대조했으므로 고정값을 갱신한다. 04가 검증 입력에
+  // 무관하게 동일하다는 불변성(2번째 테스트) 자체는 유지된다.
   it("pins the representative 04 prompt byte-identical for codex and claude", () => {
     const options = optionsFor();
     const codex = buildAllInOnePrompt(planFixture, "codex", options);
     const claude = buildAllInOnePrompt(planFixture, "claude", options);
     expect(codex).toBe(claude);
-    expect(codex.length).toBe(9960);
-    expect(sha(codex)).toBe("077504cf05cc26251cc3c7b81c1e098015d033baa3b50d785f8bcfbe9efad3dc");
+    expect(codex.length).toBe(10049);
+    expect(sha(codex)).toBe("d830a2f8a74171d53060373bc9b1dcc2a4a9c9e2b0986f3aa7a03b59f02ba9b4");
   });
 
   it("keeps 04 identical with empty and with present verification input, without mutating inputs", () => {
@@ -68,7 +73,7 @@ describe("ax mvp verify-fix: 04 invariance", () => {
     expect(fix).toContain("자료 수집");
     const after04 = buildAllInOnePrompt(planFixture, "codex", options);
     expect(after04).toBe(before04);
-    expect(sha(after04)).toBe("077504cf05cc26251cc3c7b81c1e098015d033baa3b50d785f8bcfbe9efad3dc");
+    expect(sha(after04)).toBe("d830a2f8a74171d53060373bc9b1dcc2a4a9c9e2b0986f3aa7a03b59f02ba9b4");
     expect(before04).not.toContain("수정·보완 지시문");
     expect(before04).not.toContain("수정 대상 아님");
     expect(before04).not.toContain("반복 실패 확인 대상");

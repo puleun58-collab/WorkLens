@@ -13,33 +13,33 @@ async function registerAndDiagnose(page: import("@playwright/test").Page, name: 
   await page.getByRole("button", { name: "업무 등록", exact: true }).click();
   await page.getByRole("button", { name: "다음 단계" }).click();
   await page.getByRole("button", { name: "업무 진단 실행", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "결정 지점 확인 (D1~D7)" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "업무 규칙 확인" })).toBeVisible();
 }
 
 test("AX 진단 간소화: D1~D7 아코디언 단일 펼침·진행률·저장·재조회", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await registerAndDiagnose(page, "운송장 검증", "운송장 데이터를 입력받아 누락·중복을 검사하고 검증 결과를 출력한다.");
-  const decision = page.locator('section[aria-label="결정 지점 확인"]');
+  const decision = page.locator('section[aria-label="업무 규칙 확인"]');
   await expect(decision.getByText("0/7 확인 완료", { exact: true })).toBeVisible();
 
   // 기본은 모두 접힘이므로 D1 행을 펼쳐 입력한다. D2를 펼치면 D1이 접히고,
   // 다시 D1을 펼쳐도 미저장 입력이 유지된다.
   await page.getByRole("button", { name: /D1 대조 기준/ }).click();
-  await page.getByLabel("D1 상태").selectOption("확정");
-  await page.getByLabel("D1 상세").fill("판매내역.xlsx / Sheet1, 주문번호, 누락·초과 판단");
+  await page.locator("#ax-decision-D1").getByLabel("상태").selectOption("확정");
+  await page.locator("#ax-decision-D1").getByLabel("대조 기준").fill("판매내역.xlsx / Sheet1, 주문번호, 누락·초과 판단");
   await expect(decision.locator(".ax-decision-counter")).toContainText("/ 2000");
   await page.getByRole("button", { name: /D2 중복 처리/ }).click();
-  await expect(page.getByLabel("D1 상세")).toBeHidden();
-  await expect(page.getByLabel("D2 상태")).toBeVisible();
+  await expect(page.locator("#ax-decision-D1").getByLabel("대조 기준")).toBeHidden();
+  await expect(page.locator("#ax-decision-D2").getByLabel("상태")).toBeVisible();
   await page.getByRole("button", { name: /D1 대조 기준/ }).click();
-  await expect(page.getByLabel("D1 상세")).toHaveValue("판매내역.xlsx / Sheet1, 주문번호, 누락·초과 판단");
+  await expect(page.locator("#ax-decision-D1").getByLabel("대조 기준")).toHaveValue("판매내역.xlsx / Sheet1, 주문번호, 누락·초과 판단");
 
   // 해당 없음이면 상세 입력이 숨겨지고, 되돌리면 다시 보인다.
   await page.getByRole("button", { name: /D3 예외값 처리/ }).click();
-  await page.getByLabel("D3 상태").selectOption("해당 없음");
-  await expect(page.getByLabel("D3 상세")).toHaveCount(0);
-  await page.getByLabel("D3 상태").selectOption("미확정");
-  await expect(page.getByLabel("D3 상세")).toBeVisible();
+  await page.locator("#ax-decision-D3").getByLabel("상태").selectOption("해당 없음");
+  await expect(page.locator("#ax-decision-D3").getByLabel("대조 기준")).toHaveCount(0);
+  await page.locator("#ax-decision-D3").getByLabel("상태").selectOption("미확정");
+  await expect(page.locator("#ax-decision-D3").getByLabel("대조 기준")).toBeVisible();
 
   // 저장 후 진행률 갱신 + 저장 플러시 확인 후 새로고침 후 재조회.
   await decision.getByRole("button", { name: "저장", exact: true }).click();
@@ -60,32 +60,33 @@ test("AX 진단 간소화: D1~D7 아코디언 단일 펼침·진행률·저장·
   await page.reload();
   // 새로고침하면 셸 뷰가 기본값(문서 분석)으로 돌아가므로 AX 화면으로 다시 이동한다 (기존 reload 패턴과 동일).
   await navigateWorkspace(page, "업무 자동화 진단");
-  await expect(page.getByRole("heading", { name: "결정 지점 확인 (D1~D7)" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "업무 규칙 확인" })).toBeVisible();
   await page.getByRole("button", { name: /D1 대조 기준/ }).click();
-  await expect(page.getByLabel("D1 상태")).toHaveValue("확정");
-  await expect(page.getByLabel("D1 상세")).toHaveValue("판매내역.xlsx / Sheet1, 주문번호, 누락·초과 판단");
+  await expect(page.locator("#ax-decision-D1").getByLabel("상태")).toHaveValue("확정");
+  await expect(page.locator("#ax-decision-D1").getByLabel("대조 기준")).toHaveValue("판매내역.xlsx / Sheet1, 주문번호, 누락·초과 판단");
 });
 
-test("AX 진단 간소화: 업무 처리 예시 탭 전환 시 초안 유지·삭제·저장", async ({ page }) => {
+test("AX 진단 간소화: 범용 규칙 아코디언 초안 유지·삭제·저장", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await registerAndDiagnose(page, "운송장 검증", "운송장 데이터를 입력받아 누락·중복을 검사하고 검증 결과를 출력한다.");
-  const examples = page.locator('section[aria-label="업무 처리 예시"]');
-  await expect(examples.getByText("등록된 예시가 없습니다.")).toBeVisible();
-  await expect(examples.getByText("실제 업무 데이터를 바탕으로 예시를 추가하여 처리 규칙을 검증해보세요.")).toBeVisible();
-  await page.getByRole("button", { name: "+ 예시 추가", exact: true }).click();
-  await page.getByLabel("예시 1 입력값").fill("입력 A");
-  await page.getByRole("button", { name: "+ 새 예시", exact: true }).click();
-  await page.getByLabel("예시 2 입력값").fill("입력 B");
-  // 탭을 바꿔도 작성 중인 입력값이 사라지지 않는다.
-  await page.getByRole("tab", { name: "예시 1", exact: true }).click();
-  await expect(page.getByLabel("예시 1 입력값")).toHaveValue("입력 A");
-  // 예시 1 삭제 후 남은 탭은 예시 1로 renumber되고 입력 B를 유지한다.
-  await page.getByRole("button", { name: "예시 1 삭제", exact: true }).click();
-  await expect(examples.getByRole("tab", { name: "예시 2", exact: true })).toHaveCount(0);
-  await expect(page.getByLabel("예시 1 입력값")).toHaveValue("입력 B");
-  await page.getByLabel("예시 1 예상 결과 상태").fill("정상");
-  await examples.getByRole("button", { name: "저장", exact: true }).click();
-  await expect(examples.getByText("업무 처리 예시를 저장했습니다.", { exact: true })).toBeVisible();
+  const generic = page.locator('section[aria-label="범용 업무 규칙"]');
+  await expect(generic.getByText("등록된 범용 규칙이 없습니다.")).toBeVisible();
+  await generic.getByRole("button", { name: "+ 규칙 추가", exact: true }).click();
+  await generic.getByLabel("규칙명").fill("규칙 A");
+  await generic.getByRole("button", { name: "+ 규칙 추가", exact: true }).click();
+  await generic.getByLabel("규칙명").fill("규칙 B");
+  // 행을 접었다 펼쳐도 작성 중인 입력값이 사라지지 않는다.
+  await generic.getByRole("button", { name: /R1 규칙 A/ }).click();
+  await expect(generic.getByLabel("규칙명")).toHaveValue("규칙 A");
+  await generic.getByRole("button", { name: /R2 규칙 B/ }).click();
+  await expect(generic.getByLabel("규칙명")).toHaveValue("규칙 B");
+  // 규칙 1 삭제 후 남은 규칙은 R2로 유지되고 규칙 B를 유지한다 (id 재부여 없음).
+  await generic.getByRole("button", { name: /R1 규칙 A/ }).click();
+  await generic.getByRole("button", { name: "이 규칙 삭제" }).click();
+  await expect(generic.getByText("규칙 A")).toHaveCount(0);
+  await expect(generic.getByText("규칙 B")).toBeVisible();
+  await generic.getByRole("button", { name: "저장", exact: true }).click();
+  await expect(generic.getByText("범용 업무 규칙을 저장했습니다.", { exact: true })).toBeVisible();
   // useAxState 저장은 디바운스되므로 플러시될 때까지 poll한 뒤 새로고침한다 (즉시 새로고침하면 저장 전 상태로 복원된다).
   await expect.poll(async () => {
     const value = await page.evaluate(async () => {
@@ -95,14 +96,14 @@ test("AX 진단 간소화: 업무 처리 예시 탭 전환 시 초안 유지·�
       return record;
     });
     const task = (value?.tasks as Array<Record<string, unknown>> | undefined)?.[0];
-    const results = task?.exampleResults as Array<Record<string, unknown>> | undefined;
-    return results?.length === 1 && results?.[0]?.input === "입력 B";
+    const rules = task?.genericRules as Array<Record<string, unknown>> | undefined;
+    return rules?.length === 1 && rules?.[0]?.name === "규칙 B";
   }, { timeout: 10_000 }).toBe(true);
   await page.reload();
   // 새로고침하면 셸 뷰가 기본값(문서 분석)으로 돌아가므로 AX 화면으로 다시 이동한다 (기존 reload 패턴과 동일).
   await navigateWorkspace(page, "업무 자동화 진단");
-  await expect(page.getByRole("heading", { name: "결정 지점 확인 (D1~D7)" })).toBeVisible();
-  await expect(page.getByLabel("예시 1 입력값")).toHaveValue("입력 B");
+  await expect(page.getByRole("heading", { name: "업무 규칙 확인" })).toBeVisible();
+  await expect(page.locator('section[aria-label="범용 업무 규칙"]').getByText("규칙 B")).toBeVisible();
 });
 
 test("AX 진단 간소화: 매트릭스 상세 카드 제거·Factor 근거는 업무 진단 단계에서 확인·업무 전환 갱신", async ({ page }) => {
@@ -137,14 +138,15 @@ test("AX 진단 간소화: 매트릭스 상세 카드 제거·Factor 근거는 �
   await expect(page.getByRole("region", { name: "단계별 자동화 판단", exact: true })).toBeVisible();
 });
 
-test("AX 진단 간소화: 모바일 390에서 예시 2열이 1열로 전환되고 가로 넘침이 없다", async ({ page }) => {
+test("AX 진단 간소화: 모바일 390에서 범용 규칙 2열이 1열로 전환되고 가로 넘침이 없다", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await registerAndDiagnose(page, "운송장 검증", "운송장 데이터를 입력받아 누락·중복을 검사하고 검증 결과를 출력한다.");
-  await page.getByRole("button", { name: "+ 예시 추가", exact: true }).click();
-  const cols = page.locator(".ax-example-col");
-  await expect(cols).toHaveCount(2);
-  const boxes = await cols.evaluateAll(elements => elements.map(element => element.getBoundingClientRect().top));
-  expect(boxes[1]).toBeGreaterThan(boxes[0]);
+  const generic = page.locator('section[aria-label="범용 업무 규칙"]');
+  await generic.getByRole("button", { name: "+ 규칙 추가", exact: true }).click();
+  const panel = page.locator(".ax-generic-panel");
+  await expect(panel).toBeVisible();
+  const tracks = await panel.evaluate(element => getComputedStyle(element).gridTemplateColumns.split(" ").length);
+  expect(tracks).toBe(1);
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
 });

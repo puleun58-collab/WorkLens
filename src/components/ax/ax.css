@@ -1013,7 +1013,7 @@
 .ax-matrix-counts-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .ax-matrix-counts-link:disabled { color: var(--muted-foreground); text-decoration: none; cursor: default; }
 /* 바로가기 스크롤 착지 지점 여백 */
-#ax-answer-section, .ax-diag-checks, #ax-decision-points, #ax-example-results, #ax-plan-review, #ax-plan-section, #ax-step-review { scroll-margin-top: 96px; }
+#ax-answer-section, .ax-diag-checks, #ax-decision-points, #ax-generic-rules, #ax-plan-review, #ax-plan-section, #ax-step-review { scroll-margin-top: 96px; }
 /* 구현 전 확인 이동 대상 강조: 고정 헤더에 가리지 않고 수정 위치를 식별한다. */
 .ax-check-target { outline: 2px solid var(--primary); outline-offset: 4px; }
 /* 상세 분석 구분 헤더 */
@@ -1040,7 +1040,7 @@
 }
 
 /* 결정 지점 확인 (D1~D7) — 레퍼런스 가로형 아코디언 */
-.ax-decision, .ax-examples { border-left: 1.5px solid var(--border); box-shadow: none; }
+.ax-decision { border-left: 1.5px solid var(--border); box-shadow: none; }
 .ax-decision-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
 .ax-decision-head h3 { margin: 0 0 4px; }
 .ax-decision-head p { margin: 0; }
@@ -1062,6 +1062,7 @@
 .ax-decision-badge[data-status="확정"] { background: #e9f7ee; color: #166534; }
 .ax-decision-badge[data-status="미확정"] { background: #fff4df; color: #b45309; border-color: #f8d9a0; }
 .ax-decision-badge[data-status="해당 없음"] { background: #edf1f6; color: #43536b; border-color: #d5dce6; }
+.ax-decision-badge[data-status="적용 여부 확인 필요"] { background: #fff4df; color: #b45309; border-color: #f8d9a0; }
 .ax-decision-row-head > svg { flex: none; color: var(--muted-foreground); transition: transform 150ms ease; }
 .ax-decision-row-head > svg.is-open { transform: rotate(180deg); }
 .ax-decision-panel { display: flex; flex-direction: column; gap: 12px; padding: 12px 14px 16px 62px; border-top: 1px solid var(--border); }
@@ -1070,28 +1071,13 @@
 .ax-decision-save { display: flex; align-items: center; justify-content: flex-end; gap: 12px; flex-wrap: wrap; margin-top: 16px; }
 .ax-decision-save p { margin: 0; margin-right: auto; }
 
-/* 업무 처리 예시 — 탭형 UI + 입력/예상 결과 2열 */
-.ax-examples-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
-.ax-examples-head h3 { margin: 0 0 4px; }
-.ax-examples-head p { margin: 0; }
-.ax-examples-meta { flex: none; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.ax-examples-meta > span { font-size: var(--font-size-xs); color: var(--muted-foreground); white-space: nowrap; }
-.ax-example-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0; }
-.ax-example-tabs [role="tab"] { padding: 8px 16px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); color: var(--foreground); font-size: var(--font-size-sm); cursor: pointer; }
-.ax-example-tabs [role="tab"].is-selected { background: var(--card); border-color: var(--border); color: var(--foreground); font-weight: 600; }
-.ax-example-tabs [role="tab"]:disabled { cursor: default; opacity: 0.6; }
-.ax-example-tabs > button:last-child { border-style: dashed; color: var(--muted-foreground); }
-.ax-example-detail { border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
-.ax-example-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: start; margin-bottom: 12px; }
-.ax-example-col { min-width: 0; display: flex; flex-direction: column; gap: 10px; }
-.ax-example-col h4 { margin: 0; font-size: var(--font-size-sm); }
-.ax-example-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 16px; }
-.ax-example-empty { text-align: center; padding: 28px 16px; margin: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; }
-.ax-example-empty-icon { display: inline-grid; place-items: center; width: 48px; height: 48px; border-radius: 999px; background: color-mix(in srgb, var(--primary) 10%, var(--card)); color: var(--primary); }
-.ax-example-empty strong { font-size: var(--font-size-sm); }
-.ax-example-empty p { margin: 0; font-size: var(--font-size-sm); color: var(--muted-foreground); }
+/* 범용 업무 규칙 — 데스크톱 2열 · 모바일 1열 편집 그리드 */
+.ax-generic-panel { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; padding: 12px 14px 16px; border-top: 1px solid var(--border); }
+.ax-generic-panel textarea { min-height: 96px; padding: 10px 12px; }
+.ax-generic-panel .ax-field-wide { grid-column: 1 / -1; }
+.ax-generic-delete { display: flex; justify-content: flex-end; }
 @media (max-width: 700px) {
-  .ax-example-cols { grid-template-columns: minmax(0, 1fr); }
+  .ax-generic-panel { grid-template-columns: minmax(0, 1fr); }
   .ax-decision-panel { padding-left: 14px; }
   .ax-decision-progress { min-width: 0; text-align: left; }
 }

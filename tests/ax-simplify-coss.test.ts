@@ -43,9 +43,9 @@ describe("resolvePrecheckTarget", () => {
     if (target.kind === "none") expect(target.guidance.length).toBeGreaterThan(0);
     expect(precheckTargetLabel(target)).toBe("");
   });
-  it("예시 부족은 업무 처리 예시로 연결한다", () => {
+  it("예시 체계 제거 후 예시 부족 항목은 전용 이동 대상이 없어 확인 사항으로 연결한다", () => {
     expect(resolvePrecheckTarget({ topic: "업무 처리 예시 미확정", note: "확정 예시가 1건으로 3건 미만입니다.", origin: "check" }))
-      .toEqual({ kind: "examples" });
+      .toEqual({ kind: "checks" });
   });
   it("예시 필수 여부 미확정(D 여러 개 언급)은 결정 지점 섹션으로 연결한다", () => {
     expect(resolvePrecheckTarget({ topic: "업무 처리 예시 확인 필요", note: "결정 지점 D1·D2·D3·D7을 확정하거나 해당 없음으로 확인하면 필수 여부가 정해집니다.", origin: "check" }))
@@ -69,7 +69,6 @@ describe("resolvePrecheckTarget", () => {
   });
   it("이동 버튼 문구는 동작별로 구분된다", () => {
     expect(precheckTargetLabel({ kind: "decision" })).toBe("규칙 확인");
-    expect(precheckTargetLabel({ kind: "examples" })).toBe("예시 확인");
     expect(precheckTargetLabel({ kind: "hitl" })).toBe("HITL 검토");
     expect(precheckTargetLabel({ kind: "plan" })).toBe("계획 검토");
     expect(precheckTargetLabel({ kind: "register" })).toBe("업무 정보 수정");
