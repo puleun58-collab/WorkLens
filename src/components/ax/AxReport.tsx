@@ -851,10 +851,13 @@ function AxPrecheckSection({ summary, onGoToCheck, onGoToCheckItem }: { summary:
   ];
   const items = [...checks, ...extras, ...conflicts];
   const count = summary.blockReasons.length + items.length;
-  // 제목·설명 중복 제거: 비고가 제목과 같거나 제목으로 시작하면 반복 부분만 뺀다.
+  // 제목·설명 중복 제거: 비고가 제목과 완전히 같은 경우에만 숨긴다.
+  // 추가 확인 항목의 제목은 shortConditionLabel로 줄인 라벨이라, 비고가 제목으로
+  // 시작해도 비고가 전체 조건 문구(예: 끝의 '확인')를 담고 있다. 접두사만 떼면
+  // 전체 조건 문구가 화면 어디에도 남지 않아 ① 확인 문구가 훼손되므로, 접두사
+  // 형태는 원문 그대로 둔다 (ax.spec :137·:1299의 전체 조건 문구 단언 유지).
   const displayNote = (topic: string, note: string): string => {
     if (!note || note === topic) return "";
-    if (note.startsWith(topic)) return note.slice(topic.length).replace(/^[—–\-:·\s]+/u, "").trim();
     return note;
   };
   const actionButton = (target: PrecheckTarget) => {
