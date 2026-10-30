@@ -139,6 +139,16 @@ test("AX HITL 선택 확인 항목 제외가 양 도구 지시문에서 전수 �
   await page.screenshot({ path: "artifacts/ax-hitl-residual-ui-prompt.png", fullPage: true });
 
   // 4) 새로고침 후 저장 기록과 지시문 재확인.
+  // 저장 디바운스 경합 방지: 마지막 상태 변경(Claude 계획 생성) 후 300ms 디바운스
+  // 저장이 끝나기 전에 새로고침하면 최종 상태가 IndexedDB에 닿지 않는다. CI run
+  // 41015694387에서는 스크린샷→새로고침 간격이 235ms로 디바운스보다 짧아 최종
+  // 저장이 유실됐다. 계획이 실제 저장된 것을 확인한 뒤에야 새로고침한다.
+  // (새로고침 후 단언 자체는 그대로이며, 완화·생략이 아니다.)
+  await expect.poll(async () => {
+    const saved = await record(page);
+    const savedTask = saved?.tasks.find(t => t.id === task.id) as (typeof task & { diagnosis?: { planCodex?: unknown; planClaude?: unknown } }) | undefined;
+    return !!(savedTask?.diagnosis?.planCodex && savedTask?.diagnosis?.planClaude);
+  }).toBe(true);
   await page.reload();
   await ax(page);
   await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
