@@ -9,10 +9,15 @@ import type { AxDiagnosis, GenericRule } from "@/lib/ax/types";
 const sha = (s: string) => createHash("sha256").update(s, "utf8").digest("hex");
 
 /** 범용 규칙 체계 전환 후 기준 해시 (의도된 변경으로 재계산됨 — §05 제목·§05 확정 규칙 검증·
- * §06 문구·범용 블록 추가가 반영된 값이다. 해시가 바뀌면 01~04 의미 비교 단언과 함께 원인을 확인한다.) */
+ * §06 문구·범용 블록 추가가 반영된 값이다. 해시가 바뀌면 01~04 의미 비교 단언과 함께 원인을 확인한다.)
+ * P2 완료 불인정 기준 블록 추가 (2026-10-31): full·bare 해시가 모두 변경된다.
+ * 해당 블록은 결정 지점·범용 규칙이 있을 때 렌더링되는데, resolveDecisionPoints가
+ * 결정 지점 미입력 진단에도 7개 지점을 기본 미확정으로 반환하므로 bare 본문에도
+ * 기존 업무 규칙 검증 블록이 이미 존재했고, 그 뒤에 완료 불인정 블록이 추가된다.
+ * 전후 diff는 완료 불인정 기준 블록 삽입 1건뿐이며, 다른 본문 변경은 없다. */
 const BASELINE = {
-  codex: { full: "4111e3324acaf694d61a9348511d58d4a665a13b11e29760f4aeae3855d9bd0d", bare: "ea713c7dcc1d5927124fb3843faae780ba345974f7436e90e60e9e2150ca292a" },
-  claude: { full: "4111e3324acaf694d61a9348511d58d4a665a13b11e29760f4aeae3855d9bd0d", bare: "ea713c7dcc1d5927124fb3843faae780ba345974f7436e90e60e9e2150ca292a" },
+  codex: { full: "8aaffe77b9bdfca48a9e92cc1ef14d560ed307dd4eb7d431cc0751b86d6fd89e", bare: "c7a8ad3c5513b82e70b17de3bd99f5b7ab81261572d961e409c160a40733d67e" },
+  claude: { full: "8aaffe77b9bdfca48a9e92cc1ef14d560ed307dd4eb7d431cc0751b86d6fd89e", bare: "c7a8ad3c5513b82e70b17de3bd99f5b7ab81261572d961e409c160a40733d67e" },
 };
 
 const confirmedDiagnosis = (): AxDiagnosis => ({

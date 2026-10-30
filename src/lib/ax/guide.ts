@@ -3,6 +3,7 @@ import { automationLevel, axes, executionProfile, gateBlockReasons, prerequisite
 import { FACTOR_KEYS } from "./schema";
 import { applyStateDefinition, confirmedStateNames, declaredStateCount, isUndecidableStateInvalid, resolveDecisionPoints, undecidedDecisionIds, validatedUndecidableState, type ResolvedDecisionPoint } from "./decision-points";
 import { applicabilityPendingGenericRules, confirmedGenericRules, duplicateGenericRuleConflicts, pendingGenericRules, resolveGenericRules } from "./generic-rules";
+import { checkPromptRuleDelivery, type PromptDeliveryReport } from "./prompt-delivery";
 import { extractPlanReviewableItems, extractReviewableItems, getValidConfirmedReviews, buildPlanReviewKeyMap } from "./hitl";
 
 export type AxToolId = "codex" | "claude";
@@ -2947,7 +2948,18 @@ ${stateList ? `\n결과 상태 목록: ${stateList} — 지시문 전체에서 �
       ...(pendingRules.length ? [`미확정 범용 규칙(${pendingRules.map(rule => rule.id).join(", ")})에 의존하는 검증은 미실행으로 두고, 해당 규칙을 임의로 정하지 않는다.`] : []),
       ...(applicabilityPendingRules.length ? [`적용 여부 확인 필요 범용 규칙(${applicabilityPendingRules.map(rule => rule.id).join(", ")})은 적용 여부를 확인하기 전에는 검증 기준으로 쓰지 않는다.`] : []),
       "실제 입력으로 처리·출력과 필요한 저장·재조회를 확정된 기대 결과와 대조하세요. 서로 다른 입력으로 다시 실행해 각 입력에 맞게 출력이 달라지는지 확인하고 고정 결과를 배제하세요. 기대 결과·허용 오차가 정의되지 않았다면 '확인 필요'로 보고하세요.",
-    ])}\n\n독립 평가 데이터는 이 지시문에 포함하지 않으며, 구현 에이전트에 정답을 사전 노출하지 않는다.` : "",
+    ])}\n\n독립 평가 데이터는 이 지시문에 포함하지 않으며, 구현 에이전트에 정답을 사전 노출하지 않는다.\n\n### 완료 불인정 기준\n\n아래 중 하나라도 해당하면 완료로 인정하지 않는다.\n\n${bullets([
+      "동작하지 않는 버튼·링크·입력 (클릭·제출이 실제 동작으로 이어지지 않음)",
+      "정적 예시·더미 데이터만 보여주는 화면 (실제 입력과 무관한 고정 결과)",
+      "입력 미독립 (다른 입력에도 같은 결과가 나옴)",
+      "통신 없는 API (가짜 응답·스텁만 반환)",
+      "미저장 CRUD (재조회 시 반영되지 않음)",
+      "권한 없는 제한 우회 (거부된 권한으로 처리·조회됨)",
+      "승인 없는 외부 전송 (담당자 확인 전 확정·전송)",
+      "원본 무관 문서 (원본 내용·변경 이력과 대조되지 않음)",
+      "하드코딩된 기대 결과·값 (입력·규칙과 무관한 고정값)",
+      "형식적 코드 (TODO만 있는 핵심 함수·처리 없는 화면)",
+    ])}\n\n비데이터 업무에 Excel/CSV 입력을 완료 조건으로 강제하지 않는다. 해당 업무의 실제 입력·출력 방식으로 검증한다.` : "",
     work.length ? `### 정상 케이스\n\n${tests.length ? `${bullets(tests)}\n\n` : ""}실제 입력으로 처리·출력과 필요한 저장·재조회를 확정된 기대 결과와 대조하세요. 서로 다른 입력으로 다시 실행해 각 입력에 맞게 출력이 달라지는지 확인하고 고정 결과를 배제하세요. 기대 결과·허용 오차가 정의되지 않았다면 '확인 필요'로 보고하세요.`
       : `### 현재 검토·검증\n\n${tests.length ? `${bullets(tests)}\n\n` : ""}확보한 샘플과 기존 자료로 확인할 수 있는 범위만 검증하세요. 검증을 위해 새 기능·자동 생성 코드를 만들지 말고, 비교 자료가 없으면 '검증 불가'와 사유를 기록하세요.`,
     model.scoped.validationMethods.length ? `### 검증 방법·기록 (합격 조건 아님)\n\n${bullets(model.scoped.validationMethods.map(evidenceLine))}` : "",
@@ -3032,6 +3044,8 @@ export interface AxVerificationInput {
   keptFeatures?: string[];
   /** 현재 구현 프로그램의 목적·코드·버전 등 사용자 제공 구현 정보. */
   implementationNote?: string;
+  /** 검증 환경 (예: 로컬·스테이징·운영 주소). 선택 필드이며, 검증 라운드 스키마의 environment와 같은 값이다. */
+  environment?: string;
   /** 적용된 업무 규칙 (사용자 제공). */
   rulesNote?: string;
   /** 사용자 확인이 필요한 미확정 업무 규칙 목록. 임의 확정하지 않는다. */
@@ -3136,6 +3150,7 @@ export function buildFixPrompt(rawPlan: AxPlan | undefined, options: AxFixPrompt
       ...(input.previousReportedAt ? [`이전 라운드 보고 일시: ${input.previousReportedAt}`] : []),
       ...(previousNames.length ? [`이전 라운드 보고 항목: ${previousNames.join(" / ")} — 이번 라운드 수정 대상에 없는 이전 항목은 불필요하게 다시 수정하지 마세요.`] : []),
       `현재 구현 프로그램: ${nonEmpty(input.implementationNote) ?? "사용자 제공 없음 — 저장소에서 구현 상태와 코드 버전을 직접 확인하세요."}`,
+      ...(nonEmpty(input.environment) ? [`검증 환경: ${nonEmpty(input.environment)}`] : []),
       `적용된 업무 규칙: ${nonEmpty(input.rulesNote) ?? "사용자 제공 없음 — 04 지시문의 구현 범위와 확정 규칙에서 확인하세요."}`,
     ].join("\n"),
   });
@@ -3257,4 +3272,30 @@ export function buildFixPrompt(rawPlan: AxPlan | undefined, options: AxFixPrompt
   });
   const body = sections.filter(section => section.body.trim()).map((section, index) => `## ${index + 1}. ${section.title}\n\n${section.body}`).join("\n\n");
   return `${title}\n\n${body}`;
+}
+
+/**
+ * P1 — 올인원 지시문 + 전달 완전성 검사 래퍼.
+ * buildAllInOnePrompt의 본문은 그대로 반환하고, 동일 입력으로 모델을 다시
+ * 구성해 확정·미확정·적용 여부 미확정·해당 없음 규칙과 HITL 보류·제외
+ * 이름을 checkPromptRuleDelivery에 넘긴다. 본문 텍스트는 변경하지 않는다.
+ */
+export interface AllInOnePromptDelivery {
+  prompt: string;
+  delivery: PromptDeliveryReport;
+}
+export function checkAllInOnePromptDelivery(rawPlan: AxPlan | undefined, tool: AxToolId, options: PromptOptions = {}): AllInOnePromptDelivery {
+  const prompt = buildAllInOnePrompt(rawPlan, tool, options);
+  const model = buildAgentInstructionModel(rawPlan, options);
+  const rules = resolveGenericRules(model.genericRules);
+  const hitl = model.hitlDetails;
+  const delivery = checkPromptRuleDelivery(prompt, {
+    confirmed: confirmedGenericRules(rules),
+    pending: pendingGenericRules(rules),
+    applicabilityPending: applicabilityPendingGenericRules(rules),
+    notApplicable: rules.filter(rule => rule.applicability === "해당 없음"),
+    hitlDeferredNames: unique([...(hitl?.deferred.map(entry => entry.name) ?? []), ...(hitl?.deferredStepNames ?? [])]),
+    hitlExcludedNames: unique([...(hitl?.excluded.map(entry => entry.name) ?? []), ...(hitl?.excludedStepNames ?? [])]),
+  });
+  return { prompt, delivery };
 }

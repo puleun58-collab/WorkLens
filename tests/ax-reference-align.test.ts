@@ -86,11 +86,13 @@ describe("AX 레퍼런스 동일화 — 업무 규칙 확인 표시", () => {
   });
 
   it("01~04 지시문은 범용 규칙 전환 후 기준 해시와 일치한다 (Codex·Claude, 의도된 변경)", () => {
+    // P2 완료 불인정 기준 블록 추가 (2026-10-31, 의도된 변경): display-wording과
+    // 동일한 픽스처 쌍이므로 full·bare 해시는 해당 테스트의 BASELINE과 같다.
     for (const agent of ["codex", "claude"] as const) {
       const full = buildAllInOnePrompt(planFixture, agent, { diagnosis: confirmedDiagnosis(), taskName: "테스트 업무", context: "", genericRules: genericRules() });
       const bare = buildAllInOnePrompt(planFixture, agent, { diagnosis: diagnosisFixture, taskName: "테스트 업무", context: "", genericRules: [] });
-      expect(sha(full)).toBe("4111e3324acaf694d61a9348511d58d4a665a13b11e29760f4aeae3855d9bd0d");
-      expect(sha(bare)).toBe("ea713c7dcc1d5927124fb3843faae780ba345974f7436e90e60e9e2150ca292a");
+      expect(sha(full)).toBe("8aaffe77b9bdfca48a9e92cc1ef14d560ed307dd4eb7d431cc0751b86d6fd89e");
+      expect(sha(bare)).toBe("c7a8ad3c5513b82e70b17de3bd99f5b7ab81261572d961e409c160a40733d67e");
     }
   });
 });
