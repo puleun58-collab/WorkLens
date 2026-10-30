@@ -1056,7 +1056,7 @@ function AxFixPromptSection({ diagnosis, plan, taskName, taskContext, prerequisi
   }
   return <section className="ax-plan-block" aria-label="검증 결과와 수정·보완 지시문">
     <div className="ax-plan-title"><h4>검증 결과 · 수정·보완 지시문</h4><p className="ax-plan-desc">STEP 08 검증 결과를 입력하면 실패 항목만 다루는 수정 지시문을 만듭니다. 정상 기능은 수정하지 않습니다.</p></div>
-    {gate === "blocked" ? <p role="status" className="ax-notice">현재 진단에서는 구현 계획 생성 불가</p> : <>
+    {gate === "blocked" ? <p role="status" className="ax-notice">현재 진단에서는 수정·보완 지시문 생성 불가</p> : <>
       {failures.map((failure, i) => <div className="ax-fix-failure" key={i}>
         <div className="ax-fix-failure-head"><strong>실패 {i + 1}</strong>{failures.length > 1 ? <Button type="button" variant="outline" size="sm" onClick={() => setFailures(current => current.filter((_, j) => j !== i))}>삭제</Button> : null}</div>
         <AxFixField label="실패 기능" value={failure.feature} onChange={value => patchFailure(i, { feature: value })} rows={1} maxLength={500} />

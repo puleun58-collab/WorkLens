@@ -70,3 +70,19 @@ test("fix prompt section previews from verification input and saves the round", 
   const planAfterReload = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
   await expect(planAfterReload.getByRole("region", { name: "검증 결과와 수정·보완 지시문", exact: true }).locator(".ax-fix-rounds")).toContainText("자료 수집");
 });
+
+test("fix prompt section is blocked with its own notice when the gate is blocked", async ({ page }) => {
+  const diagnosis = { ...diagnosisFixture, planCodex: planFixture, decisionGate: { verdict: "no-go" as const, reasons: ["권한 확인"] } };
+  const task: AxTask = { ...taskFixture("fix-blocked", diagnosis), name: "차단 업무" };
+  await page.goto("/");
+  await seed(page, { ...emptyAxState(), tasks: [task], selectedTaskId: task.id, step: 4 });
+  await navigateWorkspace(page, "업무 자동화 진단");
+  const plan = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
+  await expect(plan).toBeVisible();
+  const section = plan.getByRole("region", { name: "검증 결과와 수정·보완 지시문", exact: true });
+  await expect(section).toBeVisible();
+  await expect(section.getByText("현재 진단에서는 수정·보완 지시문 생성 불가")).toBeVisible();
+  await expect(section.getByLabel("실패 기능")).toHaveCount(0);
+  // 04 차단 문구는 그대로 하나만 존재한다 (기존 allinone-integrity 단언과 충돌하지 않음).
+  await expect(plan.getByText("현재 진단에서는 구현 계획 생성 불가")).toHaveCount(1);
+});
