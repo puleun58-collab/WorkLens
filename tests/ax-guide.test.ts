@@ -45,7 +45,8 @@ describe("AX execution guides", () => {
       "STEP 04 · 첫 MVP 구현과 실제 테스트", "STEP 05 · 배포 플랫폼 선택",
       "STEP 06 · 데이터 저장 방식", "STEP 07 · GitHub 저장과 배포", "STEP 08 · 실제 기능 확인 및 완료",
     ]);
-    expect(JSON.stringify(steps[3])).toContain("04 올인원 지시문");
+    expect(JSON.stringify(steps[3])).toContain("올인원 지시문");
+    expect(JSON.stringify(steps[3])).not.toContain("04 올인원 지시문");
     expect(JSON.stringify(steps[4])).toContain("실제 입력 데이터");
     expect(JSON.stringify(steps[8])).toContain("로컬 자동화 프로그램이라면");
   });

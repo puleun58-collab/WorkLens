@@ -22,7 +22,7 @@ import type { AxToolId } from "@/lib/ax/guide";
 import { exportAxState, importAxState } from "@/lib/ax/transfer";
 import { emptyAxState, type AxStateV2, type AxTask, type AxDiagnosis, type AxDetails, type FactorKey } from "@/lib/ax/types";
 import { extractReviewableItems, extractPlanReviewableItems, reconcileReviews, validateReviewForConfirm } from "@/lib/ax/hitl";
-import { AxLevelBadge, AxProcess, AxPlanSection, AxScoreCards, AxCheckIcon, diagnosisSummaryParts, diagnosisCheckItems, visibleDiagnosisCheckItems, resolveActiveTool, concreteNextAction, formatUnifiedNextAction, type PrecheckTarget } from "./AxReport";
+import { AxLevelBadge, AxProcess, AxPlanSection, AxScoreCards, AxCheckIcon, diagnosisSummaryParts, diagnosisCheckItems, visibleDiagnosisCheckItems, resolveActiveTool, concreteNextAction, formatUnifiedNextAction } from "./AxReport";
 import { DecisionPointsSection } from "./AxDecisionExamples";
 import { GenericRulesSection } from "./AxGenericRules";
 import "./ax.css";
@@ -80,14 +80,11 @@ function NeedsCheckLink({ tasks, label, disabled, onGo }: { tasks: AxTask[]; lab
 /** 선택 업무의 결과·로드맵 래퍼: 도구 선택 상태를 소유해 로드맵·01~03·04가
  * 같은 도구의 확정 검토를 따르게 한다. key로 업무 전환 시 remount돼 상태가
  * 초기화되는 점은 기존 AxPlanSection key 동작과 동일하다. */
-function AxSelectedReport({ task, busy, onGenerate, onSaveReview, onGoToCheck, onSaveVerificationResults, onGoToCheckItem }: {
+function AxSelectedReport({ task, busy, onGenerate, onSaveReview }: {
   task: AxTask;
   busy: string | null;
   onGenerate: (target: AxToolId) => void;
   onSaveReview: (r: Omit<import("@/lib/ax/types").HitlReview, "id" | "reviewedAt" | "updatedAt"> & { id?: string }) => { saved: boolean; reason?: string };
-  onGoToCheck: () => void;
-  onSaveVerificationResults: (round: import("@/lib/ax/types").VerificationResult) => void;
-  onGoToCheckItem: (target: PrecheckTarget) => void;
 }) {
   // 호출 지점은 selected.diagnosis가 있는 경우에만 이 래퍼를 렌더링한다.
   const diagnosis = task.diagnosis as AxDiagnosis;
@@ -107,10 +104,6 @@ function AxSelectedReport({ task, busy, onGenerate, onSaveReview, onGoToCheck, o
       genericRules={(task as import("@/lib/ax/types").AxTaskV2).genericRules ?? []}
       activeTool={activeTool}
       onToolChange={setSelectedTool}
-      onGoToCheck={onGoToCheck}
-      verificationResults={(task as import("@/lib/ax/types").AxTaskV2).verificationResults ?? []}
-      onSaveVerificationResults={onSaveVerificationResults}
-      onGoToCheckItem={onGoToCheckItem}
     />
   </>;
 }
@@ -143,11 +136,6 @@ export function AxDiagnosisView() {
   // Factor 상세 평가 아코디언: 기본 접힘. 사용자가 펼친 상태는 탭·업무 전환에도 유지한다.
   const [factorsOpen, setFactorsOpen] = useState(false);
   const [checkScroll, setCheckScroll] = useState<{ taskId: string; nonce: number; target?: "answers" | "checks" } | null>(null);
-  /** 구현 전 확인 항목별 이동: 대상 단계·업무가 렌더링된 뒤 실제 입력·검토 위치로
-   * 스크롤하고, 결정 지점 행이면 해당 행을 펼치고, 수정 대상을 윤곽선으로 표시한다.
-   * 저장 후에는 기존 단계 내비게이션으로 결과·로드맵에 복귀할 수 있다. */
-  const [checkNav, setCheckNav] = useState<{ taskId: string; nonce: number; dest: PrecheckTarget } | null>(null);
-  const checkNavNonce = useRef(0);
   const ranked = priority(state.tasks).map((row, index) => ({ ...row, rank: index + 1 }));
   // 매트릭스 목록: 기존 우선순위순 고정 표시 (원본 데이터·계산 변경 없음)
   const matrixListed = ranked;
@@ -231,36 +219,6 @@ export function AxDiagnosisView() {
     return () => clearTimeout(timer);
   }, [checkScroll, state.step, state.selectedTaskId]);
   useEffect(() => {
-    if (!checkNav || state.selectedTaskId !== checkNav.taskId) return;
-    const dest = checkNav.dest;
-    const needStep = dest.kind === "register" ? 1 : dest.kind === "plan" ? 4 : 2;
-    if (state.step !== needStep) return;
-    const timer = window.setTimeout(() => {
-      if (selectedRef.current !== checkNav.taskId) { setCheckNav(null); return; }
-      requestAnimationFrame(() => {
-        let el: Element | null = null;
-        if (dest.kind === "decision") {
-          el = dest.id ? document.getElementById(`ax-decision-${dest.id}`) : document.getElementById("ax-decision-points");
-          const head = el?.querySelector<HTMLButtonElement>(".ax-decision-row-head");
-          if (head && head.getAttribute("aria-expanded") !== "true") head.click();
-        } else if (dest.kind === "hitl") el = document.getElementById("ax-step-review") ?? document.querySelector(".ax-diag-checks");
-        else if (dest.kind === "checks") el = document.querySelector(".ax-diag-checks") ?? document.querySelector(".ax-diag-card");
-        else if (dest.kind === "plan") el = document.getElementById("ax-plan-review") ?? document.getElementById("ax-plan-section");
-        else if (dest.kind === "register") el = document.querySelector(".ax-register");
-        if (el) {
-          // 결정 지점 행 펼침 뒤 레이아웃이 바뀔 수 있어 한 프레임 뒤 다시 스크롤한다.
-          requestAnimationFrame(() => {
-            el!.scrollIntoView({ behavior: "smooth", block: "start" });
-            el!.classList.add("ax-check-target");
-            window.setTimeout(() => el!.classList.remove("ax-check-target"), 4000);
-          });
-        }
-        setCheckNav(null);
-      });
-    }, 260);
-    return () => clearTimeout(timer);
-  }, [checkNav, state.step, state.selectedTaskId]);
-  useEffect(() => {
     alive.current = true;
     const sessionAttachments = attachments.current;
     return () => { alive.current = false; if (activeAi.current) interruptServerAi(); sessionAttachments.clear(); };
@@ -282,38 +240,6 @@ export function AxDiagnosisView() {
     select(taskId);
     changeStep(2);
     setCheckScroll({ taskId, nonce: Date.now() });
-  }
-  /** 업무 진단 단계로 이동: 차단 사유가 있는 업무는 확인할 사항 영역을, 그 외는
-   * 추가 질문이 있으면 질문 영역을 우선 목적지로 삼는다. 매트릭스 인라인 조건과
-   * 진단 확인 목록은 같은 집합이 아니므로, 버튼은 화면 이동만을 뜻한다. */
-  function goToDiagnosis(taskId: string) {
-    if (busy) return;
-    const task = getState().tasks.find(t => t.id === taskId);
-    if (!task?.diagnosis) {
-      setMessage("진단 결과가 없어 이동할 업무가 없습니다.");
-      return;
-    }
-    select(taskId);
-    changeStep(2);
-    setCheckScroll({ taskId, nonce: Date.now(), target: executionGate(task.diagnosis) === "blocked" ? "checks" : undefined });
-  }
-
-  /** 구현 전 확인 항목별 이동: 대상에 따라 실제 입력·검토 위치로 이동한다.
-   * 업무 정보 누락은 등록·수정 폼으로, 구현 계획 검토는 로드맵 내 검토 표로,
-   * 나머지는 업무 진단 단계의 해당 영역으로 이동한다. 다른 업무 데이터가 섞이지
-   * 않도록 이동 전에 대상 업무를 선택한다. */
-  function goToCheckItem(taskId: string, target: PrecheckTarget) {
-    if (busy) return;
-    const task = getState().tasks.find(t => t.id === taskId);
-    if (!task?.diagnosis) {
-      setMessage("진단 결과가 없어 이동할 업무가 없습니다.");
-      return;
-    }
-    if (target.kind === "register") { editTask(task); return; }
-    select(taskId);
-    if (target.kind === "plan") { setCheckNav({ taskId, nonce: ++checkNavNonce.current, dest: target }); return; }
-    changeStep(2);
-    setCheckNav({ taskId, nonce: ++checkNavNonce.current, dest: target });
   }
 
   /** HITL 검토 저장: v2 reviews 필드에 저장 (중복 방지, ID 유지)
@@ -381,18 +307,6 @@ export function AxDiagnosisView() {
         ? { ...t, genericRules: rules, updatedAt: now } as import("@/lib/ax/types").AxTaskV2 : t),
     }));
     setMessage("범용 업무 규칙을 저장했습니다.");
-  }
-  /** MVP 검증 → 수정·보완 — 검증 라운드 저장: genericRules와 같은 저장 경로로,
-   * 업무 단위 verificationResults 필드에 사용자가 입력한 라운드만 추가한다.
-   * 보고 일시가 라운드 구분자이며, 기존 라운드는 삭제·수정하지 않는다. */
-  function saveVerificationResults(taskId: string, round: import("@/lib/ax/types").VerificationResult) {
-    const now = new Date().toISOString();
-    update(current => ({
-      ...current,
-      tasks: current.tasks.map(t => t.id === taskId
-        ? { ...t, verificationResults: [...((t as import("@/lib/ax/types").AxTaskV2).verificationResults ?? []), round], updatedAt: now } as import("@/lib/ax/types").AxTaskV2 : t),
-    }));
-    setMessage("검증 결과를 저장했습니다.");
   }
   // 단계 전환 후 새 단계의 최상단으로 스크롤 (이전 화면의 스크롤 위치가 유지되지 않도록)
   // 실제 스크롤 주체는 document(window) — #workspace-content(.workspace)는 스크롤 컨테이너가 아니므로
@@ -1009,8 +923,8 @@ export function AxDiagnosisView() {
             </div>
           </aside>
           {selected?.diagnosis ? <article className="ax-selected-report" aria-label={`${selected.name} 결과·로드맵`}>
-            <header className="ax-report-intro"><div><span className="ax-report-eyebrow">선택한 업무 · 결과·로드맵</span><div className="ax-title-group"><h2>{selected.name}</h2><AxLevelBadge level={automationLevel(selected.diagnosis)} className="ax-level-badge" /><Badge className="ax-status-badge">{STATUS[taskDisplayStatus(selected).status]}</Badge>{taskDisplayStatus(selected).needsCheck ? <span className="ax-status-note">추가 질문 필요</span> : null}</div></div><Button type="button" variant="outline" size="sm" onClick={() => goToDiagnosis(selected.id)}>업무 진단으로 이동</Button></header>
-            <AxSelectedReport key={selected.id} task={selected} busy={busy} onGenerate={target => void generatePlan(selected, target)} onSaveReview={r => saveHitlReview(selected.id, r)} onGoToCheck={() => goToDiagnosis(selected.id)} onSaveVerificationResults={round => saveVerificationResults(selected.id, round)} onGoToCheckItem={target => goToCheckItem(selected.id, target)} />
+            <header className="ax-report-intro"><div><span className="ax-report-eyebrow">선택한 업무 · 결과·로드맵</span><div className="ax-title-group"><h2>{selected.name}</h2><AxLevelBadge level={automationLevel(selected.diagnosis)} className="ax-level-badge" /><Badge className="ax-status-badge">{STATUS[taskDisplayStatus(selected).status]}</Badge>{taskDisplayStatus(selected).needsCheck ? <span className="ax-status-note">추가 질문 필요</span> : null}</div></div></header>
+            <AxSelectedReport key={selected.id} task={selected} busy={busy} onGenerate={target => void generatePlan(selected, target)} onSaveReview={r => saveHitlReview(selected.id, r)} />
           </article> : <p className="ax-muted">우선순위에서 업무 선택 후 상세 결과 확인</p>}
         </>}
       </TabsPanel>

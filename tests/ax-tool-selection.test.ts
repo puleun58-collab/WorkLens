@@ -7,7 +7,7 @@ import { planFixture } from "./fixtures/ax";
 const codexPlan: AxPlan = { ...planFixture, implementation: ["Codex 계획 항목"] };
 const claudePlan: AxPlan = { ...planFixture, implementation: ["Claude 계획 항목"] };
 
-describe("AX coding tool selection (구현 계획 검토 ↔ 04 올인원 지시문 공통 상태)", () => {
+describe("AX coding tool selection (구현 계획 검토 ↔ 올인원 지시문 공통 상태)", () => {
   it("명시적 선택이 없으면 계획이 존재하는 도구를 선택 (둘 다 있으면 Codex 우선)", () => {
     expect(resolveActiveTool(null, { codex: codexPlan, claude: claudePlan })).toBe("codex");
     expect(resolveActiveTool(null, { codex: codexPlan, claude: undefined })).toBe("codex");

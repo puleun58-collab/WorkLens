@@ -101,7 +101,7 @@ test("C section gaps and STEP 03 move button follow the spacing spec", async ({ 
   // STEP 03 move button
   const step3 = tutorial.locator('.ax-guide-step[data-setup-step="3"]');
   const cta = step3.locator(".ax-guide-step-cta");
-  await expect(cta).toHaveText("04 올인원 지시문으로 이동");
+  await expect(cta).toHaveText("올인원 지시문으로 이동");
   const lastGuidance = step3.locator(".ax-guide-section > p").last();
   await expectGap(lastGuidance, cta, 14);
   const step4 = tutorial.locator('.ax-guide-step[data-setup-step="4"]');
@@ -117,7 +117,7 @@ test("C section gaps and STEP 03 move button follow the spacing spec", async ({ 
   const primaryButtons = await tutorial.locator("button").evaluateAll((buttons, primary) =>
     buttons.filter(button => getComputedStyle(button).backgroundColor === primary).map(button => button.textContent?.trim() ?? ""),
   bg);
-  expect(primaryButtons).toEqual(["04 올인원 지시문으로 이동"]);
+  expect(primaryButtons).toEqual(["올인원 지시문으로 이동"]);
   // Hover darkens, focus shows the system ring, click moves to the instructions.
   await cta.hover();
   const hoverBg = await cta.evaluate(element => getComputedStyle(element).backgroundColor);

@@ -56,39 +56,45 @@ test("AX 간소화·COSS 통일: 판단 하단 문구 제거·매트릭스 버�
   await expect(page.locator('section[aria-label$="매트릭스 상세"]')).toHaveCount(0);
   await expect(page.getByRole("button", { name: "업무 진단으로 이동" })).toHaveCount(0);
 
-  // C·D. 결과·로드맵: 다음 행동 형식, 로드맵 헤더 버튼 유지, 계획 헤더 중복 제거.
+  // C·D. 결과·로드맵: 다음 행동 형식, 로드맵 헤더 버튼 제거(§5.1), 계획 헤더 중복 제거.
   await page.getByRole("button", { name: "다음 단계" }).click();
   const nextAction = page.locator(".ax-next-action").first();
   await expect(nextAction).toBeVisible();
   await expect(nextAction).not.toContainText("먼저 확인");
   await expect(nextAction).not.toContainText("—");
   await expect(nextAction).toContainText("다음 행동");
-  await expect(page.locator(".ax-report-intro").getByRole("button", { name: "업무 진단으로 이동" })).toBeVisible();
+  await expect(page.locator(".ax-report-intro").getByRole("button", { name: "업무 진단으로 이동" })).toHaveCount(0);
   await expect(page.locator("#ax-plan-section .ax-plan-head")).not.toContainText("운송장 검증");
 
   const precheck = page.locator('section[aria-label="구현 전 확인"]');
   await expect(precheck).toBeVisible();
   // 반복 문구 제거: 기존 "업무 진단에서 확인" 버튼은 precheck에 남아 있지 않다.
   await expect(precheck.getByRole("button", { name: "업무 진단에서 확인" })).toHaveCount(0);
+  // 요약 전용: ①에는 상세 문구가 없고 미해결 건수 배지만 표시된다.
   await expect(precheck.getByText("업무 처리 예시 미확정")).toHaveCount(0);
+  await expect(precheck).not.toContainText("업무 처리 예시 미확정");
+  await expect(precheck.locator(".ax-precheck-head")).toContainText(/미해결 \d+건/);
 
-  // 계획 생성 후 계획 검토 표가 생기면, 계획 검토 버튼이 해당 표로 이동한다.
+  // E. ①에는 이동 버튼이 없다. 각 목적지는 단계 내비게이션과 진단 화면에서 도달한다.
+  await expect(precheck.getByRole("button")).toHaveCount(0);
+  await expect(precheck.getByRole("button", { name: "계획 검토" })).toHaveCount(0);
+  await expect(precheck.getByRole("button", { name: "HITL 검토" })).toHaveCount(0);
+  await expect(precheck.getByRole("button", { name: "규칙 확인" })).toHaveCount(0);
+  await expect(precheck.getByRole("button", { name: "예시 확인" })).toHaveCount(0);
+  await expect(precheck.getByRole("button", { name: "업무 정보 수정" })).toHaveCount(0);
+
+  // E. 계획 검토 표는 결과·로드맵 화면 자체에 있다 (버튼 없이 직접 확인).
   await page.getByRole("button", { name: "Codex용 구현 계획 생성" }).click();
   await expect(page.getByRole("heading", { name: "구현 계획 검토" })).toBeVisible();
   await expect(page.locator('section[aria-label="구현 계획 검토"]')).toContainText("검토 필요");
-  await expect(precheck.getByRole("button", { name: "계획 검토" })).toBeVisible();
-  await precheck.getByRole("button", { name: "계획 검토" }).click();
+  await page.locator("#ax-plan-review").scrollIntoViewIfNeeded();
   await expect(page.locator("#ax-plan-review")).toBeInViewport();
 
-  // E. HITL 검토 버튼은 단계별 HITL 검토 표로 이동한다.
-  await precheck.getByRole("button", { name: "HITL 검토" }).click();
+  // E. HITL 검토·결정 지점·예시는 업무 진단 단계에서 도달한다.
+  await page.getByRole("tab", { name: "업무 진단", exact: true }).click();
+  await page.locator("#ax-step-review").scrollIntoViewIfNeeded();
   await expect(page.locator("#ax-step-review")).toBeInViewport();
-
-  // E. 규칙 확인 버튼은 D4 결정 지점 행으로 이동하고 해당 행이 펼쳐진다.
-  await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
-  await expect(precheck).toBeVisible();
-  await precheck.getByRole("button", { name: "규칙 확인" }).click();
-  await expect(page.locator("#ax-decision-D4")).toBeInViewport();
+  await page.locator("#ax-decision-D4 .ax-decision-row-head").click();
   await expect(page.locator("#ax-decision-D4 .ax-decision-row-head")).toHaveAttribute("aria-expanded", "true");
 
   // E. 범용 규칙 저장 후 결과·로드맵 복귀: 규칙을 저장하고 로드맵으로 돌아가면 같은 업무가 유지된다.
@@ -100,8 +106,9 @@ test("AX 간소화·COSS 통일: 판단 하단 문구 제거·매트릭스 버�
   await expect(page.locator(".ax-report-intro h2")).toContainText("운송장 검증");
   await expect(precheck).toBeVisible();
 
-  // E. 업무 정보 수정 버튼은 등록·수정 폼으로 이동한다.
-  await precheck.getByRole("button", { name: "업무 정보 수정" }).click();
+  // E. 업무 정보 수정은 업무 진단 화면의 등록 정보 수정 버튼으로 이동한다.
+  await page.getByRole("tab", { name: "업무 진단", exact: true }).click();
+  await page.locator(".ax-diag-card", { hasText: "운송장 검증" }).getByRole("button", { name: "등록 정보 수정", exact: true }).click();
   await expect(page.getByRole("heading", { name: "등록 정보 수정" })).toBeVisible();
   await expect(page.getByLabel("업무명", { exact: true })).toHaveValue("운송장 검증");
 });
