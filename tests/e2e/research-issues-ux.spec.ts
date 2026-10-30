@@ -149,9 +149,9 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       await sections.first().locator("summary").click();
       await expect(sections.first().locator(".research-issue-refs")).toHaveAttribute("open", "");
       await expect(output.getByRole("button", { name: count === 1 ? "전체 접기" : "전체 펼치기", exact: true })).toBeVisible();
-      await expect(sections.first().locator(".research-hits")).toContainText("② 원문 마지막 항도 그대로 확인한다.");
-      await expect(sections.first().locator(".research-hits")).toContainText("퇴직금 지급");
-      await expect(sections.first().locator(".research-hits")).toContainText("퇴직금 근거 원문 마지막 문장");
+      await expect(sections.first().locator(".research-issue-refs .research-hits")).toContainText("② 원문 마지막 항도 그대로 확인한다.");
+      await expect(sections.first().locator(".research-issue-refs .research-hits")).toContainText("퇴직금 지급");
+      await expect(sections.first().locator(".research-issue-refs .research-hits")).toContainText("퇴직금 근거 원문 마지막 문장");
       if (count > 1) {
         await expect(sections.nth(1).locator(".research-issue-refs")).not.toHaveAttribute("open", "");
         await expect(output.locator(".research-issues .research-issue-jump").nth(1)).toHaveAttribute("aria-controls", "research-issue-2");
@@ -161,10 +161,11 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
         await expect(sections.nth(1)).toBeInViewport();
         await sections.nth(1).locator("summary").click();
         await expect(sections.nth(1).locator("h3")).toContainText("부당해고 여부");
-        await expect(sections.nth(1).locator(".research-hits")).toContainText("부당해고 여부");
-        await expect(sections.nth(1).locator(".research-hits")).toContainText("해고 근거 원문 마지막 문장");
-        await expect(sections.nth(1).locator(".research-hits")).not.toContainText("퇴직금 근거 원문 마지막 문장");
-        await expect(sections.nth(1).locator(".research-hits")).toContainText("② 원문 마지막 항도 그대로 확인한다.");
+        await expect(sections.nth(1).locator(".research-issue-refs .research-hits")).toContainText("부당해고 여부");
+        await expect(sections.nth(1).locator(".research-issue-refs .research-hits")).toContainText("해고 근거 원문 마지막 문장");
+        await expect(sections.nth(1).locator(".research-issue-refs .research-hits")).not.toContainText("퇴직금 근거 원문 마지막 문장");
+        await expect(sections.nth(1).getByRole("button", { name: "공통 근거 원문 보기" })).toBeVisible();
+        await expect(sections.nth(1).locator(".research-issue-refs .legal-analysis-lines")).toHaveCount(0);
         if (count === 2) await expect(output.getByRole("button", { name: "전체 접기", exact: true })).toBeVisible();
         await sections.nth(1).locator("summary").click();
         await expect(output.getByRole("button", { name: "전체 펼치기", exact: true })).toBeVisible();
@@ -240,8 +241,8 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await form.getByRole("button", { name: "실행", exact: true }).click();
     await expect(output.locator(".research-issue-refs")).toHaveCount(2);
     await expect(output.locator(".research-issue-refs[open]")).toHaveCount(2);
-    await expect(output.locator(".research-issue-evidence").nth(1).locator(".research-hits")).toContainText("해고 판결 원문");
-    await expect(output.locator(".research-issue-evidence").first().locator(".research-hits")).not.toContainText("해고 판결 원문");
+    await expect(output.locator(".research-issue-evidence").nth(1).locator(".research-issue-refs .research-hits")).toContainText("해고 판결 원문");
+    await expect(output.locator(".research-issue-evidence").first().locator(".research-issue-refs .research-hits")).not.toContainText("해고 판결 원문");
     expect(await page.evaluate(() => localStorage.getItem("worklens:review-preferences:v1"))).toBe(savedPreference);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   });
@@ -298,8 +299,8 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await expect(sections.last()).not.toHaveClass(/is-focused/);
     await expect(sections.last().locator("h3")).toContainText(longTitle);
     await output.getByRole("button", { name: "전체 펼치기", exact: true }).click();
-    await expect(sections.first().locator(".research-hits")).toContainText("원문 법령 근거");
-    await expect(sections.last().locator(".research-hits")).toContainText("원문 판례 근거");
+    await expect(sections.first().locator(".research-issue-refs .research-hits")).toContainText("원문 법령 근거");
+    await expect(sections.last().locator(".research-issue-refs .research-hits")).toContainText("원문 판례 근거");
     expect(calls).toBe(1);
     await form.getByLabel("질문 또는 검색어").fill("근거 없음");
     await form.getByRole("button", { name: "실행", exact: true }).click();

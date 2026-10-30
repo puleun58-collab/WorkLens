@@ -1739,13 +1739,15 @@ test("RESEARCH distinguishes empty, low-relevance and partial evidence without a
   const selected = page.locator(".research-selected");
   const groups = selected.locator(".research-issue-evidence");
   await expect(overview.locator(".research-issue-status")).toHaveText(["근거 확인", "근거 확인", "직접 관련 근거 미확인"]);
-  // The article and the case; the case filed under two ids is listed once.
-  await expect(groups.nth(0).locator(".research-hits > li")).toHaveCount(2);
-  await expect(groups.nth(0)).toContainText("근로기준법 제23조");
-  await expect(groups.nth(0).getByText("사건번호 95다19256")).toHaveCount(1);
-  await expect(groups.nth(1).locator(".research-hits > li")).toHaveCount(1);
-  await expect(groups.nth(1)).toContainText("근로기준법 제23조");
-  await expect(groups.nth(1).getByText("사건번호 95다19256")).toHaveCount(0);
+  // In the detail list, the article and the case; the case filed under two ids is listed once.
+  const firstIssueReferences = groups.nth(0).locator(".research-issue-refs > .research-hits > li");
+  const secondIssueReferences = groups.nth(1).locator(".research-issue-refs > .research-hits > li");
+  await expect(firstIssueReferences).toHaveCount(2);
+  await expect(firstIssueReferences.filter({ hasText: "근로기준법 제23조" })).toHaveCount(1);
+  await expect(firstIssueReferences.getByText("사건번호 95다19256")).toHaveCount(1);
+  await expect(secondIssueReferences).toHaveCount(1);
+  await expect(secondIssueReferences.filter({ hasText: "근로기준법 제23조" })).toHaveCount(1);
+  await expect(secondIssueReferences.getByText("사건번호 95다19256")).toHaveCount(0);
   await expect(groups.nth(2)).toContainText("직접 관련된 근거를 찾지 못했습니다.");
   await expect(page.locator(".legal-research-partial")).toHaveCount(0);
   await expect(overview).not.toContainText("현행");

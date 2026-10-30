@@ -3,7 +3,7 @@ import type { AnnexEvidence } from "@/lib/research-annex";
 import type { ResearchEnrichment } from "@/lib/research-relevance";
 import { isLawName, questionSubjectTerms, questionTerms } from "@/lib/research-relevance";
 import { compactLaw, sameLawFamily } from "@/lib/research-scope";
-import { capForFailure, detailArticles, hasAvailableContent, hasFailedSection, hasNoUsableSection, verifiedDecisionCaseNumbers, type TaskEvidence, type TaskEvidenceStatus } from "@/lib/task-evidence";
+import { capForFailure, detailArticles, hasAvailableContent, hasFailedSection, hasNoUsableSection, verifiedDecisionCaseNumbers, type TaskEvidence, type TaskEvidenceBodyRef, type TaskEvidenceStatus } from "@/lib/task-evidence";
 
 /**
  * 처분·허가 근거: each kind the question actually asks for is checked
@@ -37,7 +37,14 @@ const REQUIREMENT = /요건|기준|대상|예외|해당|경우/u;
 interface BodyRef {
   law: string;
   jo: string;
+  title: string;
   body: string;
+}
+
+/** Keep distinct retrieved excerpts; unique provision counts are separate. */
+function structuredRefs(refs: readonly BodyRef[]): TaskEvidenceBodyRef[] {
+  return [...new Map(refs.map((ref) => [JSON.stringify([ref.law, ref.jo, ref.title, ref.body]),
+    { law: ref.law, jo: ref.jo, title: ref.title, excerpt: ref.body }] as const)).values()];
 }
 
 const refsText = (refs: readonly BodyRef[]): string => {
@@ -56,9 +63,9 @@ export function assessActionBasis(query: string, text: string, enrichment?: Rese
   const document = researchResult(text);
   const bodies: BodyRef[] = [
     ...document.sections.filter((section) => section.status === "available").flatMap((section) => section.articles ?? [])
-      .map((article) => ({ law: article.law, jo: article.jo, body: article.excerpt })),
-    ...detailArticles(text).map((article) => ({ law: article.law, jo: article.jo, body: article.body })),
-    ...(enrichment?.supplement?.articles ?? []).map((article) => ({ law: article.law, jo: article.jo, body: article.excerpt })),
+      .map((article) => ({ law: article.law, jo: article.jo, title: article.title ?? "", body: article.excerpt })),
+    ...detailArticles(text).map((article) => ({ law: article.law, jo: article.jo, title: article.title, body: article.body })),
+    ...(enrichment?.supplement?.articles ?? []).map((article) => ({ law: article.law, jo: article.jo, title: article.title, body: article.excerpt })),
   ].filter((ref) => ref.body.trim());
   const subjectBodies = (pattern: RegExp) => bodies.filter((ref) => terms.some((term) => ref.body.includes(term)) && pattern.test(ref.body));
   // The question's named laws, as tokens. A spaced official name tokenizes
@@ -90,11 +97,11 @@ export function assessActionBasis(query: string, text: string, enrichment?: Rese
   const basisRefs = subjectBodies(AUTHORITY);
   const requirementRefs = /요건|기준|조건|대상|예외/u.test(query) ? subjectBodies(REQUIREMENT) : undefined;
   const items: TaskEvidence["items"] = [
-    { label: "처분·허가 근거", status: basisRefs.length ? "found" : bodies.length ? "viewed" : "none",
+    { label: "처분·허가 근거", status: basisRefs.length ? "found" : bodies.length ? "viewed" : "none", basisRefs: structuredRefs(basisRefs),
       ...(bodies.length ? { detail: basisRefs.length ? `${refsText(basisRefs)} · 조문 본문 ${bodies.length}건` : `조문 본문 ${bodies.length}건` } : {}) },
   ];
   if (requirementRefs !== undefined) {
-    items.push({ label: "적용 요건", status: requirementRefs.length ? "found" : bodies.length ? "viewed" : "none",
+    items.push({ label: "적용 요건", status: requirementRefs.length ? "found" : bodies.length ? "viewed" : "none", requirementRefs: structuredRefs(requirementRefs),
       ...(requirementRefs.length ? { detail: refsText(requirementRefs) } : {}) });
   }
   if (/별표|기준표|과태료|벌칙/u.test(query)) {

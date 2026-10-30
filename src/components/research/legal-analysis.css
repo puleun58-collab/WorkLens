@@ -101,6 +101,11 @@ p.research-meta { margin: 0; }
 .research-hits .legal-analysis-lines { color: var(--ink-soft, var(--ink)); }
 .research-more { margin-bottom: 0; }
 .research-more .source-toggle { font-weight: 500; }
+/* Only non-document research renders these source targets and controls. */
+.legal-analysis-output[data-task]:not([data-task="document_review"]) .research-source-target { scroll-margin-top: calc(64px + var(--space-4)); }
+.legal-analysis-output[data-task]:not([data-task="document_review"]) .research-source-target:focus { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.legal-analysis-output[data-task]:not([data-task="document_review"]) .research-source-jump { justify-self: start; height: auto; max-width: 100%; padding: 2px 0; color: var(--blue-active); font-size: var(--font-size-xs); white-space: normal; text-align: left; }
+.legal-analysis-output[data-task]:not([data-task="document_review"]) .research-core-sources > li { padding-block: 6px; }
 .research-supporting { gap: 0; }
 .research-supporting > h3 { margin-bottom: 4px; font-size: var(--font-size-md); font-weight: var(--font-weight-semibold); letter-spacing: -.015em; }
 .research-supporting .law-detail-source { margin-bottom: 0; }
@@ -444,3 +449,36 @@ p.research-meta { margin: 0; }
 .legal-research .research-file-workarea.is-populated .research-file-row { width: 100%; gap: 14px; }
 .legal-research .research-file-workarea.is-populated .law-search-button { margin-left: auto; }
 .file-add-dropzone:hover, .file-add-dropzone:focus-within { border-color: var(--blue); background: var(--paper); }
+
+/* Non-document notices share the blue reference box's geometry for every tone. */
+.legal-analysis-output[data-task]:not([data-task="document_review"]) .research-summary-notice {
+  grid-template-columns: 16px minmax(0, 1fr);
+  column-gap: 8px;
+  row-gap: 2px;
+  padding: 12px 14px;
+  border-width: 1px;
+  border-style: solid;
+  border-radius: var(--radius-control);
+  box-shadow: none;
+  font-size: var(--font-size-sm);
+  line-height: 1.65;
+}
+.legal-analysis-output[data-task]:not([data-task="document_review"]) .research-summary-notice > svg {
+  width: 16px;
+  height: 16px;
+  margin-top: calc((1em * 1.65 - 16px) / 2);
+  align-self: start;
+  stroke-width: 2;
+}
+.legal-analysis-output[data-task]:not([data-task="document_review"]) .research-summary-notice [data-slot="alert-title"] {
+  font-size: inherit;
+  font-weight: var(--font-weight-semibold);
+  line-height: inherit;
+  overflow-wrap: anywhere;
+}
+.legal-analysis-output[data-task]:not([data-task="document_review"]) .research-summary-notice [data-slot="alert-description"] {
+  font-size: inherit;
+  font-weight: var(--font-weight-normal, 400);
+  line-height: inherit;
+  white-space: normal;
+}

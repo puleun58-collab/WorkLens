@@ -70,18 +70,83 @@ describe("document review result presentation", () => {
   });
 
   it.each([
-    ["failed", "근거 조회에 실패했습니다."],
-    ["partial", "근거가 일부만 확인되어 추가 확인이 필요합니다."],
-    ["not_searched", "해당 근거를 조회하지 않았습니다."],
-    ["none", "근거 확인이 완료되지 않았습니다."],
-  ] as const)("names homogeneous %s lookup states without promoting them to confirmed", (status: SourceStatus, explanation) => {
+    ["failed", "근거 조회에 실패했습니다.", "근거 조회 실패"],
+    ["partial", "근거가 일부만 확인되어 추가 확인이 필요합니다.", "근거 일부 확인"],
+    ["not_searched", "해당 근거를 조회하지 않았습니다.", "해당 근거 미조회"],
+    ["none", "근거 확인이 완료되지 않았습니다.", "확인된 직접 근거 없음"],
+  ] as const)("names homogeneous %s lookup states without promoting them to confirmed", (status: SourceStatus, explanation, issueExplanation) => {
     const review = reviewResultFixture();
     const issue = { ...review.clauses[1].issues[0], laws: [], precedents: [], lawStatus: status, precedentStatus: status };
     review.clauses = [{ ...review.clauses[1], issues: [issue] }];
     const html = render(review);
     expect(html).toContain("<dt>관련 근거 확인</dt><dd>0/1건</dd>");
     expect(contents(html, "contract-review-summary-description")).toBe(`1건의 쟁점 중 0건에서 관련 근거를 확인했습니다. 나머지 1건은 ${explanation}`);
+    const issueHtml = html.split('id="contract-review-issue-0-0"')[1].split("</section>")[0];
+    expect(issueHtml).toContain(issueExplanation);
+    if (status !== "none") expect(issueHtml).toContain("근거 미확인</span>");
+    expect(issueHtml).not.toContain(">근거 보기<");
+    expect(html).not.toContain('class="legal-analysis-section contract-review-details"');
     expect(html).not.toContain('data-status="matched"');
+  });
+
+  it("keeps unresolved reference keys unconfirmed even when lookup metadata says found", () => {
+    const review = reviewResultFixture();
+    const issue = { ...review.clauses[1].issues[0], lawStatus: "found" as const, precedentStatus: "found" as const };
+    review.clauses = [{ ...review.clauses[1], issues: [issue] }];
+    const html = render(review);
+    expect(html).toContain("<dt>관련 근거 확인</dt><dd>0/1건</dd>");
+    expect(html).toContain("나머지 1건은 근거 확인이 완료되지 않았습니다.");
+    expect(html).toContain("확인된 직접 근거 없음");
+    expect(html).not.toContain(">근거 보기<");
+    expect(html).not.toContain('data-status="matched"');
+  });
+
+  it("guides readers to check ungrounded issues when completed lookups cover only some issues", () => {
+    const review = reviewResultFixture();
+    review.clauses = [{ ...review.clauses[0], issues: [review.clauses[0].issues[1], review.clauses[2].issues[1]] }];
+    const html = render(review);
+    expect(html).toContain("<dt>관련 근거 확인</dt><dd>1/2건</dd>");
+    expect(html).toContain("일부 쟁점의 직접 근거 부족");
+    expect(html).toContain("확인된 직접 근거가 없는 쟁점은 항목별 검토 결과와 상세 근거를 함께 확인하세요");
+    expect(html).toContain("확인된 직접 근거 없음");
+    expect(html).not.toContain("일부 법령·판례 출처 조회가 완료되지 않아");
+    expect(html).toContain('data-status="partial"');
+  });
+
+  it("puts review points and suggestions before folded source text and detailed evidence by default", () => {
+    const review = reviewResultFixture();
+    const html = render(review);
+    const resultsAt = html.indexOf('class="legal-analysis-section contract-review-results"');
+    const detailsAt = html.indexOf('class="legal-analysis-section contract-review-details"');
+    expect(resultsAt).toBeGreaterThan(-1);
+    expect(detailsAt).toBeGreaterThan(resultsAt);
+    for (const clause of review.clauses) {
+      for (const issue of clause.issues) {
+        const pointAt = html.indexOf(issue.point);
+        const suggestionAt = html.indexOf(issue.suggestion);
+        const factAt = html.indexOf(issue.fact);
+        expect(pointAt).toBeGreaterThan(resultsAt);
+        expect(suggestionAt).toBeGreaterThan(pointAt);
+        expect(factAt).toBeGreaterThan(suggestionAt);
+        expect(factAt).toBeLessThan(detailsAt);
+      }
+    }
+    const sourceDetails = [...html.matchAll(/<details\b[^>]*class="[^"]*contract-review-source[^"]*"[^>]*>([\s\S]*?)<\/details>/gu)];
+    const referenceDetails = [...html.matchAll(/<details\b[^>]*class="[^"]*contract-review-refs[^"]*"[^>]*>([\s\S]*?)<\/details>/gu)];
+    expect(sourceDetails).toHaveLength(5);
+    expect(referenceDetails).toHaveLength(4);
+    for (const detail of [...sourceDetails, ...referenceDetails]) {
+      expect(detail[0].split(">")[0]).not.toMatch(/\sopen(?:\s|=|$)/u);
+      expect(detail[0]).toContain("<summary");
+    }
+    for (const clause of review.clauses) {
+      for (const issue of clause.issues) {
+        expect(sourceDetails.filter((detail) => detail[1].includes(issue.fact))).toHaveLength(1);
+        expect(html.split(issue.fact)).toHaveLength(2);
+      }
+    }
+    expect(referenceDetails.some((detail) => detail[1].includes(review.laws["민법\0제398조"].excerpt!))).toBe(true);
+    expect(referenceDetails.some((detail) => detail[1].includes(review.precedents["precedent:71"].holding))).toBe(true);
   });
 
   it("keeps an incomplete lookup warning even when every issue has a reference", () => {
