@@ -157,7 +157,11 @@
 @media (min-width: 640px) {
   .ax-title-group > .ax-status-badge { height: calc(var(--spacing) * 7); font-size: var(--text-sm); line-height: var(--text-sm--line-height); }
 }
-.ax-level-badge { background: #fdf4c8; border-color: #e7d488; color: #6d5c07; box-shadow: none; }
+/* Level·Gate 배지 통일 규격(레퍼런스 기준): 높이·패딩·라운드·폰트·정렬 동일,
+ * 배경·테두리·글자색만 상태별로 다르다. Level은 연한 블루 배지이다. */
+.ax-level-badge, .ax-result-level, .ax-gate-badge { display: inline-flex; align-items: center; min-height: 24px; padding: 3px 10px; border: 1px solid transparent; border-radius: 999px; font-size: 12px; font-weight: 600; line-height: 1.2; box-shadow: none; white-space: nowrap; }
+.ax-level-badge, .ax-result-level { background: var(--blue-callout); border-color: var(--blue-callout-border); color: #1d4ed8; box-shadow: none; }
+.ax-result-level { white-space: normal; }
 .ax-summary { margin: 12px 0; }
 /* Section titles on legacy panels remain separated without changing the shared surface primitive. */
 .ax-panel > h3 { padding-bottom: 10px; margin-bottom: 4px; border-bottom: 1px solid var(--border); text-align: left; }
@@ -337,7 +341,6 @@
 .ax-matrix-header h2 { margin: 0; }
 .ax-matrix-header p { margin: 0; }
 .ax-matrix-title { flex: 1 1 240px; min-width: 0; }
-.ax-matrix-desc { color: var(--muted-foreground); font-size: var(--font-size-sm); }
 .ax-matrix-header .ax-matrix-legend { margin-left: auto; margin-top: 0; padding-top: 4px; border-top: 0; }
 .ax-matrix-header .ax-matrix-counts { flex-basis: 100%; }
 .ax-matrix-desktop { padding: 4px 40px 0 88px; }
@@ -396,8 +399,8 @@
   .ax-section-heading { gap: 8px; }
 }
 .ax-gate-line { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: inherit; color: var(--foreground); }
-.ax-gate-badge { display: inline-flex; align-items: center; border: 1px solid transparent; border-radius: 999px; padding: 2px 8px; font-size: 11px; font-weight: 600; line-height: 1.7; box-shadow: none; white-space: nowrap; }
-/* Gate 3종: 진행 가능(녹)·확인 후 진행(주황)·진행 보류(빨강). 배지·범례·원 상태점이 같은 색을 쓴다. */
+/* Gate 3종: 진행 가능(초록)·확인 후 진행(앰버)·진행 보류(빨강). 배지·범례·차트 점·목록 점이
+ * 같은 토큰을 쓴다. conditional #b45309는 앰버-700 계열로, 갈색이 아니라 앰버이다. */
 .ax-view { --ax-gate-ready: #15803d; --ax-gate-ready-bg: #dcfce7; --ax-gate-conditional: #b45309; --ax-gate-conditional-bg: #fef3c7; --ax-gate-blocked: #b91c1c; --ax-gate-blocked-bg: #fee2e2; }
 .ax-gate-badge[data-gate=ready] { background: var(--ax-gate-ready-bg); color: var(--ax-gate-ready); border-color: color-mix(in srgb, var(--ax-gate-ready) 28%, transparent); }
 .ax-gate-badge[data-gate=conditional] { background: var(--ax-gate-conditional-bg); color: var(--ax-gate-conditional); border-color: color-mix(in srgb, var(--ax-gate-conditional) 28%, transparent); }
@@ -996,15 +999,10 @@
 .ax-gate-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; flex: none; background: var(--ax-gate-ready); vertical-align: middle; }
 .ax-gate-dot[data-gate=conditional] { background: var(--ax-gate-conditional); }
 .ax-gate-dot[data-gate=blocked] { background: var(--ax-gate-blocked); }
-/* 동일 좌표 그룹 표: 그래프 아래 전폭 패널. 행 클릭은 업무 선택 + 표 유지. */
-.ax-matrix-group-panel { min-width: 0; }
-.ax-matrix-group-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 4px; }
-.ax-matrix-group-head h3 { margin: 0; }
-.ax-matrix-group-table { table-layout: fixed; width: 100%; }
-.ax-matrix-group-table td:nth-child(4) { white-space: nowrap; }
-.ax-matrix-group-table td .ax-gate-dot { margin-right: 6px; }
-.ax-matrix-group-table tr.is-selected { background: color-mix(in srgb, var(--primary) 7%, var(--card)); }
-.ax-matrix-group-table .ax-matrix-group-name { display: block; width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; justify-content: flex-start; height: auto; padding: 4px 8px; margin-left: -8px; font-weight: 600; text-align: left; }
+/* 동일 좌표 그룹: 하단 표를 두지 않는다. 선택된 업무와 같은 좌표의 목록 행은
+ * 옅은 브랜드 틴트로만 강조하고, 각 행의 Gate 점은 개별 판정 그대로 둔다.
+ * 선택 행(is-selected)의 진한 강조와 구분되며, Gate 색상을 덮지 않는다. */
+.ax-matrix-list li.is-group { background: color-mix(in srgb, var(--primary) 4%, var(--card)); border: 1px solid color-mix(in srgb, var(--primary) 14%, var(--border)); border-radius: 10px; }
 /* 정보 확인 필요: 실행 조건(Gate) 배지와 의미를 구분해 진단 카드의 정보 확인 필요 배지와 같은 브랜드 톤으로 표시한다. */
 .ax-needs-check-badge { display: inline-flex; align-items: center; border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--border)); border-radius: 999px; padding: 2px 8px; font-size: 11px; font-weight: 600; line-height: 1.7; background: color-mix(in srgb, var(--primary) 9%, var(--card)); color: color-mix(in srgb, var(--primary) 78%, var(--foreground)); white-space: nowrap; }
 /* 매트릭스 상단 집계의 정보 확인 필요 바로가기 */
@@ -1031,7 +1029,7 @@
 .ax-legend-dot[data-gate=ready] { background: var(--ax-gate-ready); }
 .ax-legend-dot[data-gate=conditional] { background: var(--ax-gate-conditional); }
 .ax-legend-dot[data-gate=blocked] { background: var(--ax-gate-blocked); }
-/* 매트릭스 상세 카드·묶음 팝업 제거로 해당 전용 규칙 삭제 (그룹 표는 ax-matrix-group-* 규칙 사용) */
+/* 매트릭스 상세 카드·묶음 팝업·하단 그룹 표 제거로 해당 전용 규칙 삭제 */
 @media(max-width: 700px) {
   .ax-step3-grid { display: flex; flex-direction: column; }
   .ax-matrix-help { grid-template-columns: minmax(0,1fr); }

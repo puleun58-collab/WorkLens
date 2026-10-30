@@ -45,7 +45,8 @@ test("Matrix header, legend and region subtitles match the reference", async ({ 
   await openStep(page, tasks, 3);
   const header = page.locator(".ax-matrix-header");
   await expect(header.getByRole("heading", { name: "자동화 매트릭스" })).toBeVisible();
-  await expect(header.locator(".ax-matrix-desc")).toHaveText("업무별 자동화 가치와 기술 실현 가능성을 한눈에 비교할 수 있습니다.");
+  // §4: 제목 아래 장황한 역할 설명 문구는 제거된다 (축·사분면·범례·목록이 의미를 대신한다).
+  await expect(header.locator(".ax-matrix-desc")).toHaveCount(0);
   // 범례는 헤더 우측에 있다.
   const legend = header.locator(".ax-matrix-legend");
   await expect(legend.locator(".ax-legend-item")).toHaveText(["진행 가능", "확인 후 진행", "진행 보류"]);
@@ -160,7 +161,7 @@ test("Result and roadmap list shows name, Level and next action without gate bad
   }
 });
 
-test("Gate-mixed group marker carries no single gate colour; panel rows show each gate", async ({ page }) => {
+test("Gate-mixed group marker carries no single gate colour; list rows show each gate", async ({ page }) => {
   const ready = make("g-ready", "진행 업무", {}, "ready");
   const blocked = make("g-blocked", "보류 업무", {}, "blocked");
   await openStep(page, [ready, blocked], 3);
@@ -168,14 +169,68 @@ test("Gate-mixed group marker carries no single gate colour; panel rows show eac
   await expect(trigger).toHaveCount(1);
   await expect(trigger).not.toHaveAttribute("data-gate", /./);
   await trigger.click();
-  const panel = page.getByRole("region", { name: "선택 좌표의 업무 2건", exact: true });
-  await expect(panel).toBeVisible();
-  await expect(panel.locator("tbody tr")).toHaveCount(2);
-  await expect(panel.locator("tbody tr").nth(0).locator(".ax-gate-dot")).toHaveAttribute("data-gate", "ready");
-  await expect(panel.locator("tbody tr").nth(0)).toContainText("진행 가능");
-  await expect(panel.locator("tbody tr").nth(1).locator(".ax-gate-dot")).toHaveAttribute("data-gate", "blocked");
-  await expect(panel.locator("tbody tr").nth(1)).toContainText("진행 보류");
+  // 하단 표는 없고, 우측 목록에서 각 업무의 Gate 점을 개별 판정으로 확인한다.
+  await expect(page.locator(".ax-matrix-group-panel")).toHaveCount(0);
+  const list = page.getByLabel("매트릭스 업무 목록", { exact: true });
+  const readyRow = list.getByRole("listitem").filter({ hasText: "진행 업무" });
+  const blockedRow = list.getByRole("listitem").filter({ hasText: "보류 업무" });
+  await expect(readyRow.locator(".ax-gate-dot")).toHaveAttribute("data-gate", "ready");
+  await expect(readyRow.locator(".ax-gate-dot")).toHaveAttribute("aria-label", "진행 가능");
+  await expect(blockedRow.locator(".ax-gate-dot")).toHaveAttribute("data-gate", "blocked");
+  await expect(blockedRow.locator(".ax-gate-dot")).toHaveAttribute("aria-label", "진행 보류");
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(panel).toBeVisible();
+  await expect(page.locator(".ax-matrix-group-panel")).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test("Level and Gate badges share one geometry; gate colours match the legend", async ({ page }) => {
+  const tasks = [
+    make("b-ready", "진행 업무", { repetition: 5, regularity: 5, dataStructure: 5, systemAccess: 5, humanJudgment: 1, operationalRisk: 1 }, "ready"),
+    make("b-cond", "확인 업무", {}, "conditional"),
+    make("b-blocked", "보류 업무", { repetition: 3, regularity: 3, dataStructure: 3, systemAccess: 3, humanJudgment: 3, operationalRisk: 2 }, "blocked"),
+  ];
+  await openStep(page, tasks, 2);
+  const card = page.locator(".ax-diag-card");
+  const levelBadge = card.locator(".ax-level-badge");
+  const gateBadge = card.locator(".ax-gate-badge");
+  await expect(levelBadge).toBeVisible();
+  await expect(gateBadge).toBeVisible();
+  // Level 배지는 레퍼런스 파란 배지이다.
+  const levelStyle = await levelBadge.evaluate(element => {
+    const style = getComputedStyle(element);
+    return { bg: style.backgroundColor, border: style.borderColor, color: style.color, h: style.height, radius: style.borderRadius, padding: style.padding, font: style.fontSize, weight: style.fontWeight };
+  });
+  expect(levelStyle.bg).toBe("rgb(234, 242, 255)");
+  expect(levelStyle.border).toBe("rgb(200, 218, 255)");
+  expect(levelStyle.color).toBe("rgb(29, 78, 216)");
+  // Level·Gate 배지의 높이·라운드·패딩·폰트·굵기가 같다.
+  const gateStyle = await gateBadge.evaluate(element => {
+    const style = getComputedStyle(element);
+    return { h: style.height, radius: style.borderRadius, padding: style.padding, font: style.fontSize, weight: style.fontWeight };
+  });
+  expect(gateStyle.h).toBe(levelStyle.h);
+  expect(gateStyle.radius).toBe(levelStyle.radius);
+  expect(gateStyle.padding).toBe(levelStyle.padding);
+  expect(gateStyle.font).toBe(levelStyle.font);
+  expect(gateStyle.weight).toBe(levelStyle.weight);
+  // 업무를 바꿔도 Gate 배지 색상만 바뀌고 규격은 유지되며, 범례 색상과 일치한다.
+  const expected: Record<string, { bg: string; text: string }> = {
+    ready: { bg: "rgb(220, 252, 231)", text: "rgb(21, 128, 61)" },
+    conditional: { bg: "rgb(254, 243, 199)", text: "rgb(180, 83, 9)" },
+    blocked: { bg: "rgb(254, 226, 226)", text: "rgb(185, 28, 28)" },
+  };
+  for (const [gate, colours] of Object.entries(expected)) {
+    const row = page.getByLabel("등록 업무 목록", { exact: true }).getByRole("button", { name: new RegExp(gate === "ready" ? "진행 업무" : gate === "conditional" ? "확인 업무" : "보류 업무") }).first();
+    await row.click();
+    await expect(gateBadge).toHaveAttribute("data-gate", gate);
+    const style = await gateBadge.evaluate(element => {
+      const s = getComputedStyle(element);
+      return { bg: s.backgroundColor, color: s.color, h: s.height, radius: s.borderRadius, padding: s.padding };
+    });
+    expect(style.bg).toBe(colours.bg);
+    expect(style.color).toBe(colours.text);
+    expect(style.h).toBe(levelStyle.h);
+    expect(style.radius).toBe(levelStyle.radius);
+    expect(style.padding).toBe(levelStyle.padding);
+  }
 });
