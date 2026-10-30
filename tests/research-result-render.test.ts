@@ -157,6 +157,9 @@ describe("research result source structure", () => {
     expect(html).toContain("2026.01.01");
     expect(html).toContain("다른 법률 제23조");
     expect(html).toContain("별도 발췌");
+    // Additional-source excerpts fold by default: the title stays visible, the excerpt opens on demand.
+    expect(html).toContain("조문 발췌 보기");
+    expect(html).not.toMatch(/class="law-detail-source research-more"[^>]*\bopen=/u);
     expect(html).toContain("제목에 질문 용어가 포함된 조문");
     expect(html).toContain('class="research-meta">4건');
     expect(html).toContain("추가로 조회한 조문");

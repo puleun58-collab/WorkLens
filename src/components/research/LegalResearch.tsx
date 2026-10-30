@@ -623,8 +623,11 @@ function SupplementView({ supplement, hasArticles, sourceTargets, onSourceSelect
         <strong>{articleHeadingText(article.law, article.jo, article.title)}</strong>
         {target ? <Button type="button" variant="link" size="xs" className="research-source-jump" aria-controls={target}
           onClick={() => onSourceSelect(target)}>상세 근거에서 원문 보기</Button>
-          : <><LawTextBlock className="legal-analysis-lines" text={article.excerpt} />
-            {mcpTruncated(article.excerpt) && <p className="research-meta">중략된 발췌입니다. 조문 전문은 법령 검색에서 확인하세요.</p>}</>}
+          : <details className="law-detail-source research-more">
+            <SourceToggleSummary label="조문 발췌 보기" openLabel="조문 발췌 접기" />
+            <LawTextBlock className="legal-analysis-lines" text={article.excerpt} />
+            {mcpTruncated(article.excerpt) && <p className="research-meta">중략된 발췌입니다. 조문 전문은 법령 검색에서 확인하세요.</p>}
+          </details>}
         {effective && <span className="research-meta">출처 시행일 {effective}</span>}
         {(() => { const url = lawSourceUrl(article.law, article.jo);
           return url ? <span className="research-meta"><a href={url} target="_blank" rel="noreferrer">법제처 원문 보기</a></span> : null; })()}
