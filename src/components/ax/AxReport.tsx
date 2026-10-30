@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useId, useRef, useState } from "react";
-import { AlertTriangle, ArrowRight, Bot, BrainCircuit, Check, CheckCircle2, CircleAlert, CircleCheck, CircleX, Clipboard, ClipboardCheck, ClipboardList, Clock, CloudUpload, Copy, Database, Download, FileCode2, FileOutput, FilePlus2, FileSpreadsheet, FileText, Folder, GitBranch, GitMerge, GitPullRequest, Globe, Info, ListChecks, Monitor, MonitorCog, Play, Plug, Rocket, Search, Settings2, ShieldAlert, ShieldCheck, Target, Terminal, TriangleAlert, UserRound } from "lucide-react";
+import { AlertTriangle, ArrowRight, Bot, BrainCircuit, Check, CheckCircle2, CircleCheck, Clipboard, ClipboardCheck, ClipboardList, CloudUpload, Copy, Database, Download, FileCode2, FileOutput, FilePlus2, FileSpreadsheet, FileText, Folder, GitBranch, GitMerge, GitPullRequest, Globe, Info, ListChecks, Monitor, MonitorCog, Package, Play, Plug, Rocket, Settings2, ShieldAlert, ShieldCheck, Target, Terminal, UserRound } from "lucide-react";
 import type { AxDiagnosis, AxPlan, AxTask, AxTaskV2, HitlReview, VerificationResult } from "@/lib/ax/types";
 import { automationLevel, axes, executionGate, executionProfile, factorEffectiveValue, GATE_LABELS, gateBlockReasons, LEVEL_DESCRIPTIONS, levelDisplayLabel, nextAction, prerequisiteTopicKey, splitGatePrerequisites, type ExecutionProfile } from "@/lib/ax/policy";
 import { FACTOR_LABELS } from "@/lib/ax/schema";
@@ -813,66 +813,38 @@ function AxSetupGuide({ tool, instructionsId, onGoToInstructions }: { tool: AxTo
           {step.purpose ? <p className="ax-guide-purpose">{step.purpose}</p> : null}
           <p className="ax-tutorial-action-label"><Terminal aria-hidden="true" />실행 방법</p>
           {step.sections.map(section => <AxGuideSectionView key={section.title} section={section} completion={SETUP_COMPLETIONS.has(section.title)} warning={SETUP_WARNINGS.has(section.title)} collapsed={section.collapsed || (section.title in SETUP_DETAILS)} />)}
-          {index === 2 ? <Button type="button" variant="default" className="ax-guide-step-cta" onClick={onGoToInstructions} aria-controls={instructionsId}>04 올인원 지시문으로 이동</Button> : null}
+          {index === 2 ? <Button type="button" variant="default" className="ax-guide-step-cta" onClick={onGoToInstructions} aria-controls={instructionsId}>올인원 지시문으로 이동</Button> : null}
         </section>;
       })}
     </section>)}
   </div>;
 }
 
-/** One heading pattern for 01~04: filled number badge, title and an inline muted purpose line. */
-function AxPlanHeading({ no, title, description, id }: { no: string; title: string; description?: string; id?: string }) {
-  return <div className="ax-plan-title"><h4 id={id} tabIndex={id ? -1 : undefined}><span className="ax-plan-no">{no}</span> {title}</h4>{description ? <p className="ax-plan-desc">{description}</p> : null}</div>;
+/** One heading pattern: optional filled number badge, title and an inline muted purpose line. */
+function AxPlanHeading({ no, title, description, id }: { no?: string; title: string; description?: string; id?: string }) {
+  return <div className="ax-plan-title"><h4 id={id} tabIndex={id ? -1 : undefined}>{no ? <><span className="ax-plan-no">{no}</span> </> : null}{title}</h4>{description ? <p className="ax-plan-desc">{description}</p> : null}</div>;
 }
-const CHECK_TONES: Record<AxCheckTone, { label: string; Icon: typeof CircleAlert }> = {
-  required: { label: "확인 필요", Icon: CircleAlert }, future: { label: "향후 검토", Icon: Clock },
-  done: { label: "확인 완료", Icon: CircleCheck }, blocked: { label: "불가", Icon: TriangleAlert },
-  held: { label: "보류", Icon: Clock },
-};
-/** ① 구현 전 확인: 현재 실제로 해결해야 하는 항목만 표시한다. 확인됨(done)과 향후 단계
- * 조건(future)은 기본 화면에서 제외한다. checks와 additionalChecks는 planSummary 구성상
- * 서로 겹치지 않으며, 기준 충돌은 기준 차원의 별도 항목이다. 각 항목의 버튼은 실제
- * 확인·수정 위치로 이동한다 (표시 전용 분류: resolvePrecheckTarget). 전용 편집 UI가
- * 없는 항목(출력 컬럼 미확정 등)은 이동 버튼을 표시하지 않고 안내만 남긴다.
- * 일부 작업만 보류된 경우 전체 업무가 차단된 것처럼 표시하지 않는다 — 차단 사유는
- * 해당 사유만 표시한다. */
-function AxPrecheckSection({ summary, onGoToCheck, onGoToCheckItem }: { summary: AxPlanSummary; onGoToCheck: () => void; onGoToCheckItem?: (target: PrecheckTarget) => void }) {
+/** ① 구현 전 확인 (요약 전용): 미해결 건수와 진행 보류 여부만 표시한다.
+ * 상세 목록·차단 사유 목록·항목별 이동 버튼은 결과·로드맵 기본 화면에서 제거됐다
+ * (결과·로드맵 레퍼런스 동일화). 건수 기준은 이전과 동일하다: 차단 사유 수 +
+ * 미완료 확인 항목 수(checks·additionalChecks의 required/blocked/held + 기준 충돌).
+ * 미해결 조건·제한 자체는 유지되며, 상세 내용은 업무 진단 단계와 원본 데이터에 있다.
+ * 항목별 이동 대상 판정(resolvePrecheckTarget)은 단위 테스트가 유지하므로 삭제하지 않는다. */
+function AxPrecheckSection({ summary }: { summary: AxPlanSummary }) {
   const pending = <T extends { tone: AxCheckTone }>(items: T[]) => items.filter(item => item.tone === "required" || item.tone === "blocked" || item.tone === "held");
-  const checks = pending(summary.checks.map(check => ({ topic: check.topic, note: check.note, tone: check.tone, status: check.status, origin: "check" as const })));
-  const extras = pending(summary.additionalChecks.map(row => ({ topic: row.item, note: row.content !== row.item ? row.content : "", tone: row.tone, status: row.status, origin: "extra" as const })));
-  const conflicts = [
-    ...(summary.conflictingCriteria ?? []).map(topic => ({ topic, note: "어느 한쪽으로 임의로 해석해 완료·실패를 판정하지 말고, 충돌 내용을 확인 대상으로 보고하세요.", tone: "required" as AxCheckTone, status: "확인 필요", origin: "conflict" as const })),
-    ...(summary.numericConflictCriteria ?? []).map(topic => ({ topic, note: "우선순위를 정하지 않으며, 실제 업무 규칙이 확정될 때까지 어느 쪽도 합격 조건으로 쓰지 않습니다.", tone: "required" as AxCheckTone, status: "확인 필요", origin: "conflict" as const })),
-  ];
-  const items = [...checks, ...extras, ...conflicts];
-  const count = summary.blockReasons.length + items.length;
-  // 제목·설명 중복 제거: 비고가 제목과 완전히 같은 경우에만 숨긴다.
-  // 추가 확인 항목의 제목은 shortConditionLabel로 줄인 라벨이라, 비고가 제목으로
-  // 시작해도 비고가 전체 조건 문구(예: 끝의 '확인')를 담고 있다. 접두사만 떼면
-  // 전체 조건 문구가 화면 어디에도 남지 않아 ① 확인 문구가 훼손되므로, 접두사
-  // 형태는 원문 그대로 둔다 (ax.spec :137·:1299의 전체 조건 문구 단언 유지).
-  const displayNote = (topic: string, note: string): string => {
-    if (!note || note === topic) return "";
-    return note;
-  };
-  const actionButton = (target: PrecheckTarget) => {
-    if (target.kind === "none") return null;
-    return <Button type="button" variant="outline" size="sm" className="ax-precheck-action" onClick={() => { if (onGoToCheckItem) onGoToCheckItem(target); else onGoToCheck(); }}>{precheckTargetLabel(target)}</Button>;
-  };
+  const count = summary.blockReasons.length + pending(summary.checks).length + pending(summary.additionalChecks).length
+    + (summary.conflictingCriteria ?? []).length + (summary.numericConflictCriteria ?? []).length;
   return <section className="ax-precheck" aria-label="구현 전 확인">
-    <div className="ax-precheck-head"><h3>구현 전 확인</h3>{summary.blockReasons.length ? <span className="ax-check-badge" data-kind="block">진행 보류</span> : null}{count ? <span className="ax-check-badge" data-kind="need">확인 필요 {count}건</span> : null}</div>
-    {count === 0 ? <p className="ax-muted">현재 필수 확인 사항 없음</p> : <>
-      {summary.blockReasons.length ? <div className="ax-precheck-blocked"><h4>차단 사유</h4><ul role="list">{summary.blockReasons.map((reason, i) => {
-        const target = resolvePrecheckTarget({ topic: reason, origin: "block" });
-        return <li key={i}><span>{reason}</span>{target.kind === "none" ? <span className="ax-muted ax-precheck-guidance">{target.guidance}</span> : actionButton(target)}</li>;
-      })}</ul></div> : null}
-      {items.length ? <ul className="ax-precheck-list" role="list">{items.map((item, i) => {
-        const { label } = CHECK_TONES[item.tone];
-        const target = resolvePrecheckTarget({ topic: item.topic, note: item.note, tone: item.tone, origin: item.origin });
-        const note = displayNote(item.topic, item.note);
-        return <li key={i} className="ax-precheck-item"><div className="ax-precheck-item-head"><strong>{item.topic}</strong><span className="ax-check-badge">{label}</span>{actionButton(target)}</div>{note ? <p>{note}</p> : null}{target.kind === "none" ? <p className="ax-muted ax-precheck-guidance">{target.guidance}</p> : null}</li>;
-      })}</ul> : null}
-    </>}
+    <div className="ax-precheck-head">
+      <span className="ax-precheck-icon" aria-hidden="true"><CircleCheck /></span>
+      <div className="ax-precheck-head-text">
+        <h3>구현 전 확인</h3>
+        <p>업무 진단에서 확인된 내용을 기준으로 구현 가능 여부를 요약합니다.</p>
+      </div>
+      {summary.blockReasons.length ? <span className="ax-check-badge" data-kind="block">진행 보류 {count}건</span>
+        : count ? <span className="ax-check-badge" data-kind="need">미해결 {count}건</span> : null}
+    </div>
+    {count === 0 ? <p className="ax-muted">현재 필수 확인 사항 없음</p> : null}
   </section>;
 }
 /**
@@ -968,35 +940,43 @@ export function reviewDisplayState(item: ReviewableItem, review: HitlReview | un
  * 업무 진단 화면에 그대로 남아 있다. */
 function AxScopeSummary({ profile, summary }: { profile: ExecutionProfile; summary: AxPlanSummary }) {
   const reviewOnly = profile.level === 0 || profile.gate === "blocked";
-  const criteria = [
-    { label: "검증 방법", Icon: Search, items: summary.tests, notice: summary.testsNotice },
-    { label: "통과 조건", Icon: ClipboardCheck, items: summary.success, notice: summary.criteriaNotice },
-    { label: "실패 기준", Icon: CircleX, items: summary.failure, notice: summary.criteriaNotice },
+  const criteriaRows = [
+    { items: summary.tests, notice: summary.testsNotice },
+    { items: summary.success, notice: summary.criteriaNotice },
+    { items: summary.failure, notice: summary.criteriaNotice },
     // 최종 승인 criteria come only from explicit approval constraints in the original
     // data; a 담당자 수행 유지 item by itself is not an approval requirement.
-    { label: "최종 승인", Icon: ShieldCheck, items: summary.approvals },
+    { items: summary.approvals, notice: undefined },
   ].filter(row => row.items.length);
   const includeDisplay = foldScopeItems(summary.include);
   const humanItems = dedupeHumanItems(summary.humanKept);
-  const includeTitle = reviewOnly ? "준비·검증" : profile.gate === "conditional" ? "선행 조건 확인 후 시범 적용" : "구현 대상";
+  // 레퍼런스 2열 요약 카드: 구현 범위 카드의 부제는 기존 그룹 제목의 의미를 유지한다
+  // (준비·검증 / 선행 조건 확인 후 시범 적용 / 구현 대상).
+  const scopeSubtitle = reviewOnly ? "준비·검증 항목을 요약합니다."
+    : profile.gate === "conditional" ? "선행 조건 확인 후 시범 적용 항목을 요약합니다."
+    : "실제로 구현할 기능의 핵심 범위를 요약합니다.";
+  const scopeBullets = [
+    ...includeDisplay.items,
+    // humanKept 항목 중 일부는 planSummary에서 이미 "(담당자 수행)" 접미사를 달고
+    // 오므로, 접미사가 없는 항목에만 붙인다 (이중 접미사 방지).
+    ...humanItems.map(item => item.endsWith("(담당자 수행)") ? item : `${item} (담당자 수행)`),
+    ...summary.excluded.map(item => `${item} (보류·제외)`),
+  ];
+  const criteriaBullets = criteriaRows.flatMap(row => row.items);
+  const criteriaNotices = [...new Set(criteriaRows.map(row => row.notice).filter((notice): notice is string => !!notice))];
   return <section className="ax-scope-summary" aria-label="구현 범위·완료 기준">
-    <h3>구현 범위·완료 기준</h3>
     <div className="ax-scope-summary-groups">
-      {includeDisplay.items.length ? <div className="ax-scope-summary-group" data-scope-group="include"><h4>{includeTitle}</h4>
-        <ul role="list">{includeDisplay.items.map((item, i) => <li key={i}>{item}</li>)}</ul>
+      {scopeBullets.length ? <div className="ax-scope-summary-card" data-scope-group="scope">
+        <h4><Package aria-hidden="true" />구현 범위</h4>
+        <p className="ax-scope-summary-desc">{scopeSubtitle}</p>
+        <ul role="list">{scopeBullets.map((item, i) => <li key={i}>{item}</li>)}</ul>
         {includeDisplay.unconfirmed || includeDisplay.notes.length ? <div className="ax-scope-summary-notes">{includeDisplay.unconfirmed ? <p>미확정 처리 방식과 필수 기준은 해당 단계에서 확인이 필요합니다.</p> : null}{includeDisplay.notes.map((note, i) => <p key={i}>{note}</p>)}</div> : null}
       </div> : null}
-      {humanItems.length ? <div className="ax-scope-summary-group" data-scope-group="human"><h4>사용자 수행</h4>
-        <ul role="list">{humanItems.map((item, i) => <li key={i}>{item}</li>)}</ul>
-      </div> : null}
-      {summary.excluded.length ? <div className="ax-scope-summary-group" data-scope-group="excluded"><h4>보류·제외</h4>
-        <ul role="list">{summary.excluded.map((item, i) => <li key={i}>{item}</li>)}</ul>
-      </div> : null}
-      {criteria.length ? <div className="ax-scope-summary-group" data-scope-group="criteria"><h4>완료 기준</h4>
-        <dl className="ax-scope-summary-criteria">{criteria.map(({ label, Icon, items, notice }) => <div key={label}>
-          <dt><Icon aria-hidden="true" />{label}</dt>
-          <dd>{items.length === 1 && !notice ? items[0] : <>{items.length === 1 ? items[0] : <ul role="list">{items.map((item, i) => <li key={i}>{item}</li>)}</ul>}{notice ? <p className="ax-criteria-notice">{notice}</p> : null}</>}</dd>
-        </div>)}</dl>
+      {criteriaBullets.length ? <div className="ax-scope-summary-card" data-scope-group="criteria">
+        <h4><CircleCheck aria-hidden="true" />완료 기준</h4>
+        <p className="ax-scope-summary-desc">구현 완료를 판단하는 핵심 기준입니다.</p>
+        <ul role="list">{criteriaBullets.map((item, i) => <li key={i}>{item}</li>)}</ul>
+        {criteriaNotices.length ? <div className="ax-scope-summary-notes">{criteriaNotices.map((notice, i) => <p key={i}>{notice}</p>)}</div> : null}
       </div> : null}
     </div>
   </section>;
@@ -1037,7 +1017,7 @@ export function AxExecutionPackage({ plan, target, taskName, taskContext, prereq
   </div>;
 }
 
-/** 구현 계획 검토와 04 올인원 지시문·설치 가이드가 공유하는 코딩 도구 선택.
+/** 구현 계획 검토와 올인원 지시문·설치 가이드가 공유하는 코딩 도구 선택.
  * 명시적 선택이 우선하고, 선택이 없으면 계획이 존재하는 도구(Codex 우선)를 사용한다.
  * 도구 변경은 생성된 계획과 검토 데이터를 삭제하지 않으며, 각 도구의 검토 확정 상태는
  * 도구별 검토 키(planCodex:/planClaude:)로 분리 유지된다. */
@@ -1054,13 +1034,16 @@ function AxFixField({ label, hint, value, onChange, rows, maxLength }: {
 type AxFixDraftFailure = { feature: string; expected: string; actual: string; error: string; reproduction: string };
 const emptyAxFixDraftFailure = (): AxFixDraftFailure => ({ feature: "", expected: "", actual: "", error: "", reproduction: "" });
 
-/** 04 올인원 지시문 바로 아래의 소형 섹션: 검증 결과 입력(로컬 초안) + 수정·보완
- * 지시문 보기·복사. 보기·복사는 04와 같은 AxPrompt + AxCopyButton 패턴을
- * 재사용하고, 지시문 본문은 렌더 시 buildFixPrompt()로 생성한다 (저장하지 않음).
+/** 검증 결과 입력 + 수정·보완 지시문 보기·복사 섹션.
+ * 결과·로드맵 기본 화면에서는 렌더링되지 않는다(레퍼런스 동일화 §11).
+ * 입력·미리보기·저장 로직과 verificationResults 저장 경로는 그대로 보존되며,
+ * 필요 시 다시 렌더링할 수 있도록 export한다. 보기·복사는 올인원 지시문과
+ * 같은 AxPrompt + AxCopyButton 패턴을 재사용하고, 지시문 본문은 렌더 시
+ * buildFixPrompt()로 생성한다 (저장하지 않음).
  * 입력 초안은 로컬 상태이며, "검증 결과 저장"을 눌렀을 때만 보고 일시와 함께
  * 업무의 verificationResults로 저장돼 다음 라운드 구분의 근거가 된다.
- * Gate blocked면 04와 동일하게 생성하지 않고 차단 안내만 표시한다. */
-function AxFixPromptSection({ diagnosis, plan, taskName, taskContext, prerequisites, hitlReviews, hitlTool, genericRules, gate, verificationResults, onSaveVerificationResults }: {
+ * Gate blocked면 올인원 지시문과 동일하게 생성하지 않고 차단 안내만 표시한다. */
+export function AxFixPromptSection({ diagnosis, plan, taskName, taskContext, prerequisites, hitlReviews, hitlTool, genericRules, gate, verificationResults, onSaveVerificationResults }: {
   diagnosis: AxDiagnosis;
   plan: AxPlan | undefined;
   taskName: string;
@@ -1155,7 +1138,7 @@ function AxFixPromptSection({ diagnosis, plan, taskName, taskContext, prerequisi
   </section>;
 }
 
-export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenerate, reviewProps, genericRules, activeTool: controlledTool, onToolChange, onGoToCheck, verificationResults, onSaveVerificationResults, onGoToCheckItem }: {
+export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenerate, reviewProps, genericRules, activeTool: controlledTool, onToolChange }: {
 
   diagnosis: AxDiagnosis;
   taskName: string;
@@ -1164,18 +1147,10 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
   onGenerate: (target: AxToolId) => void;
   reviewProps?: AxProcessReviewProps;
   genericRules?: import("@/lib/ax/types").GenericRule[];
-  /** 제어 모드: 부모가 도구 선택을 소유하면 ①·②·04가 같은 도구의 검토를 따른다.
+  /** 제어 모드: 부모가 도구 선택을 소유하면 ①·②·올인원 지시문이 같은 도구의 검토를 따른다.
    * 미제공 시 기존 내부 상태 동작을 유지한다. */
   activeTool?: AxToolId;
   onToolChange?: (tool: AxToolId) => void;
-  /** ① 항목의 확인·수정 위치(업무 진단)로 이동한다. */
-  onGoToCheck: () => void;
-  /** 저장된 검증 라운드 (없으면 라운드 목록 미표시). */
-  verificationResults?: VerificationResult[];
-  /** 검증 라운드 저장 핸들러 (없으면 저장 버튼이 안내만 표시). */
-  onSaveVerificationResults?: (round: VerificationResult) => void;
-  /** ① 항목별 실제 확인·수정 위치로 이동한다 (미제공 시 onGoToCheck으로 이동). */
-  onGoToCheckItem?: (target: PrecheckTarget) => void;
 }) {
   const profile = executionProfile(diagnosis);
   const gate = profile.gate;
@@ -1185,7 +1160,7 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
   const setSelectedTool = onToolChange ?? setInternalSelected;
   const activeTool = controlledTool ?? resolveActiveTool(internalSelected, plans);
   const activePlan = plans[activeTool];
-  // 01~03 요약도 04와 같은 확정 검토를 반영한다. Gate blocked에서도 동일하게
+  // 01~03 요약도 올인원 지시문과 같은 확정 검토를 반영한다. Gate blocked에서도 동일하게
   // 전달해 진단 검토가 요약에 일관되게 적용되고, 계획 검토는 계획이 없을 때
   // 매칭되지 않으므로 혼합되지 않는다.
   const summary = planSummary(diagnosis, gate !== "blocked" ? activePlan : undefined, [taskName, taskContext].join("\n"),
@@ -1200,7 +1175,7 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
   const generateButton = (target: AxToolId) => <Button key={target} type="button" variant="outline" className="ax-plan-generate" disabled={!!busy || gate === "blocked"} onClick={() => onGenerate(target)}><FileCode2 aria-hidden="true" />{busy === target ? target === "codex" ? "Codex 계획 생성 중…" : "Claude 계획 생성 중…" : `${TOOL_GUIDES[target].name}용 구현 계획 생성`}</Button>;
   return <section className="ax-surface" id="ax-plan-section" aria-label="자동화 구현 계획">
     <div className="ax-plan-head"><h3>자동화 구현 계획</h3></div>
-    <AxPrecheckSection summary={summary} onGoToCheck={onGoToCheck} onGoToCheckItem={onGoToCheckItem} />
+    <AxPrecheckSection summary={summary} />
     <AxScopeSummary profile={profile} summary={summary} />
     {gate === "blocked" ? <>
       <div className="ax-actions">{generateButton("codex")}{generateButton("claude")}</div>
@@ -1208,18 +1183,20 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
       {!plans.codex && !plans.claude ? <div className="ax-actions">{generateButton("codex")}{generateButton("claude")}</div> : null}
     </>}
     {reviewProps && (plans.codex || plans.claude) ? <AxPlanReview plans={plans} reviewProps={reviewProps} activeTool={activeTool} onToolChange={setSelectedTool} /> : null}
-    <section ref={instructionsRef} id={`${instructionsId}-section`} className="ax-plan-instructions" aria-labelledby={instructionsId}><AxPlanHeading id={instructionsId} no="04" title="올인원 지시문" />
-      {gate === "blocked" ? <p role="status" className="ax-notice">현재 진단에서는 구현 계획 생성 불가</p> : <>
+    <section ref={instructionsRef} id={`${instructionsId}-section`} className="ax-plan-instructions" aria-labelledby={instructionsId}>
+      {gate === "blocked" ? <><AxPlanHeading id={instructionsId} title="올인원 지시문" description="선택한 코딩 에이전트를 위한 통합 지시문을 생성합니다." /><p role="status" className="ax-notice">현재 진단에서는 구현 계획 생성 불가</p></> : <>
         {plans.codex || plans.claude ?
           <Tabs className="ax-tool-tabs" value={activeTool} onValueChange={value => { if (value === "codex" || value === "claude") setSelectedTool(value); }}>
-            <div className="ax-plan-toolbar">
-              <TabsList aria-label="AI 코딩 도구 선택"><TabsTab value="codex">Codex</TabsTab><TabsTab value="claude">Claude Code</TabsTab></TabsList>
+            <div className="ax-plan-instructions-head">
+              <AxPlanHeading id={instructionsId} title="올인원 지시문" description="선택한 코딩 에이전트를 위한 통합 지시문을 생성합니다." />
+              <div className="ax-plan-toolbar">
+                <TabsList aria-label="AI 코딩 도구 선택"><TabsTab value="codex">Codex</TabsTab><TabsTab value="claude">Claude Code</TabsTab></TabsList>
+              </div>
             </div>
             {(["codex", "claude"] as const).map(target => <TabsPanel key={target} value={target}>{target === activeTool ? plans[target] ? <><p className="ax-plan-tool-hint">{TOOL_GUIDES[target].name}에서 현재 프로젝트를 열고 올인원 지시문 붙여넣기</p><AxExecutionPackage plan={plans[target]} target={target} taskName={taskName} taskContext={taskContext} prerequisites={prerequisites} diagnosis={diagnosis} hitlReviews={reviewProps?.reviews} genericRules={genericRules} /></> : <><p className="ax-plan-generate-hint">{TOOL_GUIDES[target].name}용 구현 계획 생성 후 올인원 지시문 확인</p>{generateButton(target)}</> : null}</TabsPanel>)}
-          </Tabs> : <p className="ax-muted">도구별 구현 계획 생성 후 올인원 지시문 확인</p>}
+          </Tabs> : <><AxPlanHeading id={instructionsId} title="올인원 지시문" description="선택한 코딩 에이전트를 위한 통합 지시문을 생성합니다." /><p className="ax-muted">도구별 구현 계획 생성 후 올인원 지시문 확인</p></>}
       </>}
     </section>
-    <AxFixPromptSection diagnosis={diagnosis} plan={activePlan} taskName={taskName} taskContext={taskContext} prerequisites={prerequisites} hitlReviews={reviewProps?.reviews} hitlTool={activeTool} genericRules={genericRules} gate={gate} verificationResults={verificationResults} onSaveVerificationResults={onSaveVerificationResults} />
     {gate !== "blocked" && (plans.codex || plans.claude) ? <section className="ax-plan-guide" aria-label="설치·시작 가이드">
       <Accordion className="ax-guide">
         <AccordionItem value="setup" className="ax-guide-item">
@@ -1236,7 +1213,7 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
 }
 
 /** 구현 계획 검토 섹션 (Codex/Claude Code별) - 테이블형 UI
- * 도구 선택은 AxPlanSection의 공통 상태와 공유한다: 04 올인원 지시문·설치 가이드와 양방향 연동된다.
+ * 도구 선택은 AxPlanSection의 공통 상태와 공유한다: 올인원 지시문·설치 가이드와 양방향 연동된다.
  * 각 도구의 검토 항목은 도구별 검토 키(planCodex:/planClaude:)로 분리되므로 도구 전환 후에도
  * 기존 확정 결과가 유지되고, 확정하지 않은 검토 결과가 다른 도구에 임의 반영되지 않는다. */
 /** Display-only: 검토 표 행을 미완료 우선으로 나눈다. 완료 판정(validKeys)은

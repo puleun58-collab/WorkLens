@@ -54,11 +54,11 @@ test("AX roadmap simplify: KPI 2개 · 통합 목록 · 제거 영역 부재 · 
   // 한 줄 요약 헤더: 업무명·Level·상태가 함께 보인다.
   const intro = page.locator(".ax-selected-report .ax-report-intro");
   await expect(intro).toContainText(task.name);
-  // ① 미완료 항목만 표시되고, ② 범위·기준 요약이 보인다.
+  // ① 요약 배지만 표시되고, ② 범위·기준 요약이 보인다.
   const pre = plan.getByRole("region", { name: "구현 전 확인", exact: true });
   await expect(pre).toBeVisible();
-  // 이동 버튼 문구는 동작별로 표시된다(§2.6): ① 영역의 첫 이동 버튼이 보인다.
-  await expect(pre.getByRole("button").first()).toBeVisible();
+  // 요약 전용: ① 영역에는 이동 버튼이 없다.
+  await expect(pre.getByRole("button")).toHaveCount(0);
   const summary = plan.getByRole("region", { name: "구현 범위·완료 기준", exact: true });
   await expect(summary).toBeVisible();
   await expect(summary.locator('[data-scope-group="criteria"]')).toBeVisible();
@@ -95,12 +95,13 @@ test("AX roadmap simplify: 전체 Gate 차단이면 차단 사유만 표시하�
   const plan = await openStep4(page, [task], task.id);
   const pre = plan.getByRole("region", { name: "구현 전 확인", exact: true });
   await expect(pre).toContainText("진행 보류");
-  await expect(pre.getByText("필수 시스템 접근 불가", { exact: true })).toBeVisible();
+  // 요약 전용: 차단 사유 상세 문구는 기본 화면에 반복되지 않는다.
+  await expect(pre).not.toContainText("필수 시스템 접근 불가");
   await expect(plan.getByRole("button", { name: "Codex용 구현 계획 생성", exact: true })).toBeDisabled();
   await expect(plan.locator(".ax-prompt")).toHaveCount(0);
 });
 
-test("AX roadmap simplify: ① 이동 버튼은 업무 진단으로 이동하고 다른 업무 상태가 섞이지 않는다", async ({ page }) => {
+test("AX roadmap simplify: ①은 요약 배지만 표시하고 업무 전환 시 다른 업무 상태가 섞이지 않는다", async ({ page }) => {
   const diagnosisA: AxDiagnosis = { ...diagnosisFixture, technicalChecks: [{ topic: "A 전용 확인", status: "확인 필요", note: "A 확인" }] };
   const diagnosisB: AxDiagnosis = { ...diagnosisFixture, technicalChecks: [{ topic: "B 전용 확인", status: "확인 필요", note: "B 확인" }] };
   const taskA = taskFixture("simplify-a", diagnosisA);
@@ -110,11 +111,19 @@ test("AX roadmap simplify: ① 이동 버튼은 업무 진단으로 이동하고
   await list.getByRole("listitem").filter({ hasText: taskB.name }).getByRole("button").click();
   await expect(page.locator(".ax-report-intro h2")).toHaveText(taskB.name);
   const pre = plan.getByRole("region", { name: "구현 전 확인", exact: true });
-  await expect(pre).toContainText("B 전용 확인");
+  // 요약 전용: 상세 문구는 어느 업무의 것도 기본 화면에 없고, 배지만 표시된다.
+  await expect(pre).not.toContainText("B 전용 확인");
   await expect(pre).not.toContainText("A 전용 확인");
-  // 이동 버튼은 업무 진단 탭으로 이동한다.
-  // B 전용 확인 항목의 이동 버튼(확인 사항 보기)이 업무 진단 탭으로 이동한다.
-  await pre.locator("li", { hasText: "B 전용 확인" }).getByRole("button").first().click();
+  await expect(pre.locator(".ax-precheck-head")).toContainText(/미해결 \d+건/);
+  await expect(pre.getByRole("button")).toHaveCount(0);
+  // A→B→A 전환: 다시 A로 돌아가도 A의 요약만 표시되고 B 상태가 섞이지 않는다.
+  await list.getByRole("listitem").filter({ hasText: taskA.name }).getByRole("button").click();
+  await expect(page.locator(".ax-report-intro h2")).toHaveText(taskA.name);
+  await expect(pre).not.toContainText("B 전용 확인");
+  await expect(pre).not.toContainText("A 전용 확인");
+  await expect(pre.locator(".ax-precheck-head")).toContainText(/미해결 \d+건/);
+  // 업무 진단 이동은 상단 단계 내비게이션으로 한다.
+  await page.getByRole("tab", { name: "업무 진단", exact: true }).click();
   await expect(page.getByRole("tab", { name: "업무 진단", exact: true })).toHaveAttribute("aria-selected", "true");
 });
 

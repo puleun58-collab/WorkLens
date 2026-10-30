@@ -167,12 +167,14 @@ test("진행 보류 업무의 매트릭스: 상세 카드가 없고 단계 내�
   await expect(checks).toContainText("접근 권한 없음");
 });
 
-test("결과·로드맵 헤더의 업무 진단으로 이동 버튼: 업무 진단 단계로 이동한다", async ({ page }) => {
+test("결과·로드맵 헤더에 업무 진단으로 이동 버튼이 없고 단계 내비게이션으로 이동한다", async ({ page }) => {
   const target = diagnosedTask("report-a", "로드맵 확인 업무");
   await page.goto("/");
   await seed(page, { ...emptyAxState(), tasks: [target], selectedTaskId: target.id, step: 4 });
   await ax(page);
-  await page.locator(".ax-selected-report").getByRole("button", { name: "업무 진단으로 이동", exact: true }).click();
+  // 로드맵 헤더 버튼은 제거됐다(§5.1). 이동은 상단 단계 내비게이션으로 한다.
+  await expect(page.locator(".ax-selected-report").getByRole("button", { name: "업무 진단으로 이동", exact: true })).toHaveCount(0);
+  await page.getByRole("tab", { name: "업무 진단", exact: true }).click();
   await expect(page.getByRole("tab", { name: "업무 진단", exact: true })).toHaveAttribute("data-active", "");
   await expect(page.locator(".ax-diag-card h2")).toHaveText(target.name);
 });

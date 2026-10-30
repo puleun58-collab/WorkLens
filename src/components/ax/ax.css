@@ -1082,7 +1082,7 @@
   .ax-decision-progress { min-width: 0; text-align: left; }
 }
 
-/* 결과·로드맵 간소화: ① 구현 전 확인 · ② 구현 범위·완료 기준 (요약 목록, 카드 없음) */
+/* 결과·로드맵 간소화: ① 구현 전 확인 요약 · ② 구현 범위·완료 기준 2열 요약 카드 */
 .ax-precheck, .ax-scope-summary { padding: 20px 0; border-top: 1px solid var(--border); text-align: left; }
 .ax-precheck-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .ax-precheck-head h3, .ax-scope-summary h3 { margin: 0; font-size: 18px; font-weight: var(--font-weight-bold, 700); }
@@ -1110,7 +1110,30 @@
 .ax-scope-summary-criteria dd { margin: 0; font-size: 14px; line-height: 1.6; }
 .ax-scope-summary-criteria dd ul { display: grid; gap: 4px; }
 
-/* MVP 검증 → 수정·보완: 04 아래 소형 섹션. 기본 세로 쌓기라 모바일·데스크톱 모두 같은 구조. */
+/* 결과·로드맵 레퍼런스 동일화: ① 요약 행(아이콘 + 제목·부제 + 배지 1개), ② 2열 요약 카드. */
+.ax-precheck-head { align-items: flex-start; gap: 10px; }
+.ax-precheck-icon { flex: none; display: inline-flex; margin-top: 2px; color: #16a34a; }
+.ax-precheck-icon svg { width: 20px; height: 20px; }
+.ax-precheck-head-text { flex: 1; min-width: 0; }
+.ax-precheck-head-text p { margin: 4px 0 0; color: var(--muted-foreground); font-size: 13px; line-height: 1.55; }
+.ax-precheck-head .ax-check-badge { flex: none; margin-top: 2px; }
+.ax-scope-summary-groups { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 0; }
+.ax-scope-summary-card { min-width: 0; padding: 16px; border: 1px solid var(--border); border-radius: 12px; }
+.ax-scope-summary-card h4 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 16px; font-weight: var(--font-weight-bold, 700); }
+.ax-scope-summary-card h4 svg { width: 20px; height: 20px; color: var(--primary); }
+.ax-scope-summary-desc { margin: 6px 0 0; color: var(--muted-foreground); font-size: 13px; line-height: 1.55; }
+.ax-scope-summary-card ul { display: grid; gap: 6px; margin: 12px 0 0; padding: 0 0 0 20px; list-style: disc; }
+.ax-scope-summary-card li { font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; }
+.ax-scope-summary-card li::marker { color: var(--muted-foreground); }
+.ax-scope-summary-card .ax-scope-summary-notes p { margin: 8px 0 0; color: var(--muted-foreground); font-size: 13px; }
+.ax-plan-instructions-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.ax-plan-instructions-head .ax-plan-toolbar { margin-top: 0; }
+.ax-plan-instructions-head + * { margin-top: 16px; }
+@media (max-width: 700px) {
+  .ax-scope-summary-groups { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* MVP 검증 → 수정·보완: 기본 화면에서는 렌더링되지 않음(컴포넌트·스타일 보존). 기본 세로 쌓기라 모바일·데스크톱 모두 같은 구조. */
 .ax-fix-failure { display: grid; gap: 10px; margin: 14px 0; padding: 14px; border: 1px solid var(--border); border-radius: 8px; }
 .ax-fix-failure-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .ax-fix-failure-head strong { font-size: 14px; }

@@ -66,28 +66,30 @@ async function hintButtonGap(page: Page, tab: "Codex" | "Claude Code") {
   return gap!;
 }
 
-test("① 구현 전 확인: 제목 + 기존 확인사항 유지 + 겹침 없음", async ({ page }) => {
+test("① 구현 전 확인: 제목 + 요약 배지 + 겹침 없음", async ({ page }) => {
   const section = await openStep4NoPlan(page);
   const block = section.locator("section[aria-label='구현 전 확인']");
   await expect(section.getByRole("heading", { name: "02 시작 전 확인" })).toHaveCount(0);
-  // 기존 확인사항 유지: 미완료 항목 목록과 확인 필요 배지 (접힘 아코디언 없음).
-  await expect(block.locator(".ax-precheck-item").filter({ hasText: "시스템 접근" }).first()).toBeVisible();
-  await expect(block.locator(".ax-precheck-item").first().locator(".ax-check-badge").first()).toHaveText("확인 필요");
-  // 제목·목록 사이 간격이 자연스럽다(겹침 없음).
+  // 요약 전용: 상세 항목 목록은 기본 화면에 없고, 미해결 건수 배지만 표시된다.
+  await expect(block.locator(".ax-precheck-item")).toHaveCount(0);
+  await expect(block.locator(".ax-precheck-head")).toContainText(/미해결 \d+건/);
+  await expect(block).not.toContainText("시스템 접근");
+  // 제목·다음 섹션 사이 간격이 자연스럽다(겹침 없음).
   // 위쪽·아래쪽 박스를 한 번의 evaluate 안에서 읽는다(스크롤 경합 방지).
-  const headItemGap = await block.evaluate(root => {
+  const headNextGap = await block.evaluate(root => {
     const upper = root.querySelector(".ax-precheck-head");
-    const lower = root.querySelector(".ax-precheck-item, .ax-precheck-blocked li");
+    const section = root.closest("section.ax-surface");
+    const lower = section?.querySelector(".ax-scope-summary");
     if (!upper || !lower) return null;
     const u = upper.getBoundingClientRect();
     const l = lower.getBoundingClientRect();
     return Math.round(l.top - (u.top + u.height));
   });
-  expect(headItemGap).not.toBeNull();
-  expect(headItemGap!).toBeGreaterThanOrEqual(0);
+  expect(headNextGap).not.toBeNull();
+  expect(headNextGap!).toBeGreaterThanOrEqual(0);
 });
 
-test("04 올인원 지시문: 안내 문구와 생성 버튼 간격 12~16px (Codex·Claude 동일)", async ({ page }) => {
+test("올인원 지시문: 안내 문구와 생성 버튼 간격 12~16px (Codex·Claude 동일)", async ({ page }) => {
   // Claude 계획만 있을 때 Codex 탭에 힌트 + 생성 버튼이 표시된다.
   let section = await openStep4WithPlan(page, "claude");
   const codexGap = await hintButtonGap(page, "Codex");
@@ -116,7 +118,7 @@ test("04 올인원 지시문: 안내 문구와 생성 버튼 간격 12~16px (Cod
   expect(overlapGap!).toBeGreaterThan(0);
 });
 
-test("04 올인원 지시문: 모바일 390px 간격·줄바꿈·가로 스크롤 없음", async ({ page }) => {
+test("올인원 지시문: 모바일 390px 간격·줄바꿈·가로 스크롤 없음", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await openStep4WithPlan(page, "claude");
   const codexGap = await hintButtonGap(page, "Codex");
