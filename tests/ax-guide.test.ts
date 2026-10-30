@@ -378,7 +378,7 @@ describe("AX guide conditional architecture", () => {
 describe("AX guide dev-prep integration", () => {
   const gitignorePrompt = "현재 프로젝트의 언어, 프레임워크, 실행 환경과 파일 구조를 확인하고 적절한 .gitignore를 구성해 줘. 기존 .gitignore가 있으면 필요한 규칙만 보완하고, 없으면 새로 만들어 줘. 의존성 폴더, 빌드 결과물, 캐시, 임시파일, 로컬 설정, 인증정보 등 GitHub에 올리면 안 되는 파일을 제외해 줘. 반대로 실제 개발에 필요한 소스코드, 설정 템플릿, 잠금 파일 등은 임의로 제외하지 마. 이미 Git이 추적하는 민감 파일이 있는지도 확인해 줘. 발견하면 파일을 삭제하거나 Git 기록을 변경하지 말고 처리 방법과 위험을 먼저 알려 줘. 완료 후 적용한 제외 규칙과 추가 확인이 필요한 사항을 간단히 보고해 줘.";
   const deployPromptLines = ["현재 프로젝트의 구조, GitHub 연결 상태, 배포 서비스 및 기존 배포 설정을 먼저 확인해 줘.", "", "Vercel 또는 Cloudflare 중 이미 구성된 배포 환경이 있다면 해당 환경을 우선 유지해 줘.", "", "GitHub 연동 자동 배포가 설정되어 있다면 기존 브랜치·CI·배포 흐름을 확인하고, 변경 사항이 실제 배포 환경에 반영되는지 검증해 줘.", "", "CLI 직접 배포가 필요한 경우에는 프로젝트의 기존 배포 스크립트와 설정을 우선 사용해 줘. Cloudflare 프로젝트라면 필요한 경우 Wrangler를 사용하고, 불필요한 도구 설치나 설정 변경은 하지 마.", "", "배포 전 필요한 빌드와 테스트를 실행하고, 실제 운영 환경에 영향을 줄 수 있는 변경 사항이 있다면 실행 전에 알려 줘. 인증이나 추가 승인이 필요하다면 사용자에게 요청해 줘.", "", "기존 데이터와 서비스 설정을 보존하면서 승인된 범위에서 배포를 진행해 줘.", "", "완료 후 실제 배포 환경, URL, 적용된 코드 버전, 테스트 및 배포 결과를 구분해 보고해 줘.", "", "배포가 실행되지 않았거나 실제 반영 여부를 확인하지 못했다면 완료로 표시하지 마."];
-  const verifyPrompt = "완성한 프로그램을 실제 사용 상황처럼 테스트해 줘. 주요 기능에 정상적인 입력과 잘못된 입력을 각각 사용하고, 처리 결과가 요구사항과 일치하는지 확인해 줘. 데이터 저장 기능이 있다면 저장 후 다시 실행하거나 새로고침해도 데이터가 올바르게 유지되는지 검증해 줘. 웹서비스라면 실제 배포된 환경의 주요 기능을 확인하고, 로컬 자동화 프로그램이라면 해당 실행 환경에서 테스트해 줘. 실제로 실행한 테스트와 실행하지 못한 테스트를 구분하고, 실패한 항목의 원인 및 필요한 수정 사항을 보고해 줘. 검증하지 못한 기능은 완료로 표시하지 마.";
+  const verifyPrompt = "완성한 프로그램을 실제 사용 상황처럼 직접 실행해 테스트해 줘. (1) 프로그램이 실제로 실행되는지, (2) 핵심 기능이 구현됐는지, (3) 입력 데이터를 올바르게 처리하는지, (4) 실제 출력 결과가 무엇인지, (5) 사용자 확정한 업무 규칙이 반영됐는지, (6) 정상·경계·실패 사례에서 어떻게 동작하는지, (7) 사용자 확인·승인 등 사람 검토 제한을 지키는지, (8) 미구현 기능과 오류가 무엇인지, (9) 검증되지 않은 기능이 무엇인지를 확인해 줘. 주요 기능에 정상적인 입력과 잘못된 입력을 각각 사용하고, 처리 결과가 요구사항과 일치하는지 확인해 줘. 데이터 저장 기능이 있다면 저장 후 다시 실행하거나 새로고침해도 데이터가 올바르게 유지되는지 검증해 줘. 웹서비스라면 실제 배포된 환경의 주요 기능을 확인하고, 로컬 자동화 프로그램이라면 해당 실행 환경에서 테스트해 줘. 각 항목을 통과(PASS)·실패(FAIL)·미실행(NOT_RUN)·차단(BLOCKED)으로 구분해 보고하고, 근거로 실제 테스트 입력·기대 결과·실제 결과·오류 메시지·실패한 테스트·실행 환경과 코드 버전·재현 방법을 함께 적어 줘. 기대 결과나 업무 규칙이 확정되지 않았다면 AI가 임의로 정답을 만들지 말고 미확정으로 구분해 보고해 줘. 실행하지 못한 테스트는 미검증으로 구분하고, HTTP 200 응답이나 빌드 성공만으로 업무 기능이 통과했다고 표시하지 마. 실패한 항목의 원인 및 필요한 수정 사항을 보고해 줘. 검증하지 못한 기능은 완료로 표시하지 마.";
 
   it.each(["codex", "claude"] as const)("offers the .gitignore natural-language request in STEP 02 before STEP 07 git add: %s", tool => {
     const steps = setupGuide(tool);
@@ -442,7 +442,7 @@ describe("AX guide dev-prep integration", () => {
     expect(serialized).toContain("현재 프로젝트의 구조, GitHub 연결 상태, 배포 서비스 및 기존 배포 설정을 먼저 확인해 줘.");
   });
 
-  it.each(["codex", "claude"] as const)("keeps STEP 08 to four checks, the verify prompt and a plain completion note: %s", tool => {
+  it.each(["codex", "claude"] as const)("keeps STEP 08 to four checks, the refined nine-item verify prompt and a plain completion note: %s", tool => {
     const step08 = setupGuide(tool)[8];
     expect(step08.title).toBe("STEP 08 · 실제 기능 확인 및 완료");
     expect(step08.purpose).toBe("구현한 프로그램을 직접 실행해 주요 기능이 정상 작동하는지 확인합니다.");
@@ -464,6 +464,8 @@ describe("AX guide dev-prep integration", () => {
     const completion = step08.sections.find(section => section.title === "완료 판정")!;
     expect(JSON.stringify(completion)).toContain("주요 기능이 요구사항대로 작동하고 필요한 검증을 통과했다면 완료로 판단할 수 있습니다. 실패했거나 확인하지 못한 항목은 별도로 기록하고 수정한 뒤 다시 검증하세요.");
     expect(JSON.stringify(completion)).not.toContain("로그의 API Key·Token·Password·개인정보는 [REDACTED]로 가린 필요한 부분만 AI 도구에 전달하며 로그 전체를 무조건 복사하지 않습니다.");
-    for (const term of ["PASS", "FAIL", "NOT_RUN", "BLOCKED", "실행 증거", "실행 시각", "환경 식별자"]) expect(JSON.stringify(step08)).not.toContain(term);
+    for (const term of ["실행 증거", "실행 시각", "환경 식별자"]) expect(JSON.stringify(step08)).not.toContain(term);
+    // 정밀화된 검증 요청: 9개 필수 확인 항목 + 결과 구분 + 근거 + HTTP 200·빌드 성공 단독 PASS 금지.
+    for (const term of ["PASS", "FAIL", "NOT_RUN", "BLOCKED", "HTTP 200", "임의로 정답을 만들지 말고", "사용자 확정한 업무 규칙"]) expect(JSON.stringify(step08)).toContain(term);
   });
 });

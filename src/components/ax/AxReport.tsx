@@ -2,17 +2,18 @@
 
 import { Fragment, useEffect, useId, useRef, useState } from "react";
 import { AlertTriangle, ArrowRight, Bot, BrainCircuit, ChartNoAxesColumnIncreasing, Check, CheckCircle2, CircleAlert, CircleCheck, CircleX, Clipboard, ClipboardCheck, ClipboardList, Clock, CloudUpload, Copy, Database, Download, FileCode2, FileOutput, FilePlus2, FileSpreadsheet, FileText, Folder, GitBranch, GitMerge, GitPullRequest, Globe, Info, ListChecks, Monitor, MonitorCog, Play, Plug, Rocket, Search, Settings2, ShieldAlert, ShieldCheck, Target, Terminal, TriangleAlert, UserRound } from "lucide-react";
-import type { AxDiagnosis, AxPlan, AxTask, AxTaskV2, HitlReview } from "@/lib/ax/types";
+import type { AxDiagnosis, AxPlan, AxTask, AxTaskV2, HitlReview, VerificationResult } from "@/lib/ax/types";
 import { automationLevel, axes, executionGate, executionProfile, factorEffectiveValue, GATE_LABELS, gateBlockReasons, LEVEL_DESCRIPTIONS, levelDisplayLabel, nextAction, prerequisiteTopicKey, splitGatePrerequisites, type ExecutionProfile } from "@/lib/ax/policy";
 import { FACTOR_LABELS } from "@/lib/ax/schema";
 import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
 import { Accordion, AccordionItem, AccordionPanel, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import { HitlReviewPanel, HitlStatusBadge } from "./HitlReview";
 import { extractReviewableItems, extractPlanReviewableItems, findReview, getValidConfirmedReviews, type ReviewableItem } from "@/lib/ax/hitl";
 import { Tabs, TabsList, TabsTab, TabsPanel } from "@/components/ui/tabs";
-import { buildAllInOnePrompt, guideCodeDisplayText, guideProseDisplayText, planSummary, setupGuide, TOOL_GUIDES, type AxCheckTone, type AxGitFlowBlock, type AxGuideBlock, type AxGuideSection, type AxPlanSummary, type AxToolId } from "@/lib/ax/guide";
+import { buildAllInOnePrompt, buildFixPrompt, guideCodeDisplayText, guideProseDisplayText, planSummary, setupGuide, TOOL_GUIDES, type AxCheckTone, type AxGitFlowBlock, type AxGuideBlock, type AxGuideSection, type AxPlanSummary, type AxToolId } from "@/lib/ax/guide";
 
 const VERDICT_LABELS = { 자동화: "자동화", "AI 보조": "AI 보조", "사람 유지": "담당자 수행" } as const;
 const OWNER_LABELS = { 시스템: "시스템", AI: "AI", 사용자: "담당자" } as const;
@@ -929,14 +930,14 @@ function AxScopeSummary({ profile, summary }: { profile: ExecutionProfile; summa
     </div>
   </section>;
 }
-function AxPrompt({ prompt, name }: { prompt: string; name: string }) {
+function AxPrompt({ prompt, name, copySuffix = "올인원 지시문" }: { prompt: string; name: string; copySuffix?: string }) {
   const [expanded, setExpanded] = useState(false);
   const contentId = useId();
   return <>
     <pre id={contentId} className="ax-prompt" hidden={!expanded} data-expanded={expanded ? "true" : "false"}>{prompt}</pre>
     <div className="ax-prompt-actions">
       <Button type="button" variant="outline" className="ax-prompt-toggle" aria-expanded={expanded} aria-controls={contentId} onClick={() => setExpanded(value => !value)}>{expanded ? "전체 접기" : "전체 보기"}</Button>
-      <AxCopyButton text={prompt} label={`${name}용 올인원 지시문 복사`} />
+      <AxCopyButton text={prompt} label={`${name}용 ${copySuffix} 복사`} />
     </div>
   </>;
 }
@@ -972,7 +973,118 @@ export function AxExecutionPackage({ plan, target, taskName, taskContext, prereq
 export function resolveActiveTool(selectedTool: AxToolId | null, plans: { codex?: AxPlan; claude?: AxPlan }): AxToolId {
   return selectedTool ?? (plans.codex ? "codex" : "claude");
 }
-export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenerate, reviewProps, exampleResults, activeTool: controlledTool, onToolChange, onGoToCheck }: {
+/** 검증 결과 입력 폼의 한 줄 입력란. 기존 등록·검토 폼과 같은 Textarea 패턴이다. */
+function AxFixField({ label, hint, value, onChange, rows, maxLength }: {
+  label: string; hint?: string; value: string; onChange: (value: string) => void; rows: number; maxLength: number;
+}) {
+  return <label className="ax-field">{label}<Textarea rows={rows} maxLength={maxLength} value={value} onChange={e => onChange(e.target.value)} />{hint ? <small className="ax-muted">{hint}</small> : null}</label>;
+}
+
+type AxFixDraftFailure = { feature: string; expected: string; actual: string; error: string; reproduction: string };
+const emptyAxFixDraftFailure = (): AxFixDraftFailure => ({ feature: "", expected: "", actual: "", error: "", reproduction: "" });
+
+/** 04 올인원 지시문 바로 아래의 소형 섹션: 검증 결과 입력(로컬 초안) + 수정·보완
+ * 지시문 보기·복사. 보기·복사는 04와 같은 AxPrompt + AxCopyButton 패턴을
+ * 재사용하고, 지시문 본문은 렌더 시 buildFixPrompt()로 생성한다 (저장하지 않음).
+ * 입력 초안은 로컬 상태이며, "검증 결과 저장"을 눌렀을 때만 보고 일시와 함께
+ * 업무의 verificationResults로 저장돼 다음 라운드 구분의 근거가 된다.
+ * Gate blocked면 04와 동일하게 생성하지 않고 차단 안내만 표시한다. */
+function AxFixPromptSection({ diagnosis, plan, taskName, taskContext, prerequisites, hitlReviews, hitlTool, exampleResults, gate, verificationResults, onSaveVerificationResults }: {
+  diagnosis: AxDiagnosis;
+  plan: AxPlan | undefined;
+  taskName: string;
+  taskContext: string;
+  prerequisites: string[];
+  hitlReviews?: HitlReview[];
+  hitlTool: AxToolId;
+  exampleResults?: import("@/lib/ax/types").ExampleResult[];
+  gate: "ready" | "conditional" | "blocked";
+  verificationResults?: VerificationResult[];
+  onSaveVerificationResults?: (round: VerificationResult) => void;
+}) {
+  const [failures, setFailures] = useState<AxFixDraftFailure[]>([emptyAxFixDraftFailure()]);
+  const [keptText, setKeptText] = useState("");
+  const [implementationNote, setImplementationNote] = useState("");
+  const [rulesNote, setRulesNote] = useState("");
+  const [unconfirmedText, setUnconfirmedText] = useState("");
+  const [testRunFailure, setTestRunFailure] = useState("");
+  const [formError, setFormError] = useState("");
+  const [savedMessage, setSavedMessage] = useState("");
+  const splitLines = (value: string) => value.split("\n").map(line => line.trim()).filter(Boolean);
+  const patchFailure = (index: number, patch: Partial<AxFixDraftFailure>) =>
+    setFailures(current => current.map((failure, i) => i === index ? { ...failure, ...patch } : failure));
+  const validFailures = failures.map(failure => ({
+    feature: failure.feature.trim(),
+    expected: failure.expected.trim() || undefined,
+    actual: failure.actual.trim() || undefined,
+    error: failure.error.trim() || undefined,
+    reproduction: failure.reproduction.trim() || undefined,
+  })).filter(failure => failure.feature);
+  const previousFailureNames = [...new Set((verificationResults ?? []).flatMap(round => round.failures.map(failure => failure.feature)))];
+  const preview = gate === "blocked" || !validFailures.length ? "" : buildFixPrompt(plan, {
+    taskName, prerequisites, diagnosis, context: taskContext, hitlReviews, hitlTool, exampleResults,
+  }, {
+    failures: validFailures,
+    keptFeatures: splitLines(keptText),
+    implementationNote: implementationNote.trim() || undefined,
+    rulesNote: rulesNote.trim() || undefined,
+    unconfirmedRules: splitLines(unconfirmedText),
+    testRunFailure: testRunFailure.trim() || undefined,
+    previousFailureNames,
+  });
+  function saveRound() {
+    if (!validFailures.length) { setFormError("실패한 기능을 1건 이상 입력하세요."); return; }
+    if (!onSaveVerificationResults) { setFormError("검증 결과를 저장할 수 없습니다. 다시 시도하세요."); return; }
+    const text = (value: string | undefined) => value?.trim() ? value.trim() : undefined;
+    onSaveVerificationResults({
+      reportedAt: new Date().toISOString(),
+      failures: validFailures.map(failure => ({
+        feature: failure.feature,
+        ...(failure.expected ? { expected: failure.expected } : {}),
+        ...(failure.actual ? { actual: failure.actual } : {}),
+        ...(failure.error ? { error: failure.error } : {}),
+        ...(failure.reproduction ? { reproduction: failure.reproduction } : {}),
+      })),
+      ...(splitLines(keptText).length ? { keptFeatures: splitLines(keptText) } : {}),
+      ...(text(implementationNote) ? { implementationNote: text(implementationNote) } : {}),
+      ...(text(rulesNote) ? { rulesNote: text(rulesNote) } : {}),
+      ...(splitLines(unconfirmedText).length ? { unconfirmedRules: splitLines(unconfirmedText) } : {}),
+      ...(text(testRunFailure) ? { testRunFailure: text(testRunFailure) } : {}),
+    });
+    setFormError("");
+    setSavedMessage("검증 결과를 저장했습니다. 보고 일시가 라운드 구분자로 기록됩니다.");
+  }
+  return <section className="ax-plan-block" aria-label="검증 결과와 수정·보완 지시문">
+    <div className="ax-plan-title"><h4>검증 결과 · 수정·보완 지시문</h4><p className="ax-plan-desc">STEP 08 검증 결과를 입력하면 실패 항목만 다루는 수정 지시문을 만듭니다. 정상 기능은 수정하지 않습니다.</p></div>
+    {gate === "blocked" ? <p role="status" className="ax-notice">현재 진단에서는 구현 계획 생성 불가</p> : <>
+      {failures.map((failure, i) => <div className="ax-fix-failure" key={i}>
+        <div className="ax-fix-failure-head"><strong>실패 {i + 1}</strong>{failures.length > 1 ? <Button type="button" variant="outline" size="sm" onClick={() => setFailures(current => current.filter((_, j) => j !== i))}>삭제</Button> : null}</div>
+        <AxFixField label="실패 기능" value={failure.feature} onChange={value => patchFailure(i, { feature: value })} rows={1} maxLength={500} />
+        <AxFixField label="기대 결과" value={failure.expected} onChange={value => patchFailure(i, { expected: value })} rows={2} maxLength={2000} />
+        <AxFixField label="실제 결과" value={failure.actual} onChange={value => patchFailure(i, { actual: value })} rows={2} maxLength={2000} />
+        <AxFixField label="오류 내용" hint="개인정보·키·토큰은 [REDACTED]로 가리고 필요한 부분만 입력하세요. 로그 전체를 복사하지 마세요." value={failure.error} onChange={value => patchFailure(i, { error: value })} rows={2} maxLength={2000} />
+        <AxFixField label="재현 절차" value={failure.reproduction} onChange={value => patchFailure(i, { reproduction: value })} rows={2} maxLength={2000} />
+      </div>)}
+      <div className="ax-actions"><Button type="button" variant="outline" onClick={() => setFailures(current => [...current, emptyAxFixDraftFailure()])}>실패 항목 추가</Button></div>
+      <AxFixField label="유지할 정상 기능 (한 줄에 1건)" value={keptText} onChange={setKeptText} rows={2} maxLength={5000} />
+      <AxFixField label="현재 구현 프로그램 목적·코드·버전" value={implementationNote} onChange={setImplementationNote} rows={2} maxLength={2000} />
+      <AxFixField label="적용된 업무 규칙" value={rulesNote} onChange={setRulesNote} rows={2} maxLength={2000} />
+      <AxFixField label="미확정 업무 규칙 (한 줄에 1건, 사용자 확인 필요 항목)" value={unconfirmedText} onChange={setUnconfirmedText} rows={2} maxLength={5000} />
+      <AxFixField label="테스트 실행 실패 사유 (실행 자체가 안 된 경우)" value={testRunFailure} onChange={setTestRunFailure} rows={2} maxLength={2000} />
+      {formError ? <p role="status" className="ax-copy-error">{formError}</p> : null}
+      {savedMessage ? <p role="status" className="ax-muted">{savedMessage}</p> : null}
+      <div className="ax-actions"><Button type="button" onClick={saveRound}>검증 결과 저장</Button></div>
+      {verificationResults?.length ? <div className="ax-fix-rounds">
+        <h5>저장된 검증 라운드</h5>
+        <ul role="list">{verificationResults.map((round, i) => <li key={`${round.reportedAt}-${i}`}>{new Date(round.reportedAt).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })} · 실패 {round.failures.length}건 — {round.failures.map(failure => failure.feature).join(" / ")}</li>)}</ul>
+        <p className="ax-muted">이전 라운드 실패 항목이 이번 입력과 겹치면 지시문에서 반복 실패 확인 대상으로 표시됩니다.</p>
+      </div> : null}
+      {preview ? <div className="ax-fix-preview"><AxPrompt key={preview} prompt={preview} name="수정·보완" copySuffix="지시문" /></div> : <p className="ax-muted">실패 기능을 1건 이상 입력하면 수정·보완 지시문 미리보기가 표시됩니다.</p>}
+    </>}
+  </section>;
+}
+
+export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenerate, reviewProps, exampleResults, activeTool: controlledTool, onToolChange, onGoToCheck, verificationResults, onSaveVerificationResults }: {
   diagnosis: AxDiagnosis;
   taskName: string;
   taskContext: string;
@@ -986,6 +1098,10 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
   onToolChange?: (tool: AxToolId) => void;
   /** ① 항목의 확인·수정 위치(업무 진단)로 이동한다. */
   onGoToCheck: () => void;
+  /** 저장된 검증 라운드 (없으면 라운드 목록 미표시). */
+  verificationResults?: VerificationResult[];
+  /** 검증 라운드 저장 핸들러 (없으면 저장 버튼이 안내만 표시). */
+  onSaveVerificationResults?: (round: VerificationResult) => void;
 }) {
   const profile = executionProfile(diagnosis);
   const gate = profile.gate;
@@ -1034,6 +1150,7 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
           </Tabs> : <p className="ax-muted">도구별 구현 계획 생성 후 올인원 지시문 확인</p>}
       </>}
     </section>
+    <AxFixPromptSection diagnosis={diagnosis} plan={activePlan} taskName={taskName} taskContext={taskContext} prerequisites={prerequisites} hitlReviews={reviewProps?.reviews} hitlTool={activeTool} exampleResults={exampleResults} gate={gate} verificationResults={verificationResults} onSaveVerificationResults={onSaveVerificationResults} />
     {gate !== "blocked" && (plans.codex || plans.claude) ? <section className="ax-plan-guide" aria-label="설치·시작 가이드">
       <Accordion className="ax-guide">
         <AccordionItem value="setup" className="ax-guide-item">

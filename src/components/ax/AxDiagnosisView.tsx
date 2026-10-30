@@ -68,12 +68,13 @@ function NeedsCheckLink({ tasks, label, disabled, onGo }: { tasks: AxTask[]; lab
 /** 선택 업무의 결과·로드맵 래퍼: 도구 선택 상태를 소유해 로드맵·01~03·04가
  * 같은 도구의 확정 검토를 따르게 한다. key로 업무 전환 시 remount돼 상태가
  * 초기화되는 점은 기존 AxPlanSection key 동작과 동일하다. */
-function AxSelectedReport({ task, busy, onGenerate, onSaveReview, onGoToCheck }: {
+function AxSelectedReport({ task, busy, onGenerate, onSaveReview, onGoToCheck, onSaveVerificationResults }: {
   task: AxTask;
   busy: string | null;
   onGenerate: (target: AxToolId) => void;
   onSaveReview: (r: Omit<import("@/lib/ax/types").HitlReview, "id" | "reviewedAt" | "updatedAt"> & { id?: string }) => { saved: boolean; reason?: string };
   onGoToCheck: () => void;
+  onSaveVerificationResults: (round: import("@/lib/ax/types").VerificationResult) => void;
 }) {
   // 호출 지점은 selected.diagnosis가 있는 경우에만 이 래퍼를 렌더링한다.
   const diagnosis = task.diagnosis as AxDiagnosis;
@@ -94,6 +95,8 @@ function AxSelectedReport({ task, busy, onGenerate, onSaveReview, onGoToCheck }:
       activeTool={activeTool}
       onToolChange={setSelectedTool}
       onGoToCheck={onGoToCheck}
+      verificationResults={(task as import("@/lib/ax/types").AxTaskV2).verificationResults ?? []}
+      onSaveVerificationResults={onSaveVerificationResults}
     />
   </>;
 }
@@ -274,6 +277,18 @@ export function AxDiagnosisView() {
         ? { ...t, exampleResults: examples, updatedAt: now } as import("@/lib/ax/types").AxTaskV2 : t),
     }));
     setMessage("업무 처리 예시를 저장했습니다.");
+  }
+  /** MVP 검증 → 수정·보완 — 검증 라운드 저장: exampleResults와 같은 저장 경로로,
+   * 업무 단위 verificationResults 필드에 사용자가 입력한 라운드만 추가한다.
+   * 보고 일시가 라운드 구분자이며, 기존 라운드는 삭제·수정하지 않는다. */
+  function saveVerificationResults(taskId: string, round: import("@/lib/ax/types").VerificationResult) {
+    const now = new Date().toISOString();
+    update(current => ({
+      ...current,
+      tasks: current.tasks.map(t => t.id === taskId
+        ? { ...t, verificationResults: [...((t as import("@/lib/ax/types").AxTaskV2).verificationResults ?? []), round], updatedAt: now } as import("@/lib/ax/types").AxTaskV2 : t),
+    }));
+    setMessage("검증 결과를 저장했습니다.");
   }
   // 단계 전환 후 새 단계의 최상단으로 스크롤 (이전 화면의 스크롤 위치가 유지되지 않도록)
   // 실제 스크롤 주체는 document(window) — #workspace-content(.workspace)는 스크롤 컨테이너가 아니므로
@@ -862,7 +877,7 @@ export function AxDiagnosisView() {
           </aside>
           {selected?.diagnosis ? <article className="ax-selected-report" aria-label={`${selected.name} 결과·로드맵`}>
             <header className="ax-report-intro"><div><span className="ax-report-eyebrow">선택한 업무 · 결과·로드맵</span><div className="ax-title-group"><h2>{selected.name}</h2><AxLevelBadge level={automationLevel(selected.diagnosis)} className="ax-level-badge" /><Badge className="ax-status-badge">{STATUS[taskDisplayStatus(selected).status]}</Badge>{taskDisplayStatus(selected).needsCheck ? <span className="ax-status-note">추가 질문 필요</span> : null}</div></div><Button type="button" variant="outline" size="sm" onClick={() => goToDiagnosis(selected.id)}>업무 진단으로 이동</Button></header>
-            <AxSelectedReport key={selected.id} task={selected} busy={busy} onGenerate={target => void generatePlan(selected, target)} onSaveReview={r => saveHitlReview(selected.id, r)} onGoToCheck={() => goToDiagnosis(selected.id)} />
+            <AxSelectedReport key={selected.id} task={selected} busy={busy} onGenerate={target => void generatePlan(selected, target)} onSaveReview={r => saveHitlReview(selected.id, r)} onGoToCheck={() => goToDiagnosis(selected.id)} onSaveVerificationResults={round => saveVerificationResults(selected.id, round)} />
           </article> : <p className="ax-muted">우선순위에서 업무 선택 후 상세 결과 확인</p>}
         </>}
       </TabsPanel>

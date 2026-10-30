@@ -1,5 +1,5 @@
 import type { AxDiagnosis, AxPlan, ExampleResult } from "./types";
-import { automationLevel, axes, executionProfile, prerequisiteTopicKey, type ExecutionGate, type ExecutionProfile, type StepScope } from "./policy";
+import { automationLevel, axes, executionProfile, gateBlockReasons, prerequisiteTopicKey, type ExecutionGate, type ExecutionProfile, type StepScope } from "./policy";
 import { FACTOR_KEYS } from "./schema";
 import { applyStateDefinition, confirmedStateNames, declaredStateCount, isUndecidableStateInvalid, resolveDecisionPoints, undecidedDecisionIds, validatedUndecidableState, type ResolvedDecisionPoint } from "./decision-points";
 import { EXAMPLE_CONFIRM_REASON, EXAMPLE_CONFIRMED_MINIMUM, EXAMPLE_HOLD_REASON, exampleHoldReasons, exampleRequirement, exampleResultRow, partitionExamples } from "./example-results";
@@ -257,7 +257,7 @@ export function setupGuide(tool: AxToolId): AxGuideStep[] {
         text("해당 기능이 존재하지 않는 프로젝트에서는 관련 없는 확인 항목을 필수 조건으로 취급하지 않습니다."),
       ] },
       { title: "AI 코딩 에이전트에게 기능 검증 요청", blocks: [
-        code(["완성한 프로그램을 실제 사용 상황처럼 테스트해 줘. 주요 기능에 정상적인 입력과 잘못된 입력을 각각 사용하고, 처리 결과가 요구사항과 일치하는지 확인해 줘. 데이터 저장 기능이 있다면 저장 후 다시 실행하거나 새로고침해도 데이터가 올바르게 유지되는지 검증해 줘. 웹서비스라면 실제 배포된 환경의 주요 기능을 확인하고, 로컬 자동화 프로그램이라면 해당 실행 환경에서 테스트해 줘. 실제로 실행한 테스트와 실행하지 못한 테스트를 구분하고, 실패한 항목의 원인 및 필요한 수정 사항을 보고해 줘. 검증하지 못한 기능은 완료로 표시하지 마."], []),
+        code(["완성한 프로그램을 실제 사용 상황처럼 직접 실행해 테스트해 줘. (1) 프로그램이 실제로 실행되는지, (2) 핵심 기능이 구현됐는지, (3) 입력 데이터를 올바르게 처리하는지, (4) 실제 출력 결과가 무엇인지, (5) 사용자 확정한 업무 규칙이 반영됐는지, (6) 정상·경계·실패 사례에서 어떻게 동작하는지, (7) 사용자 확인·승인 등 사람 검토 제한을 지키는지, (8) 미구현 기능과 오류가 무엇인지, (9) 검증되지 않은 기능이 무엇인지를 확인해 줘. 주요 기능에 정상적인 입력과 잘못된 입력을 각각 사용하고, 처리 결과가 요구사항과 일치하는지 확인해 줘. 데이터 저장 기능이 있다면 저장 후 다시 실행하거나 새로고침해도 데이터가 올바르게 유지되는지 검증해 줘. 웹서비스라면 실제 배포된 환경의 주요 기능을 확인하고, 로컬 자동화 프로그램이라면 해당 실행 환경에서 테스트해 줘. 각 항목을 통과(PASS)·실패(FAIL)·미실행(NOT_RUN)·차단(BLOCKED)으로 구분해 보고하고, 근거로 실제 테스트 입력·기대 결과·실제 결과·오류 메시지·실패한 테스트·실행 환경과 코드 버전·재현 방법을 함께 적어 줘. 기대 결과나 업무 규칙이 확정되지 않았다면 AI가 임의로 정답을 만들지 말고 미확정으로 구분해 보고해 줘. 실행하지 못한 테스트는 미검증으로 구분하고, HTTP 200 응답이나 빌드 성공만으로 업무 기능이 통과했다고 표시하지 마. 실패한 항목의 원인 및 필요한 수정 사항을 보고해 줘. 검증하지 못한 기능은 완료로 표시하지 마."], []),
       ] },
       { title: "완료 판정", blocks: [
         text("주요 기능이 요구사항대로 작동하고 필요한 검증을 통과했다면 완료로 판단할 수 있습니다. 실패했거나 확인하지 못한 항목은 별도로 기록하고 수정한 뒤 다시 검증하세요."),
@@ -2974,4 +2974,260 @@ ${stateList ? `\n결과 상태 목록: ${stateList} — 지시문 전체에서 �
   // D4 단일 정의는 생성 출력에만 적용한다 (저장된 진단 원문은 고치지 않는다).
   // 보호한 사용자 입력 블록은 치환 후 원래 내용으로 되돌린다.
   return applyStateDefinition(prompt, stateNames).replace(/\u0000(\d+)\u0000/gu, (_, index: string) => userBlocks[Number(index)]);
+}
+
+/**
+ * MVP 검증 → 수정·보완 지시문 생성기. 04 생성기(buildAllInOnePrompt)와는 별도
+ * 출력이며, 04 본문·모델·planSummary·HITL 적용 로직을 바꾸지 않는다. 모델은
+ * buildAgentInstructionModel()로 읽기 전용으로만 재사용해 04와 동일한 범위·
+ * 기준·보류·제외·승인 경계 판정을 얻는다. 입력은 모두 사용자 제공 검증 결과다:
+ * WorkLens가 구현 코드나 실행 로그에 접근하지 못하므로, 지시문은 "사용자 제공
+ * 결과"와 "코딩 에이전트가 실제 코드·실행 결과로 직접 확인해야 할 사항"을
+ * 문장으로 구분한다. 날짜·라운드 구분은 호출 측이 넘긴 보고 일시로만 표시하고,
+ * 코드 변경 이력은 Git에 위임한다 (WorkLens 내부 형상관리 없음).
+ */
+export interface AxVerificationFailure {
+  /** 실패 기능명. 원본 범위의 단계명과 같은 표기를 권장한다. */
+  feature: string;
+  /** 기대 결과 (사용자 제공). 없으면 "사용자 제공 없음"으로 명시한다. */
+  expected?: string;
+  /** 실제 결과 (사용자 제공). */
+  actual?: string;
+  /** 오류 내용. 개인정보·키·토큰은 입력 단계에서 [REDACTED]로 가린 필요 부분만 받는다. */
+  error?: string;
+  /** 재현 절차 (사용자 제공). */
+  reproduction?: string;
+}
+export interface AxVerificationInput {
+  /** 이번 라운드의 실패 항목. 빈 배열이면 지시문 대신 안내 문구를 반환한다. */
+  failures: AxVerificationFailure[];
+  /** 유지해야 할 정상 기능 (사용자 지정). */
+  keptFeatures?: string[];
+  /** 현재 구현 프로그램의 목적·코드·버전 등 사용자 제공 구현 정보. */
+  implementationNote?: string;
+  /** 적용된 업무 규칙 (사용자 제공). */
+  rulesNote?: string;
+  /** 사용자 확인이 필요한 미확정 업무 규칙 목록. 임의 확정하지 않는다. */
+  unconfirmedRules?: string[];
+  /** 테스트 실행 자체가 실패한 경우 그 사유 (환경 문제와 기능 오류 구분용). */
+  testRunFailure?: string;
+  /** 이번 라운드 보고 일시 (라운드 구분용). 생성기가 현재 시각을 만들지 않는다. */
+  reportedAt?: string;
+  /** 이전 라운드 보고 일시 (있으면 함께 표시한다). */
+  previousReportedAt?: string;
+  /** 이전 라운드에 보고됐던 실패 기능명 목록. 이번 라운드와 겹치면 반복 실패 확인 대상으로 표시한다. */
+  previousFailureNames?: string[];
+}
+export interface AxFixPromptOptions {
+  taskName?: string;
+  prerequisites?: string[];
+  diagnosis?: AxDiagnosis;
+  context?: string;
+  hitlReviews?: import("./types").HitlReview[];
+  hitlTool?: "codex" | "claude";
+  exampleResults?: ExampleResult[];
+}
+export function buildFixPrompt(rawPlan: AxPlan | undefined, options: AxFixPromptOptions = {}, input: AxVerificationInput): string {
+  const model = buildAgentInstructionModel(rawPlan, options);
+  const title = `# ${(options.taskName?.trim() || "업무")} 수정·보완 지시문`;
+  const gate = model.gate;
+  if (gate === "blocked") {
+    const reasons = options.diagnosis ? gateBlockReasons(options.diagnosis) : ["Decision Gate에서 진행 불가(no-go)로 판정되었습니다."];
+    return `${title}\n\n현재 진단에서는 구현 계획 생성이 차단되어 수정·보완 지시문을 만들 수 없습니다. 차단 사유가 해결된 뒤 다시 생성하세요.\n\n차단 사유:\n${reasons.map(reason => `- ${reason}`).join("\n")}`;
+  }
+  const failures = input.failures.filter(failure => failure.feature.trim());
+  if (!failures.length) {
+    return `${title}\n\n수정 대상이 없습니다. 검증 결과에서 실패한 기능을 먼저 기록한 뒤 다시 생성하세요. 실패 항목이 없으면 수정 지시문 대신 검증 결과를 그대로 보관하세요.`;
+  }
+  const norm = (value: string) => value.replace(/\s+/gu, "");
+  const matches = (a: string, b: string) => {
+    const na = norm(a), nb = norm(b);
+    return Boolean(na && nb && (na === nb || na.includes(nb) || nb.includes(na)));
+  };
+  const excludedNames = [
+    ...(model.hitlDetails?.excluded.map(entry => entry.name) ?? []),
+    ...model.classified.filter(item => item.role === "excluded").map(item => item.text),
+  ];
+  const deferredNames = [
+    ...(model.hitlDetails?.deferred.map(entry => entry.name) ?? []),
+    ...(model.hitlDetails?.removedSteps?.filter(step => step.action === "defer").map(step => step.step) ?? []),
+  ];
+  const deferredDetails = model.hitlDetails?.deferred ?? [];
+  type ClassifiedFailure = { failure: AxVerificationFailure; kind: "target" | "excluded" | "deferred" | "human" | "future"; step?: string; scopeNote: string };
+  const classified: ClassifiedFailure[] = failures.map(failure => {
+    const step = model.steps.find(item => matches(item.step, failure.feature));
+    const stepDisposition = hitlDispositionForStep(model, failure.feature);
+    const textDisposition = hitlDispositionForText(model, failure.feature);
+    if (stepDisposition?.action === "exclude" || textDisposition?.action === "exclude" || excludedNames.some(name => matches(name, failure.feature))) {
+      return { failure, kind: "excluded", step: step?.step, scopeNote: "제외 항목 — 현재 구현 범위에서 제외된 항목이므로 수정 대상이 아닙니다." };
+    }
+    if (stepDisposition?.action === "defer" || textDisposition?.action === "defer" || deferredNames.some(name => matches(name, failure.feature))) {
+      return { failure, kind: "deferred", step: step?.step, scopeNote: "보류 항목 — 보류 사유와 재개 조건이 확인되기 전에는 수정 대상이 아닙니다." };
+    }
+    if (step?.scope === "human") return { failure, kind: "human", step: step.step, scopeNote: "사용자 수행 단계 — 프로그램 수정 대상이 아니라 사용자가 직접 수행하는 단계입니다." };
+    if (step?.scope === "future") return { failure, kind: "future", step: step.step, scopeNote: "향후 단계 — 현재 구현 범위가 아니므로 수정 대상이 아닙니다." };
+    return { failure, kind: "target", step: step?.step, scopeNote: step ? `원본 범위 단계: ${step.step}` : "원본 범위에서 확인되지 않은 항목 — 실제 구현에서 해당 기능의 존재 여부를 먼저 확인하고, 없으면 수정 대상에서 제외하고 보고하세요." };
+  });
+  const targets = classified.filter(entry => entry.kind === "target");
+  const notTargets = classified.filter(entry => entry.kind !== "target");
+  const previousNames = (input.previousFailureNames ?? []).filter(name => name.trim());
+  const userKept = (input.keptFeatures ?? []).map(name => name.trim()).filter(Boolean);
+  const modelKept = model.scoped.features.map(item => item.text)
+    .filter(text => !failures.some(failure => matches(text, failure.feature)))
+    .filter((text, index, all) => all.findIndex(other => norm(other) === norm(text)) === index);
+  const kept = [...userKept, ...modelKept.filter(text => !userKept.some(keptName => matches(keptName, text)))];
+  const criteriaFor = (entry: ClassifiedFailure) => entry.step
+    ? model.scoped.criteria.filter(item => item.step === entry.step).map(item => item.text)
+    : [];
+  const targetLines = targets.map(entry => {
+    const { failure } = entry;
+    const given = (value: string | undefined) => value?.trim() ? value.trim() : "사용자 제공 없음 — 에이전트가 직접 재현·확인";
+    const repeat = previousNames.some(name => matches(name, failure.feature));
+    const criteria = criteriaFor(entry);
+    return [
+      `- ${failure.feature} (${entry.scopeNote})`,
+      `  사용자 보고 — 기대 결과: ${given(failure.expected)}`,
+      `  사용자 보고 — 실제 결과: ${given(failure.actual)}`,
+      `  사용자 보고 — 오류: ${given(failure.error)}`,
+      `  사용자 보고 — 재현 절차: ${given(failure.reproduction)}`,
+      `  에이전트 확인 사항: ${criteria.length ? `이 기능의 완료 기준에 대조해 실제 실행 결과로 확인하세요 — ${criteria.join(" / ")}` : "이 기능의 단계별 완료 기준과 실패 판정 기준에 대조해 실제 실행 결과로 확인하세요."}`,
+      ...(previousNames.length ? [repeat
+        ? "  반복 실패 확인 대상: 이전 라운드에도 보고된 문제입니다. 동일 원인이 반복되는지 확인하고, 이전 수정이 왜 유지되지 않았는지 보고하세요."
+        : "  신규 실패: 이전 라운드에 없던 문제입니다. 이전 라운드 항목과 별도로 구분해 보고하세요."] : []),
+    ].join("\n");
+  });
+  const sections: Array<{ title: string; body: string }> = [];
+  const bullets = (items: string[]) => items.map(item => `- ${item}`).join("\n");
+  const nonEmpty = (value: string | undefined) => value?.trim() ? value.trim() : undefined;
+  sections.push({
+    title: "전제 — 사용자 제공 결과와 에이전트 확인 사항의 구분",
+    body: [
+      "아래 '검증 결과(사용자 제공)'는 사용자가 실제 실행에서 확인해 전달한 내용이며, WorkLens가 구현 코드나 실행 로그에 직접 접근해 검증한 것이 아닙니다.",
+      "코딩 에이전트는 이를 단서로 삼아 실제 코드와 실행 결과로 직접 확인하고, 사용자 제공 내용과 다르면 실제 실행 결과를 우선해 보고하세요.",
+      "사용자 제공 내용이 없는 항목은 '사용자 제공 없음 — 직접 재현·확인'으로 명시했습니다. 없는 정보를 꾸며내지 마세요.",
+      ...(input.reportedAt ? [`이번 라운드 보고 일시: ${input.reportedAt}`] : []),
+      ...(input.previousReportedAt ? [`이전 라운드 보고 일시: ${input.previousReportedAt}`] : []),
+      ...(previousNames.length ? [`이전 라운드 보고 항목: ${previousNames.join(" / ")} — 이번 라운드 수정 대상에 없는 이전 항목은 불필요하게 다시 수정하지 마세요.`] : []),
+      `현재 구현 프로그램: ${nonEmpty(input.implementationNote) ?? "사용자 제공 없음 — 저장소에서 구현 상태와 코드 버전을 직접 확인하세요."}`,
+      `적용된 업무 규칙: ${nonEmpty(input.rulesNote) ?? "사용자 제공 없음 — 04 지시문의 구현 범위와 확정 규칙에서 확인하세요."}`,
+    ].join("\n"),
+  });
+  sections.push({
+    title: "기존 구현 확인",
+    body: [
+      "대상 저장소를 먼저 확인하세요. 현재 구현 상태, 적용된 코드 버전, 실행 환경, 오류가 발생한 경로를 실제 저장소와 실행 결과로 확인하세요.",
+      "확인되지 않은 파일명·함수명·API를 추측하지 마세요. 저장소에서 확인할 수 없는 사항은 확인 필요로 보고하세요.",
+      "오류 전달 시 개인정보·API Key·Token·Password는 [REDACTED]로 가린 필요한 부분만 다루고, 로그 전체를 무조건 복사하지 마세요 (STEP 04 '실패 시' 원칙).",
+    ].join("\n"),
+  });
+  sections.push({
+    title: "수정 대상",
+    body: targets.length
+      ? targetLines.join("\n")
+      : "이번 라운드에서 수정할 수 있는 대상이 없습니다. 아래 '수정 대상 아님' 항목만 보고됐으므로, 보류·제외·사용자 수행·향후 항목을 임의로 구현하지 마세요.",
+  });
+  if (notTargets.length) {
+    sections.push({
+      title: "수정 대상 아님 — 건드리지 말 것",
+      body: notTargets.map(entry => {
+        const detail = entry.kind === "deferred"
+          ? deferredDetails.find(item => matches(item.name, entry.failure.feature))
+          : undefined;
+        return `- ${entry.failure.feature} (${entry.scopeNote})${detail?.reason ? ` 보류 사유: ${detail.reason}` : ""}${detail?.resumeCondition ? ` 재개 조건: ${detail.resumeCondition}` : ""}`;
+      }).join("\n"),
+    });
+  }
+  sections.push({
+    title: "오류 원인 분석",
+    body: [
+      "각 수정 대상의 재현 절차와 실제 실행 결과로 원인을 분석하세요. 재현 가능한 근거가 없는 상태에서 특정 파일·함수·코드가 문제라고 단정하지 마세요.",
+      "원인이 확인되지 않았다면 원인 미확인으로 보고하고, 추측한 원인을 확정된 원인처럼 적지 마세요.",
+      ...(targets.some(entry => !entry.failure.error?.trim())
+        ? ["오류 내용이 제공되지 않은 항목이 있습니다. 확인 사실과 미확정 원인을 구분해 보고하고, 실행 결과를 직접 재현해 확인하세요. 실행 결과를 창작하지 마세요."]
+        : []),
+    ].join("\n"),
+  });
+  const unconfirmed = (input.unconfirmedRules ?? []).map(rule => rule.trim()).filter(Boolean);
+  sections.push({
+    title: "최소 범위 수정",
+    body: [
+      "기존 구조를 유지하고, 확인된 부분만 최소 범위로 수정하세요.",
+      "프로그램 전체를 처음부터 다시 작성하지 마세요.",
+      "사용자가 확정하지 않은 업무 규칙을 새로 만들지 마세요.",
+      ...(unconfirmed.length ? [`사용자 확인 필요 항목(미확정 업무 규칙): ${unconfirmed.join(" / ")} — 이 항목들은 임의로 확정하지 말고 사용자 확인을 받아야 합니다.`] : []),
+      "테스트 통과를 위해 기대 결과를 하드코딩하지 마세요.",
+      "보류·제외 항목을 임의로 구현하지 마세요.",
+      "기존 정상 기능을 불필요하게 수정하지 마세요.",
+    ].join("\n"),
+  });
+  sections.push({
+    title: "유지할 정상 기능 — 수정하지 말고 회귀만 확인",
+    body: kept.length
+      ? bullets(kept.map(name => `${name} — 이 기능은 수정하지 마세요. 재검증에서 이전과 동일하게 동작하는지만 확인하세요.`))
+      : "사용자가 지정한 유지 기능이 없고, 원본 범위에서 실패 목록에 없는 기능이 확인되지 않았습니다. 수정 범위를 넓히지 말고 수정 대상만 다루세요.",
+  });
+  sections.push({
+    title: "실제 기능 재검증",
+    body: [
+      "수정 후에는 다음 항목을 모두 확인하고, 각 항목을 해결 확인 / 일부 해결 / 미해결 / 미검증으로 구분해 보고하세요.",
+      "1. 이전 실패 항목이 해결됐는지 — 같은 실패 사례를 다시 실행해 기대 결과와 비교하세요.",
+      "2. 동일 입력에서 기대 결과가 나오는지 확인하세요.",
+      "3. 변경된 입력에서도 기존 업무 규칙을 준수하는지 확인하세요.",
+      "4. 기존 정상 기능이 유지되는지 확인하세요.",
+      "5. 신규 오류가 없는지 확인하세요.",
+      "6. 미구현·미검증 항목이 남아 있는지 확인하세요.",
+      "수정 전 실패 항목이 통과했더라도, 유지할 정상 기능의 회귀 확인이 끝나기 전에는 완료로 보고하지 마세요.",
+      "실행 증거 없이 해결 완료로 판정하지 마세요. 실행하지 않은 테스트는 미검증으로 표시하세요.",
+      "HTTP 200 응답이나 빌드 성공만으로 업무 기능이 통과했다고 표시하지 마세요.",
+    ].join("\n"),
+  });
+  sections.push({
+    title: "회귀 검증",
+    body: [
+      "수정으로 인한 신규 오류가 있는지 관련 정상 기능을 다시 검증하세요.",
+      "회귀 오류가 발생하면 해결 완료로 판정하지 마세요. 회귀 오류의 원인과 범위를 별도로 보고하세요.",
+      "이전 라운드에서 해결된 문제는 불필요하게 다시 수정하지 마세요. 새로 발견된 문제는 별도로 구분하고, 최초 구현 결과와 수정 후 결과를 혼동하지 마세요.",
+      "동일 문제가 반복 실패하는지 확인하세요. 같은 수정을 무한히 반복하지 마세요. 반복 실패 시 원인을 다시 분석해 보고하고 사용자 확인을 받으세요.",
+    ].join("\n"),
+  });
+  sections.push({
+    title: "결과 보고",
+    body: [
+      "작업이 끝나면 다음 4개 항목으로 보고하세요. 각 항목의 완료 여부는 실제 실행 근거를 기준으로 판단하고, 실행하지 않은 테스트나 배포를 완료로 표시하지 마세요.",
+      "1. 구현한 기능 및 변경 파일",
+      "2. 실제 실행·테스트 결과 (실행하지 않은 검증은 미실행으로 명시)",
+      "3. 미완료·보류 사항 및 사유",
+      "4. Git·배포·운영 적용 상태",
+      "실패 결과를 숨기거나 완료 표시로 바꾸지 마세요. 남은 문제는 남은 문제대로 구분해 보고하세요.",
+      "작업 전후로 `git status`, 현재 branch, `git diff`를 확인하고, 의도한 파일만 `git add <파일>`로 stage하세요 (`git add .` 금지). force push, `git reset --hard` 같은 파괴적인 명령을 사용하지 마세요.",
+    ].join("\n"),
+  });
+  const approvalLines = approvalConstraints(model);
+  const supplements = model.hitlDetails?.supplements ?? [];
+  const points = model.decisionPoints ?? [];
+  const stateNames = confirmedStateNames(points);
+  const d5Invalid = isUndecidableStateInvalid(points);
+  const d5State = stateNames && !d5Invalid ? validatedUndecidableState(points) : null;
+  sections.push({
+    title: "예외 처리와 승인 경계",
+    body: [
+      ...(input.testRunFailure?.trim() ? [`테스트 실행 실패 보고: ${input.testRunFailure.trim()} — 환경 문제와 기능 오류를 구분하세요. 환경 문제가 해결되지 않은 상태에서는 기능 오류로 단정하지 마세요.`] : []),
+      "검증 자료가 부족한 항목은 확인 사실과 미확정 원인을 구분해 보고하고, AI가 실행 결과를 창작하지 마세요.",
+      "업무 규칙이 미확정인 항목은 사용자 확인 필요 항목으로 분류하고 임의로 확정하지 마세요.",
+      "코드 접근이 불가한 경우 구체적인 코드 수정이 완료됐다고 주장하지 마세요. 저장소에서 확인할 사항을 포함해 보고하세요.",
+      "수정으로 새로운 오류가 발생하면 관련 정상 기능을 다시 검증하고, 회귀 오류가 있는 상태에서는 해결 완료로 판정하지 마세요.",
+      ...(stateNames ? [`확정 결과 상태 목록(D4): ${stateNames.join(" · ")}`] : []),
+      ...(d5Invalid ? ["D5에 적힌 판정 불가 상태명은 D4 확정 목록에 없는 상태명이므로 유효하지 않습니다. 미확정 규칙 행을 해당 상태로 임의 전송하지 말고, 판정 불가 행은 보류로 두고 사유와 함께 보고하세요."] : []),
+      ...(d5State ? [`판정 불가 행은 D5 확정 상태 '${d5State}'로 보내세요. 확정 가능 행까지 해당 상태로 보내는 구현은 완료가 아닙니다.`] : []),
+      ...(supplements.length ? [`사람 검토 보완 요구사항: ${supplements.map(item => `${item.name} — ${item.content}`).join(" / ")}`] : []),
+      ...(approvalLines.length ? [`승인 경계: ${approvalLines.join(" / ")}`] : []),
+      ...(model.hitlDetails?.deferred.length ? [`보류 항목: ${model.hitlDetails.deferred.map(item => `${item.name}${item.reason ? ` (사유: ${item.reason})` : ""}${item.resumeCondition ? ` (재개 조건: ${item.resumeCondition})` : ""}`).join(" / ")} — 보류 항목을 임의로 구현하지 마세요.`] : []),
+      ...(model.hitlDetails?.excluded.length ? [`제외 항목: ${model.hitlDetails.excluded.map(item => item.name).join(" / ")} — 제외 항목을 임의로 구현하지 마세요.`] : []),
+      "AI 테스트 통과와 사용자 최종 승인은 다릅니다. 구현 / AI 검증 완료 / 사용자 검토 / 최종 승인 / 실제 업무 운영 적용은 별개의 단계입니다.",
+      "업무 규칙 확정, 보류·제외 변경, 운영 배포 승인, 실제 업무 적용 승인은 사용자가 수행하며, AI가 대신 확정·승인하지 마세요.",
+      "1차 MVP나 일부 검증 성공을 운영 가능 상태로 자동 변경하지 마세요. 사용자 승인 없이 운영 배포하지 마세요.",
+    ].join("\n"),
+  });
+  const body = sections.filter(section => section.body.trim()).map((section, index) => `## ${index + 1}. ${section.title}\n\n${section.body}`).join("\n\n");
+  return `${title}\n\n${body}`;
 }

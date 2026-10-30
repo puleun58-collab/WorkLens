@@ -1149,3 +1149,13 @@
 .ax-scope-summary-criteria dt { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: var(--font-weight-medium); }
 .ax-scope-summary-criteria dd { margin: 0; font-size: 14px; line-height: 1.6; }
 .ax-scope-summary-criteria dd ul { display: grid; gap: 4px; }
+
+/* MVP 검증 → 수정·보완: 04 아래 소형 섹션. 기본 세로 쌓기라 모바일·데스크톱 모두 같은 구조. */
+.ax-fix-failure { display: grid; gap: 10px; margin: 14px 0; padding: 14px; border: 1px solid var(--border); border-radius: 8px; }
+.ax-fix-failure-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.ax-fix-failure-head strong { font-size: 14px; }
+.ax-fix-rounds { margin-top: 16px; }
+.ax-fix-rounds h5 { margin: 0 0 8px; font-size: 14px; }
+.ax-fix-rounds ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.ax-fix-rounds li { font-size: 14px; line-height: 1.6; }
+.ax-fix-preview { margin-top: 16px; }
