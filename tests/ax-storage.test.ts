@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AxStorageConflictError, clearAxState, loadAxState, saveAxState } from "@/client/ax-store";
 import { emptyAxState } from "@/lib/ax/types";
 import { diagnosisFixture, taskFixture } from "./fixtures/ax";
+import { deriveUnifiedRules, unifiedSavePayloads } from "@/lib/ax/rule-questions";
 
 let record: unknown;
 let failWrite: boolean;
@@ -46,6 +47,20 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("AX original-record compare and write", () => {
+  it("round-trips unified pending D3 and confirmed D6 through storage validation and draft restoration", async () => {
+    const points = [
+      { id: "D3" as const, status: "미확정" as const, detail: "작성 중 메모" },
+      { id: "D6" as const, status: "확정" as const, detail: "빈 파일은 보류" },
+    ];
+    const diagnosis = { ...structuredClone(diagnosisFixture), decisionPoints: points };
+    const payload = unifiedSavePayloads(deriveUnifiedRules(diagnosis), []);
+    const task = taskFixture("draft", { ...diagnosis, decisionPoints: payload.points });
+    await saveAxState({ ...emptyAxState(), tasks: [task], selectedTaskId: task.id }, undefined);
+    const restored = (await loadAxState()).state.tasks[0].diagnosis!;
+    expect(restored.decisionPoints).toEqual(points);
+    expect(deriveUnifiedRules(restored).filter(item => item.kind === "decision" && item.origin === "stored"))
+      .toEqual(points.map(point => ({ kind: "decision", ...point, origin: "stored" })));
+  });
   it("loads an absent record as writable without creating a record", async () => {
     expect(await loadAxState()).toEqual({ state: emptyAxState(), protection: "writable" });
     expect(record).toBeUndefined(); expect(writes).toBe(0);

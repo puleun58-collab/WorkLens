@@ -247,6 +247,52 @@ describe("AX 통합 규칙 도출 — §11 6개 업무 유형 (구조적 필드�
 });
 
 describe("AX 통합 완료 현황·저장 페이로드", () => {
+  it.each(["미확정", "확정"] as const)("D3 %s 상태와 작성 중 메모를 저장하고 초안으로 복원한다", status => {
+    const original = { id: "D3" as const, status, detail: "작성 중 메모" };
+    const { points, rules } = unifiedSavePayloads(deriveUnifiedRules(diagnosis({ decisionPoints: [original] })), []);
+    expect(points).toContainEqual(original);
+    const restored = deriveUnifiedRules(diagnosis({ decisionPoints: JSON.parse(JSON.stringify(points)) }), rules);
+    expect(restored.find(item => item.kind === "decision" && item.id === "D3"))
+      .toEqual({ kind: "decision", ...original, origin: "stored" });
+    expect(resolveDecisionPoints({ decisionPoints: points }).find(point => point.id === "D3")?.detail)
+      .toBe(status === "확정" ? original.detail : undefined);
+  });
+
+  it("작성한 미확정 D 후보 메모는 저장하고 빈 미터치 후보는 저장하지 않는다", () => {
+    const items: UnifiedDecisionDraft[] = [
+      { kind: "decision", id: "D3", status: "미확정", detail: "작성 중 메모", origin: "candidate" },
+      { kind: "decision", id: "D6", status: "미확정", detail: "", origin: "candidate" },
+    ];
+    expect(unifiedSavePayloads(items, []).points).toEqual([{ id: "D3", status: "미확정", detail: "작성 중 메모" }]);
+  });
+
+  const linkedRule: UnifiedGenericDraft = {
+    kind: "generic", id: "R1", name: "예외 규칙", category: "예외·확인 기준",
+    applicability: "적용", status: "확정", detail: "빈칸 확인", source: "", step: "",
+    linkedDecisionId: "D3", origin: "stored",
+  };
+  it.each([
+    ["확정", 1, 1], ["미확정", 0, 1], ["해당 없음", 0, 0],
+  ] as const)("D3 %s + linked R1은 D 상태 기준 한 번만 집계한다", (status, done, total) => {
+    const decision: UnifiedDecisionDraft = { kind: "decision", id: "D3", status, detail: "", origin: "stored" };
+    expect(unifiedRuleProgress([decision, linkedRule])).toEqual({ done, total, applicabilityPending: 0 });
+    expect(unifiedRuleProgress([linkedRule, decision, { ...linkedRule, id: "R2" }]))
+      .toEqual({ done, total, applicabilityPending: 0 });
+  });
+  it.each(["적용", "적용 여부 미확정", "해당 없음"] as const)("연결된 범용 %s 상태가 D의 집계를 중복하거나 덮어쓰지 않는다", applicability => {
+    const decision: UnifiedDecisionDraft = { kind: "decision", id: "D3", status: "미확정", detail: "", origin: "stored" };
+    expect(unifiedRuleProgress([decision, { ...linkedRule, applicability }]))
+      .toEqual({ done: 0, total: 1, applicabilityPending: 0 });
+  });
+  it.each(["D3", undefined] as const)("고아 연결(%s) 또는 연결 없는 범용 규칙은 기존대로 집계한다", linkedDecisionId => {
+    expect(unifiedRuleProgress([
+      { ...linkedRule, linkedDecisionId },
+      { ...linkedRule, id: "R2", linkedDecisionId, status: "미확정" },
+      { ...linkedRule, id: "R3", linkedDecisionId, applicability: "적용 여부 미확정" },
+      { ...linkedRule, id: "R4", linkedDecisionId, applicability: "해당 없음" },
+    ])).toEqual({ done: 1, total: 2, applicabilityPending: 1 });
+  });
+
   it("완료 현황은 저장 전용 값 기준 ruleProgress와 동일한 규칙을 따른다 (해당 없음 제외, 적용 여부 미확정 별도)", () => {
     const items = deriveUnifiedRules(diagnosis({
       decisionPoints: [
@@ -270,7 +316,7 @@ describe("AX 통합 완료 현황·저장 페이로드", () => {
     expect(ruleProgress(points, rules)).toEqual({ done: 2, total: 4, applicabilityPending: 2 });
   });
 
-  it("저장 페이로드: 미확정 D는 빠지고, 미터치 후보는 저장되지 않으며, 터치 후보는 id를 받는다", () => {
+  it("저장 페이로드: 빈 미확정 D 후보는 빠지고, 미터치 범용 후보는 저장되지 않으며, 터치 후보는 id를 받는다", () => {
     const items = deriveUnifiedRules(diagnosis());
     const touched = items.map(item =>
       item.kind === "generic" && item.name === "시스템 접근" ? { ...item, touched: true } : item);
