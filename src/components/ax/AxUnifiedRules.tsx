@@ -101,11 +101,11 @@ export function UnifiedRulesSection({ diagnosis, genericRules, disabled: externa
   const [drafts, setDrafts] = useState<UnifiedRuleDraft[]>(() => deriveUnifiedRules(diagnosis, genericRules));
   const [prevDraftsKey, setPrevDraftsKey] = useState(draftsKey);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "failed">("idle");
-  const submittedDraftsKey = useRef<string | null>(null);
+  const [submittedDraftsKey, setSubmittedDraftsKey] = useState<string | null>(null);
   // Parent state updates precede persistence. Keep the exact draft until saving succeeds.
   if (prevDraftsKey !== draftsKey && saveState !== "saving") {
     setPrevDraftsKey(draftsKey);
-    if (saveState !== "failed" || draftsKey !== submittedDraftsKey.current) {
+    if (saveState !== "failed" || draftsKey !== submittedDraftsKey) {
       setDrafts(deriveUnifiedRules(diagnosis, genericRules));
     }
   }
@@ -143,7 +143,7 @@ export function UnifiedRulesSection({ diagnosis, genericRules, disabled: externa
     try {
       // 저장된 미확정 D와 작성한 메모는 보존하고, 미터치 빈 후보는 저장하지 않는다.
       const { points, rules } = unifiedSavePayloads(drafts, resolveGenericRules(genericRules));
-      submittedDraftsKey.current = JSON.stringify({ d: points, g: resolveGenericRules(rules) });
+      setSubmittedDraftsKey(JSON.stringify({ d: points, g: resolveGenericRules(rules) }));
       setSaveState(await onSave(points, rules) ? "saved" : "failed");
     } catch {
       setSaveState("failed");
