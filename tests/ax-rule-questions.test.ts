@@ -432,3 +432,18 @@ describe("AX 확인 질문 ↔ 처리 규칙 구분 (업무 유형 10종)", () =
     expect(isConfirmationQuestion("")).toBe(false);
   });
 });
+
+describe("AX 도출 규칙 출처 보존", () => {
+  it("도출 후보에서 저장된 규칙은 도출 근거를 표시용으로 받고, 사용자 규칙은 받지 않으며 저장 값은 바뀌지 않는다", () => {
+    const stored: GenericRule[] = [
+      { id: "R1", name: "시스템 접근", category: "예외·확인 기준", applicability: "해당 없음", status: "미확정" },
+      { id: "R2", name: "월말 이월", category: "처리·판단 기준", applicability: "적용", status: "확정" },
+    ];
+    const generic = deriveUnifiedRules(diagnosis(), stored).filter((item): item is UnifiedGenericDraft => item.kind === "generic");
+    const r1 = generic.find(item => item.id === "R1")!;
+    expect(r1.provenance).toContain("시스템 접근");
+    expect(generic.find(item => item.id === "R2")!.provenance).toBeUndefined();
+    expect(generic.filter(item => item.name === "시스템 접근")).toHaveLength(1);
+    expect(unifiedSavePayloads(generic, stored).rules).toEqual(stored);
+  });
+});

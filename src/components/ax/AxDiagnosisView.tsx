@@ -1,6 +1,6 @@
 "use client";
 import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
-import { MoreHorizontal, Upload, Download, Trash2, Pencil, ClipboardList, CircleCheck, Stethoscope, LayoutGrid, Map as MapIcon, ArrowLeft, ArrowRight, Paperclip, FileText, X, Repeat, CalendarCheck, Database, Plug, UserCheck, AlertTriangle, RotateCcw, CircleHelp, SlidersHorizontal, ChevronRight } from "lucide-react";
+import { MoreHorizontal, Upload, Download, Trash2, Pencil, ClipboardList, CircleCheck, Stethoscope, LayoutGrid, Map as MapIcon, ArrowLeft, ArrowRight, Paperclip, FileText, X, Repeat, CalendarCheck, Database, Plug, UserCheck, AlertTriangle, RotateCcw, CircleHelp, SlidersHorizontal, ChevronRight, Info, Sparkles, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -889,7 +889,13 @@ function scrollToSummaryTarget(target: "answers" | "checks") {
     : document.querySelector(".ax-diag-checks");
   el?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
-/** Step 2 selected-task card: name/badges → description → diagnosis summary → 4 score cards → checks. Follow-up questions render once, in the answer section below this card. */
+/** 진단 결과 요약 판정 분포 카드: 단계 판정값(자동화·AI 보조·사람 유지)별 실제 건수를 표시한다. */
+const VERDICT_CARDS = [
+  { verdict: "자동화", label: "자동화 적합", tone: "blue", icon: Zap },
+  { verdict: "AI 보조", label: "AI 보조 적합", tone: "violet", icon: Sparkles },
+  { verdict: "사람 유지", label: "담당자 수행", tone: "green", icon: UserCheck },
+] as const;
+/** Step 2 selected-task card: name/Gate·Level badges + actions → 진단 결과 요약(판정 분포 3카드·핵심 판단 패널) → 확인 필요 항목 목록. Follow-up questions render once, in the answer section below this card. */
 function DiagnosisCard({ task, busy, onDiagnose, onEdit, attachment }: {
   task: AxTask; busy: string | null; onDiagnose: () => void; onEdit: () => void; attachment: ReactNode;
 }) {
@@ -907,12 +913,12 @@ function DiagnosisCard({ task, busy, onDiagnose, onEdit, attachment }: {
       <div className="ax-diag-title">
         <h2>{task.name}</h2>
         <div className="ax-diag-badges">
+          {d && lvl && gate ? <>
+            <span className="ax-gate-badge" data-gate={gate}>{GATE_LABELS[gate]}</span>
+            <AxLevelBadge level={lvl} className="ax-level-badge" />
+          </> : null}
           {display.status === "needs-info" || display.needsCheck ? <Badge className="ax-status-badge">정보 확인 필요</Badge> : null}
           {display.status === "adjusted" ? <Badge className="ax-status-badge">사용자 보정 완료</Badge> : null}
-          {d && lvl && gate ? <>
-            <AxLevelBadge level={lvl} className="ax-level-badge" />
-            <span className="ax-gate-badge" data-gate={gate}>{GATE_LABELS[gate]}</span>
-          </> : null}
         </div>
       </div>
       <div className="ax-diag-actions">
@@ -922,22 +928,34 @@ function DiagnosisCard({ task, busy, onDiagnose, onEdit, attachment }: {
     </div>
     {attachment}
     {d ? <>
-      <div className="ax-diag-summary">
-        <div className="ax-diag-summary-body">
-          <div className="ax-diag-summary-head"><h3>진단 결과 요약</h3>{d.informationSufficiency !== "needs-check" ? <Badge variant={d.informationSufficiency === "sufficient" ? "success" : "warning"}>{SUFFICIENCY[d.informationSufficiency]}</Badge> : null}</div>
-          <dl className="ax-summary-rows">
-            {summary?.verdict || summary?.human ? <div className="ax-summary-row"><dt>핵심 판단</dt><dd>
-              {summary?.verdict ? <span>{summary.verdict}</span> : null}
-              {summary?.human ? <span className="ax-summary-human">{summary.human}</span> : null}
-            </dd></div> : null}
-            <div className="ax-summary-row"><dt>확인 필요</dt><dd>{summary?.check ?? "없음"}</dd></div>
-            <div className="ax-summary-row"><dt>다음 행동</dt><dd>{action?.target ? <Button type="button" variant="outline" size="sm" onClick={() => scrollToSummaryTarget(action.target!)}>{action.label}</Button> : <strong>{action?.label ?? nextAction(d).label}</strong>}</dd></div>
+      <section className="ax-diag-summary" aria-label="진단 결과 요약">
+        <div className="ax-diag-summary-head"><h3>진단 결과 요약</h3>{d.informationSufficiency !== "needs-check" ? <Badge variant={d.informationSufficiency === "sufficient" ? "success" : "warning"}>{SUFFICIENCY[d.informationSufficiency]}</Badge> : null}</div>
+        {/* 단계별 판정 분포: 실제 stepAssessments 판정 건수 (자동화 / AI 보조 / 사람 유지). */}
+        <dl className="ax-verdict-cards">
+          {VERDICT_CARDS.map(card => <div key={card.verdict} className="ax-verdict-card" data-tone={card.tone}>
+            <span className="ax-verdict-icon" aria-hidden="true"><card.icon size={18} /></span>
+            <dt>{card.label}</dt>
+            <dd><strong>{d.stepAssessments.filter(step => step.verdict === card.verdict).length}</strong>개</dd>
+          </div>)}
+        </dl>
+        <div className="ax-judgement" role="group" aria-label="핵심 판단">
+          <div className="ax-judgement-main">
+            <Info size={18} aria-hidden="true" className="ax-judgement-icon" />
+            <div className="ax-judgement-text">
+              <h4>핵심 판단</h4>
+              {/* 판정 분포 건수는 위 3카드가 표시하므로, 담당자 역할 문장이 있으면 그것을, 없으면 분포 요약을 보여 준다. */}
+              <p>{summary?.human ?? summary?.verdict ?? "단계별 판정 정보 없음"}</p>
+            </div>
+          </div>
+          <dl className="ax-judgement-foot">
+            <div><dt>확인 필요</dt><dd>{summary?.check ?? "없음"}</dd></div>
+            <div><dt>다음 단계</dt><dd>{action?.target ? <Button type="button" variant="outline" size="sm" onClick={() => scrollToSummaryTarget(action.target!)}>{action.label}</Button> : <strong>{action?.label ?? nextAction(d).label}</strong>}</dd></div>
           </dl>
-          {d.sourceNote ? <p className="ax-muted ax-diag-source">{d.sourceNote}</p> : null}
         </div>
-      </div>
-      {visibleChecks.length || !checks.length ? <section className="ax-diag-checks" aria-label="확인할 사항">
-        <h3>확인할 사항 {visibleChecks.length}개{(() => { const needCount = visibleChecks.filter(c => c.kind === "need").length; return needCount && needCount !== visibleChecks.length ? ` · 그중 확인 필요 ${needCount}개` : ""; })()}</h3>
+        {d.sourceNote ? <p className="ax-muted ax-diag-source">{d.sourceNote}</p> : null}
+      </section>
+      {visibleChecks.length || !checks.length ? <section className="ax-diag-checks" aria-label="확인 필요 항목">
+        <div className="ax-diag-checks-head"><h3>확인 필요 항목</h3><span className="ax-muted">총 {visibleChecks.length}건 · 확인 필요 {visibleChecks.filter(c => c.kind === "need").length}건</span></div>
         {visibleChecks.length ? <ul>{visibleChecks.map((c, i) => <li key={i}>
           <span className="ax-check-icon"><AxCheckIcon title={c.title} /></span>
           <span className="ax-check-text"><strong>{c.title}</strong>{c.desc ? <small>{c.desc}</small> : null}</span>

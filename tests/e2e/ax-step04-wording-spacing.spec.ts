@@ -77,13 +77,12 @@ test("① 구현 전 확인: 제목 + 요약 배지 + 겹침 없음", async ({ p
   // 제목·다음 섹션 사이 간격이 자연스럽다(겹침 없음).
   // 위쪽·아래쪽 박스를 한 번의 evaluate 안에서 읽는다(스크롤 경합 방지).
   const headNextGap = await block.evaluate(root => {
-    const upper = root.querySelector(".ax-precheck-head");
-    const section = root.closest("section.ax-surface");
-    const lower = section?.querySelector(".ax-scope-summary");
+    const upper = root.closest("section.ax-plan-overview-surface");
+    const lower = root.closest(".ax-plan-stack")?.querySelector("#ax-plan-review");
     if (!upper || !lower) return null;
     const u = upper.getBoundingClientRect();
     const l = lower.getBoundingClientRect();
-    return Math.round(l.top - (u.top + u.height));
+    return Math.round(l.top - u.bottom);
   });
   expect(headNextGap).not.toBeNull();
   expect(headNextGap!).toBeGreaterThanOrEqual(0);

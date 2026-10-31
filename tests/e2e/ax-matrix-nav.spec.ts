@@ -99,7 +99,7 @@ test("정보 확인 필요 업무 1개(추가 질문 없음): 확인할 사항 �
   await expect(page.locator("#ax-answer-section")).toHaveCount(0);
   const checks = page.locator(".ax-diag-checks");
   await expect(checks).toBeVisible();
-  await expect(checks).toContainText("확인할 사항");
+  await expect(checks).toContainText("확인 필요 항목");
   await expect.poll(async () => (await checks.boundingBox())?.y ?? 9999).toBeLessThan(200);
 });
 
@@ -149,7 +149,7 @@ test("매트릭스에는 상세 카드가 없다: 단계 내비게이션으로 �
   await expect(page.locator(".ax-diag-card h2")).toHaveText(target.name);
   const checks = page.locator(".ax-diag-checks");
   await expect(checks).toBeVisible();
-  await expect(checks).toContainText("확인할 사항");
+  await expect(checks).toContainText("확인 필요 항목");
 });
 
 test("진행 보류 업무의 매트릭스: 상세 카드가 없고 단계 내비게이션으로 이동한다", async ({ page }) => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatUnifiedNextAction, resolvePrecheckTarget, precheckTargetLabel, partitionReviewItems } from "../src/components/ax/AxReport";
+import { formatUnifiedNextAction, resolvePrecheckTarget, precheckTargetLabel } from "../src/components/ax/AxReport";
 
 describe("formatUnifiedNextAction", () => {
   it("먼저 확인 + 하이픈 구분을 제거하고 최우선 항목 + 외 N건으로 표시한다", () => {
@@ -73,14 +73,5 @@ describe("resolvePrecheckTarget", () => {
     expect(precheckTargetLabel({ kind: "plan" })).toBe("계획 검토");
     expect(precheckTargetLabel({ kind: "register" })).toBe("업무 정보 수정");
     expect(precheckTargetLabel({ kind: "checks" })).toBe("확인 사항 보기");
-  });
-});
-
-describe("partitionReviewItems", () => {
-  it("미완료 항목을 우선으로 나누고 완료 항목을 분리한다", () => {
-    const items = [{ key: "a" }, { key: "b" }, { key: "c" }];
-    const { pending, completed } = partitionReviewItems(items, new Set(["b"]), item => item.key);
-    expect(pending).toEqual([{ key: "a" }, { key: "c" }]);
-    expect(completed).toEqual([{ key: "b" }]);
   });
 });

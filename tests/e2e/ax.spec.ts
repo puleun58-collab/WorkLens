@@ -263,17 +263,16 @@ test("AX registration → diagnosis → correction → matrix → plans → relo
   await expect(list.getByRole("listitem").filter({ has: page.locator(".ax-task-name", { hasText: "월간 취합" }) }).locator(".ax-gate-badge")).toHaveCount(0);
   const summary = packageSection.getByRole("region", { name: "구현 범위·완료 기준", exact: true });
   const precheck = packageSection.getByRole("region", { name: "구현 전 확인", exact: true });
-  // 범위 행은 건수만 표시한다 (합본 간소화): 항목 본문은 01~04 지시문에 유지된다.
-  await expect(summary.locator('[data-scope-group="scope"]')).toContainText(/구현 대상 \d+개 · 담당자 수행 \d+개 · 보류·제외 \d+개/);
-  await expect(summary.locator('[data-scope-group="scope"]')).not.toContainText("담당자 승인");
-  // 범위 행의 건수 표기에 "담당자 수행 N개"가 포함된다.
-  await expect(summary).toContainText("담당자 수행");
+  // 범위 카드에는 구현·담당자 수행·제외 항목을 실제 업무 내용으로 보여 준다.
+  await expect(summary.locator('[data-scope-group="scope"]')).toContainText("구현 대상:");
+  await expect(summary.locator('[data-scope-group="scope"]')).toContainText("담당자 수행:");
+  await expect(summary.locator('[data-scope-group="scope"]')).toContainText("보류·제외:");
   // 추가 확인 조건은 요약 배지로만 표시되고, 상세 문구는 기본 화면에 반복되지 않는다.
   await expect(precheck.locator(".ax-precheck-head")).toContainText(/미해결 \d+건/);
   await expect(precheck).not.toContainText("API와 권한 실제 확인");
   await expect(precheck).not.toContainText(planFixture.prerequisites[0]);
-  // 데이터·시스템 상세 표는 기본 화면에서 제거됐다 (원본 데이터·04 지시문에는 유지).
-  await expect(summary).not.toContainText(planFixture.inScope[0]);
+  // 완료 기준에는 계획 기준을 표시하며, 구현 단계와 데이터 상세는 지시문에 유지한다.
+  await expect(summary.locator('[data-scope-group="criteria"] .ax-criteria-item').first()).toBeVisible();
   await expect(precheck).not.toContainText(planFixture.asIs[0]);
   await expect(summary).not.toContainText(planFixture.fallback[0]);
   await expect(summary).toContainText("대조 통과");
@@ -651,7 +650,10 @@ test("AX level badge uses the unified label and shows the level description tool
   await page.getByRole("button", { name: "다음 단계" }).click();
   await page.locator(".ax-diag-card").getByRole("button", { name: "업무 진단 실행" }).click();
   // outputFixture: 자동화 1 · AI 보조 1 · 사람 유지 1 단계, Factor 기준 Level 3(고도 자동화)
-  await expect(page.locator(".ax-diag-card")).toContainText("전체 3개 업무 단계 중 자동화 적합 1개 · AI 보조 적합 1개 · 담당자 수행 1개");
+  const cards = page.locator(".ax-diag-card .ax-verdict-card");
+  await expect(cards).toHaveCount(3);
+  await expect(cards).toContainText(["자동화 적합", "AI 보조 적합", "담당자 수행"]);
+  await expect(cards.locator("strong")).toHaveText(["1", "1", "1"]);
   const badge = page.locator(".ax-diag-card .ax-level-badge");
   await expect(badge).toHaveText("고도 자동화 (Level 3)");
   const description = "넓게 자동화하되 승인·안전·법률·권한 관련 단계는 담당자가 유지합니다.";
@@ -1327,8 +1329,8 @@ for (const width of [1440, 390]) {
     const precheck = section.locator("section[aria-label='구현 전 확인']");
     // 계획 헤더 통합(§2.4): 업무명은 선택 업무 헤더에 표시된다.
     await expect(page.locator(".ax-report-intro")).toContainText(task.name);
-    // 범위 행은 건수만 표시한다 (합본 간소화): 항목 본문은 01~04 지시문에 유지된다.
-    await expect(summary.locator('[data-scope-group="scope"]')).toContainText(/구현 대상 \d+개 · 담당자 수행 \d+개 · 보류·제외 \d+개/);
+    // 진단에서 산출한 범위는 건수가 아닌 실제 업무 항목으로 표시된다.
+    await expect(summary.locator('[data-scope-group="scope"] li').first()).toContainText("구현 대상:");
     for (const [tool, target, plan, other] of [["Codex", "codex", codex, claude], ["Claude Code", "claude", claude, codex]] as const) {
       if (target === "claude") await section.getByRole("tab", { name: tool, exact: true }).click();
       await section.getByRole("button", { name: `${tool}용 구현 계획 생성`, exact: true }).click();
@@ -1337,15 +1339,14 @@ for (const width of [1440, 390]) {
       await expect(precheck.locator(".ax-precheck-head")).toContainText(/미해결 \d+건/);
       await expect(precheck).not.toContainText(plan.prerequisites[0]);
       await expect(precheck).not.toContainText(other.prerequisites[0]);
-      // 범위 행은 건수만 표시하므로 계획 항목 본문은 요약 행에 없고, 01~04 지시문에 유지된다.
+      // 범위 카드에는 담당자 수행·보류 항목을 명시하고, 완료 기준은 검토 가능하다.
       const scopeRow = summary.locator('[data-scope-group="scope"]');
-      await expect(scopeRow).toContainText(/구현 대상 \d+개 · 담당자 수행 \d+개 · 보류·제외 \d+개/);
-      for (const item of plan.humanInLoop) await expect(scopeRow).not.toContainText(item);
-      for (const item of plan.outOfScope) await expect(scopeRow).not.toContainText(item);
-      const permitted = summary.locator('[data-scope-group="scope"]');
-      for (const item of [...plan.inScope, ...plan.implementation]) await expect(permitted).not.toContainText(item);
-      // 요약 목록에는 동작 버튼이 없다 (①의 동작별 이동 버튼은 별도 영역).
-      await expect(summary.getByRole("button")).toHaveCount(0);
+      await expect(scopeRow).toContainText("담당자 수행:");
+      await expect(scopeRow).toContainText("보류·제외:");
+      await expect(scopeRow).toContainText(plan.humanInLoop[0]);
+      for (const item of plan.outOfScope) await expect(scopeRow).toContainText(item);
+      const criteria = summary.locator('[data-scope-group="criteria"]');
+      await expect(criteria.locator(".ax-criteria-item").first().getByRole("button", { name: "검토" })).toBeVisible();
       const raw = buildAllInOnePrompt(plan, target, { taskName: task.name, prerequisites: ["시스템 접근 — API와 권한 실제 확인", "권한 확인 후 진행"], diagnosis: diagnosisFixture, context: task.description });
       await expect(section.locator(".ax-prompt")).toHaveText(raw);
       await expectPromptDisclosure(page, section, tool, width);
@@ -1396,13 +1397,12 @@ for (const level of [0, 1, 2, 3]) {
       await expect(intro).toContainText(`Level ${level}`);
       await expect(intro).toContainText(task.name);
       if (gate === "blocked") await expect(precheck).toContainText("진행 보류");
-      // 범위 행은 건수만 표시한다 (합본 간소화): 항목 본문은 01~04 지시문에 유지된다.
+      // 범위 카드에는 단계의 허용 범위와 담당자 수행·보류 항목을 명시한다.
       const scopeRow = summary.locator('[data-scope-group="scope"]');
-      await expect(scopeRow).toContainText(/구현 대상 \d+개 · 담당자 수행 \d+개 · 보류·제외 \d+개/);
-      await expect(scopeRow).not.toContainText("담당자 승인");
-      await expect(scopeRow).not.toContainText("누락 발생");
-      // 실행 로드맵·Phase 카드·진단 요약 카드는 간소화로 제거됐다. 단계별 처리 범위
-      // 판정 자체는 lib 정책 그대로이며, ② 요약 목록이 허용 범위를 표시한다.
+      await expect(scopeRow.locator("li").first()).toContainText("구현 대상:");
+      await expect(scopeRow).toContainText("담당자 수행:");
+      await expect(scopeRow).toContainText("보류·제외:");
+      await expect(scopeRow).toContainText("담당자 승인");
       if (gate === "blocked") {
         // 요약 전용: 차단 사유 상세 문구는 기본 화면에 반복되지 않는다.
         await expect(precheck).not.toContainText("보안 정책상 자료 반출 불가");
@@ -1427,13 +1427,8 @@ for (const level of [0, 1, 2, 3]) {
           if (level === 0) await expect(precheck.getByText("시스템 접근", { exact: true })).toHaveCount(0);
         }
       }
-      // 범위 행은 건수만 표시한다 (합본 간소화): 단계 그룹 제목·항목 본문은
-      // 01~04 지시문에 유지되며, 요약 화면에는 나타나지 않는다.
-      await expect(summary.locator('[data-scope-group="scope"]')).not.toContainText("준비·검증");
-      await expect(summary.locator('[data-scope-group="scope"]')).not.toContainText("자료 수집 자동 실행");
-      await expect(summary.locator('[data-scope-group="scope"]')).not.toContainText("형식 검증 AI 보조 구현");
-      await expect(summary.locator('[data-scope-group="scope"]')).not.toContainText("샘플 데이터 형식·필수 항목 확인");
-      await expect(summary.locator('[data-scope-group="scope"]')).not.toContainText("운영 자동화 적용");
+      // 단계 그룹은 구현 계획에만 표시되며, 범위 패널은 적용 대상을 요약한다.
+      await expect(summary.locator('[data-scope-group="scope"] li')).not.toHaveCount(0);
       await expect(section.getByRole("region", { name: "올인원 지시문", exact: true })).toBeVisible();
     });
   }
@@ -1481,9 +1476,9 @@ test("AX Level 0 keeps generated implementation suggestions subordinate to diagn
   // 계획 헤더 통합(§2.4): Level은 선택 업무 헤더에 표시된다.
   await expect(page.locator(".ax-report-intro")).toContainText("Level 0");
   const permitted = summary.locator('[data-scope-group="scope"]');
-  // 범위 행은 건수만 표시한다 (합본 간소화): 해당 항목 본문은 함께 수행할 확인(지시문)에 유지된다.
-  await expect(permitted).toContainText(/구현 대상 \d+개 · 담당자 수행 \d+개 · 보류·제외 \d+개/);
-  await expect(summary).not.toContainText(planFixture.inScope[0]);
+  // Level 0은 제안된 구현을 그대로 허용하지 않고 진단의 담당자 수행·제외 경계를 표시한다.
+  await expect(permitted.locator("li").first()).toContainText("구현 대상:");
+  await expect(permitted).toContainText("담당자 수행:");
   const prompt = await section.locator(".ax-prompt").textContent();
   const review = prompt!.split("### 함께 수행할 확인")[1].split("###")[0];
   expect(review).toContain("- 샘플 데이터 형식·필수 항목 확인");
@@ -1784,12 +1779,12 @@ for (const width of [1440, 390]) {
     await seed(page, { ...emptyAxState(), tasks: [task], selectedTaskId: task.id, step: 4 });
     await ax(page);
     const plan = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
-    // 실행 로드맵 단계 배지는 간소화로 제거됐다. 규칙 문구·승인 경계는 범위 건수 행과
-    // 04 지시문에서 동일하게 검증한다 (단계별 처리 범위 판정 로직은 lib 그대로).
-    // 요약 화면에는 항목 본문이 없고, 04 지시문에는 규칙 본문·승인 경계가 그대로 있다.
+    // 구현 범위 카드에서 자동화 대상과 담당자 승인 경계를 확인한다.
     const summary = plan.getByRole("region", { name: "구현 범위·완료 기준", exact: true });
-    await expect(summary.locator('[data-scope-group="scope"]')).toContainText(/구현 대상 \d+개 · 담당자 수행 \d+개 · 보류·제외 \d+개/);
-    await expect(summary.locator('[data-scope-group="scope"]')).not.toContainText("누락·중복 검증");
+    const scope = summary.locator('[data-scope-group="scope"]');
+    await expect(scope).toContainText("구현 대상:");
+    await expect(scope).toContainText("담당자 수행:");
+    await expect(scope).toContainText("가동률 계산 AI 후보·초안 생성");
     for (const tool of ["Codex", "Claude Code"]) {
       await plan.getByRole("tab", { name: tool, exact: true }).click();
       const prompt = plan.locator(".ax-prompt");
@@ -1827,8 +1822,9 @@ test("AX coding tool selection syncs plan review, all-in-one instructions and se
   await seed(page, { ...emptyAxState(), tasks: [task], selectedTaskId: task.id, step: 4 });
   await ax(page);
   const planSection = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
-  const review = planSection.getByRole("region", { name: "구현 계획 검토", exact: true });
+  const review = planSection.getByRole("region", { name: "구현 계획", exact: true });
   // 최초 진입: 양쪽 계획이 있으면 Codex가 기본 선택 (검토·지시문 모두)
+  await review.getByRole("button", { name: "전체 펼치기" }).click();
   await expect(review.getByText("Codex 계획 항목", { exact: true })).toBeVisible();
   await expect(review.getByText("Claude 계획 항목", { exact: true })).toHaveCount(0);
   await expect(planSection.getByRole("button", { name: "Codex용 올인원 지시문 복사", exact: true })).toBeVisible();

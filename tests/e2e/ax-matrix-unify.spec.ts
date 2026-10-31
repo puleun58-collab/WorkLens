@@ -88,8 +88,8 @@ test("Single markers are uniform gate-coloured dots with legend colours", async 
   }));
   expect(dots.map(dot => `${dot.w}x${dot.h}`)).toEqual(["16x16", "16x16", "16x16"]);
   expect(new Set(dots.map(dot => dot.gate))).toEqual(new Set(["ready", "conditional", "blocked"]));
-  // 진행 가능 = 초록, 확인 후 진행 = 노랑(앰버 계열), 진행 보류 = 빨강.
-  const palette: Record<string, string> = { ready: "rgb(22, 163, 74)", conditional: "rgb(234, 179, 8)", blocked: "rgb(220, 38, 38)" };
+  // 진행 가능 = 초록, 확인 후 진행 = 밝은 노랑(#facc15), 진행 보류 = 빨강.
+  const palette: Record<string, string> = { ready: "rgb(22, 163, 74)", conditional: "rgb(250, 204, 21)", blocked: "rgb(220, 38, 38)" };
   for (const dot of dots) {
     const legend = await page.locator(`.ax-legend-dot[data-gate=${dot.gate}]`).evaluate(element => getComputedStyle(element).backgroundColor);
     expect(dot.bg).toBe(legend);
