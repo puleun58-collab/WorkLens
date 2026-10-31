@@ -79,12 +79,11 @@ function NeedsCheckLink({ tasks, label, disabled, onGo }: { tasks: AxTask[]; lab
 /** 선택 업무의 결과·로드맵 래퍼: 도구 선택 상태를 소유해 로드맵·01~03·04가
  * 같은 도구의 확정 검토를 따르게 한다. key로 업무 전환 시 remount돼 상태가
  * 초기화되는 점은 기존 AxPlanSection key 동작과 동일하다. */
-function AxSelectedReport({ task, busy, onGenerate, onSaveReview, onSaveVerificationResults }: {
+function AxSelectedReport({ task, busy, onGenerate, onSaveReview }: {
   task: AxTask;
   busy: string | null;
   onGenerate: (target: AxToolId) => void;
   onSaveReview: (r: Omit<import("@/lib/ax/types").HitlReview, "id" | "reviewedAt" | "updatedAt"> & { id?: string }) => { saved: boolean; reason?: string };
-  onSaveVerificationResults?: (round: import("@/lib/ax/types").VerificationResult) => void;
 }) {
   // 호출 지점은 selected.diagnosis가 있는 경우에만 이 래퍼를 렌더링한다.
   const diagnosis = task.diagnosis as AxDiagnosis;
@@ -104,8 +103,6 @@ function AxSelectedReport({ task, busy, onGenerate, onSaveReview, onSaveVerifica
       genericRules={(task as import("@/lib/ax/types").AxTaskV2).genericRules ?? []}
       activeTool={activeTool}
       onToolChange={setSelectedTool}
-      verificationResults={(task as import("@/lib/ax/types").AxTaskV2).verificationResults ?? []}
-      onSaveVerificationResults={onSaveVerificationResults}
     />
   </>;
 }
@@ -265,20 +262,6 @@ export function AxDiagnosisView() {
           ? { ...t, diagnosis: { ...t.diagnosis, decisionPoints: points }, updatedAt: now }
           : t;
         return { ...withDecision, genericRules: rules, updatedAt: now } as import("@/lib/ax/types").AxTaskV2;
-      }),
-    }));
-  }
-  /** 검증 결과 라운드 저장: reviews·genericRules와 같은 저장 경로로, 업무 단위
-   * verificationResults 목록에 추가한다. 기존 라운드를 보존하고 스키마 상한
-   * 50건에 맞춰 가장 오래된 라운드부터 버린다. */
-  function saveVerificationResults(taskId: string, round: import("@/lib/ax/types").VerificationResult) {
-    const now = new Date().toISOString();
-    update(current => ({
-      ...current,
-      tasks: current.tasks.map(t => {
-        if (t.id !== taskId) return t;
-        const taskV2 = t as import("@/lib/ax/types").AxTaskV2;
-        return { ...t, verificationResults: [...(taskV2.verificationResults ?? []), round].slice(-50), updatedAt: now } as import("@/lib/ax/types").AxTaskV2;
       }),
     }));
   }
@@ -873,7 +856,7 @@ export function AxDiagnosisView() {
           </aside>
           {selected?.diagnosis ? <article className="ax-selected-report" aria-label={`${selected.name} 결과·로드맵`}>
             <header className="ax-report-intro"><div><span className="ax-report-eyebrow">선택한 업무 · 결과·로드맵</span><div className="ax-title-group"><h2>{selected.name}</h2><AxLevelBadge level={automationLevel(selected.diagnosis)} className="ax-level-badge" /><Badge className="ax-status-badge">{STATUS[taskDisplayStatus(selected).status]}</Badge>{taskDisplayStatus(selected).needsCheck ? <span className="ax-status-note">추가 질문 필요</span> : null}</div></div></header>
-            <AxSelectedReport key={selected.id} task={selected} busy={busy} onGenerate={target => void generatePlan(selected, target)} onSaveReview={r => saveHitlReview(selected.id, r)} onSaveVerificationResults={round => saveVerificationResults(selected.id, round)} />
+            <AxSelectedReport key={selected.id} task={selected} busy={busy} onGenerate={target => void generatePlan(selected, target)} onSaveReview={r => saveHitlReview(selected.id, r)} />
           </article> : <p className="ax-muted">우선순위에서 업무 선택 후 상세 결과 확인</p>}
         </>}
       </TabsPanel>
