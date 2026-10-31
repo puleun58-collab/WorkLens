@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DECISION_DISPLAY, decisionPanelLabel, deriveUnifiedRules, draftStateNames, hasDerivationSignals, unifiedRuleProgress, unifiedSavePayloads, type UnifiedDecisionDraft, type UnifiedGenericDraft, type UnifiedRuleDraft } from "@/lib/ax/rule-questions";
+import { DECISION_DISPLAY, decisionPanelLabel, deriveUnifiedRules, draftStateNames, hasDerivationSignals, isConfirmationQuestion, unifiedRuleProgress, unifiedSavePayloads, type UnifiedDecisionDraft, type UnifiedGenericDraft, type UnifiedRuleDraft } from "@/lib/ax/rule-questions";
 import { ruleProgress } from "@/lib/ax/generic-rules";
 import { resolveDecisionPoints } from "@/lib/ax/decision-points";
 import { diagnosisFixture } from "./fixtures/ax";
@@ -107,14 +107,27 @@ describe("AX 통합 규칙 도출 — 구조적 신호", () => {
     expect(dIds(items)).toContain("D7");
   });
 
-  it("추가 질문은 최대 3건까지 AI 추천 후보가 되고, 4번째는 버려진다", () => {
+  it("추가 질문은 답변할 질문 영역에서 다루고 범용 규칙 후보가 되지 않는다", () => {
+    const questions = [
+      "답변 초안을 생성할 때 활용되는 템플릿이나 내부 문서는 어디에 보관되어 있나요?",
+      "입력 파일 형식을 알려 주세요",
+      "승인자는 누구인가요",
+    ];
     const items = deriveUnifiedRules(diagnosis({
-      followUpQuestions: ["질문1", "질문2", "질문3", "질문4"],
+      followUpQuestions: questions,
       technicalChecks: [],
       asIs: { ...diagnosisFixture.asIs, humanDecisions: [] },
     }));
-    const ai = items.filter((item): item is UnifiedGenericDraft => item.kind === "generic" && item.sourceLabel === "AI 추천");
-    expect(ai.map(item => item.name)).toEqual(["질문1", "질문2", "질문3"]);
+    const names = gNames(items);
+    for (const question of questions) expect(names).not.toContain(question);
+    expect(items.some(item => item.kind === "generic" && item.sourceLabel === "AI 추천")).toBe(false);
+    // 질문만 있는 진단은 도출 신호가 아니다 (질문이 규칙 후보를 만들지 않으므로).
+    expect(hasDerivationSignals(diagnosis({
+      asIs: { purpose: "", trigger: "", inputs: [], steps: [], outputs: [], exceptions: [], humanDecisions: [], systems: [] },
+      poc: { ...diagnosisFixture.poc, inputs: [], success: [], failure: [] },
+      technicalChecks: [],
+      followUpQuestions: questions,
+    }))).toBe(false);
   });
 
   it("출력은 있으나 성공 기준이 없으면 완료 기준 정리 후보 1건이 도출된다", () => {
@@ -125,12 +138,37 @@ describe("AX 통합 규칙 도출 — 구조적 신호", () => {
     expect(gNames(deriveUnifiedRules(diagnosis()))).not.toContain("완료 기준 정리");
   });
 
-  it("긴 추가 질문은 이름 상한(120자)으로 자르고 전문을 상세에 두어 손실을 막는다", () => {
-    const long = `질문${"가".repeat(200)}`;
-    const items = deriveUnifiedRules(diagnosis({ followUpQuestions: [long] }));
-    const candidate = items.find((item): item is UnifiedGenericDraft => item.kind === "generic" && item.sourceLabel === "AI 추천")!;
-    expect(candidate.name.length).toBeLessThanOrEqual(120);
-    expect(candidate.detail).toBe(long);
+  it("사람 판단·기술 확인 항목이 확인 질문이면 후보로 승격하지 않고, 처리 기준 진술은 후보로 유지한다", () => {
+    const items = deriveUnifiedRules(diagnosis({
+      asIs: { ...diagnosisFixture.asIs, humanDecisions: ["최종 결재자가 누구인지 확인 필요", "담당자가 최종 수치를 승인한다"] },
+      technicalChecks: [
+        { topic: "외부 API 제공 여부", status: "확인 필요", note: "" },
+        { topic: "현장 접근 권한", status: "확인 필요", note: "" },
+      ],
+    }));
+    const names = gNames(items);
+    expect(names).not.toContain("최종 결재자가 누구인지 확인 필요");
+    expect(names).not.toContain("외부 API 제공 여부");
+    expect(names).toEqual(expect.arrayContaining(["담당자가 최종 수치를 승인한다", "현장 접근 권한"]));
+    // 후보는 자동 확정·자동 적용되지 않는다.
+    for (const item of items) if (item.kind === "generic") {
+      expect(item.applicability).toBe("적용 여부 미확정");
+      expect(item.status).toBe("미확정");
+    }
+  });
+
+  it("이미 저장된 질문형 규칙은 삭제·상태 변경 없이 그대로 보존한다", () => {
+    const stored: GenericRule[] = [
+      { id: "R1", name: "템플릿은 어디에 보관되어 있나요?", category: "처리·판단 기준", applicability: "적용 여부 미확정", status: "미확정" },
+      { id: "R2", name: "승인권자는 누구인가요?", category: "권한·검토 기준", applicability: "적용", status: "확정", detail: "팀장이 승인한다" },
+    ];
+    const generic = deriveUnifiedRules(diagnosis({ followUpQuestions: ["템플릿은 어디에 보관되어 있나요?"] }), stored)
+      .filter((item): item is UnifiedGenericDraft => item.kind === "generic" && item.origin === "stored");
+    expect(generic.map(({ id, name, applicability, status, detail }) => ({ id, name, applicability, status, detail }))).toEqual([
+      { id: "R1", name: "템플릿은 어디에 보관되어 있나요?", applicability: "적용 여부 미확정", status: "미확정", detail: "" },
+      { id: "R2", name: "승인권자는 누구인가요?", applicability: "적용", status: "확정", detail: "팀장이 승인한다" },
+    ]);
+    expect(unifiedSavePayloads(generic, stored).rules).toEqual(stored);
   });
 });
 
@@ -365,5 +403,42 @@ describe("AX 통합 완료 현황·저장 페이로드", () => {
     }));
     expect(draftStateNames(items)).toEqual(["정상", "오류(확정)", "확인 필요"]);
     expect(draftStateNames(deriveUnifiedRules(diagnosis()))).toBeNull();
+  });
+});
+
+describe("AX 확인 질문 ↔ 처리 규칙 구분 (업무 유형 10종)", () => {
+  // [유형, 확인 질문(규칙 후보 아님), 처리 기준 진술(규칙 후보 가능)]
+  const cases: [string, string, string][] = [
+    ["데이터 집계", "중복 거래는 어떻게 처리하나요", "중복 거래ID는 합산에서 제외한다"],
+    ["문서 작성", "답변 초안을 생성할 때 활용되는 템플릿이나 내부 문서는 어디에 보관되어 있나요?", "답변 초안은 승인된 템플릿을 기준으로 작성한다"],
+    ["고객 문의 응대", "고객 등급별 응대 기준이 있는지 확인 필요", "환불 문의는 결제 내역 확인 후 담당자에게 배정"],
+    ["일정 관리", "회의 마감 기한은 언제까지입니까", "마감 3일 전까지 일정을 확정한다"],
+    ["시설 유지보수", "긴급 보수 승인권자가 누구인가요", "긴급 보수는 시설 팀장 승인 후 진행"],
+    ["안전 관리", "작업 전 안전 점검표를 매번 작성해야 할까요", "고소 작업은 안전 점검표 작성 후에만 시작한다"],
+    ["계약 검토", "책임자 승인 필요 여부", "1억 원 이상 계약은 법무 검토 후 책임자가 승인한다"],
+    ["파일 분류", "파일 형식이 PDF인지 확인 요청", "PDF 외 형식은 분류 보류 폴더로 이동"],
+    ["업무 요청 접수", "요청서에 필수 항목이 있나", "필수 정보가 누락된 요청은 반려 대상으로 분리"],
+    ["외부 시스템 연동", "외부 API 제공 여부", "주문 API 응답이 실패하면 3회 재시도 후 담당자 알림"],
+  ];
+  it.each(cases)("%s: 확인 질문은 질문으로, 처리 기준은 규칙으로 구분한다", (_type, question, rule) => {
+    expect(isConfirmationQuestion(question)).toBe(true);
+    expect(isConfirmationQuestion(rule)).toBe(false);
+  });
+
+  it.each(cases)("%s: 사람 판단 항목의 질문은 후보에서 빠지고 처리 기준은 후보로 남는다", (_type, question, rule) => {
+    const names = gNames(deriveUnifiedRules(diagnosis({
+      asIs: { ...diagnosisFixture.asIs, humanDecisions: [question, rule] },
+      technicalChecks: [],
+      followUpQuestions: [question],
+    })));
+    expect(names).not.toContain(question);
+    expect(names).toContain(rule);
+  });
+
+  it("물음표가 없어도 의문 어미면 질문이고, 물음표만으로 판정하지 않는다", () => {
+    expect(isConfirmationQuestion("승인권자는 누구입니까")).toBe(true);
+    expect(isConfirmationQuestion("최종 승인")).toBe(false);
+    expect(isConfirmationQuestion("시스템 접근")).toBe(false);
+    expect(isConfirmationQuestion("")).toBe(false);
   });
 });

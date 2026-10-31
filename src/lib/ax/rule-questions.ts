@@ -81,6 +81,25 @@ const normalize = (value: string): string => value.replace(/\s+/gu, " ").trim();
 const cleanList = (list?: readonly string[] | null): string[] =>
   (list ?? []).map(item => (typeof item === "string" ? item.trim() : "")).filter(Boolean);
 
+/** 직접 의문 어미(…나요?·…까요·…습니까·…인가 등). 끝의 마침표·물음표는 별도로 허용한다. */
+const DIRECT_QUESTION_ENDING = /(?:나요|까요|가요|습니까|읍니까|입니까|ㅂ니까|합니까|됩니까|있나|없나|인가|는가|은가|을까|일까|할까|될까|는지요|인지요|은지요|을지요)$/u;
+/** 간접 의문·확인 요청(…인지 확인 필요·…할지 문의·…여부 확인 등): 처리 기준이 아니라 답을 요구한다. */
+const INDIRECT_QUESTION_ENDING = /(?:인지|는지|은지|을지|할지|될지|일지|여부)\s*(?:를|을)?\s*(?:확인|문의|질문|결정|파악)?\s*(?:이|가)?\s*(?:필요|요청|필요함|필요합니다|해\s*주세요|하세요|바랍니다)?$/u;
+
+/**
+ * 확인 질문(정보 요청) 판정. 물음표 유무만으로 판단하지 않고 문장의 목적(직접 의문 어미,
+ * "…인지·…할지·…여부 확인" 같은 간접 의문·확인 요청)으로 구분한다. 조건·처리·결과를
+ * 진술하는 문장(…한다·…함·명사형 기준)은 질문이 아니다. 질문은 답변할 질문 영역에서
+ * 다루며, 처리 기준이 없는 질문은 업무 규칙 후보로 승격하지 않는다.
+ */
+export function isConfirmationQuestion(text: string): boolean {
+  const value = normalize(text);
+  if (!value) return false;
+  if (/[?？]$/u.test(value)) return true;
+  const body = value.replace(/[.。!]+$/u, "").trim();
+  return DIRECT_QUESTION_ENDING.test(body) || INDIRECT_QUESTION_ENDING.test(body);
+}
+
 /** 저장된 D 행. id·상태가 유효한 것만 남기고, 중복 id는 첫 항목만 유지한다. */
 function storedDecisionRows(diagnosis: AxDiagnosis): UnifiedDecisionDraft[] {
   const seen = new Set<string>();
@@ -130,7 +149,9 @@ export function deriveUnifiedRules(diagnosis: AxDiagnosis, storedGeneric?: reado
     item => item && typeof item.topic === "string" && item.topic.trim()
       && (item.status === "확인 필요" || item.status === "불가"),
   );
-  const followUps = cleanList(diagnosis.followUpQuestions).slice(0, 3);
+  // 진단 추가 질문(followUpQuestions)은 사용자의 답이 필요한 확인 질문이므로 규칙 후보를
+  // 만들지 않는다 (답변할 질문 영역에서 처리). 질문 문구가 규칙명이 되거나 답변 없이
+  // 처리 기준이 생성되는 것을 막는다.
 
   const storedD = storedDecisionRows(diagnosis);
   const storedDIds = new Set(storedD.map(row => row.id));
@@ -209,6 +230,8 @@ export function deriveUnifiedRules(diagnosis: AxDiagnosis, storedGeneric?: reado
   const pushGenericCandidate = (candidate: UnifiedGenericDraft): void => {
     const key = normalize(candidate.name);
     if (!key || storedNames.has(key) || candidateNames.has(key)) return;
+    // 확인 질문(정보 요청)은 처리 기준이 아니므로 어떤 출처에서 오든 후보로 만들지 않는다.
+    if (isConfirmationQuestion(candidate.name)) return;
     candidateNames.add(key);
     genericRows.push(candidate);
   };
@@ -228,25 +251,6 @@ export function deriveUnifiedRules(diagnosis: AxDiagnosis, storedGeneric?: reado
       origin: "candidate",
       sourceLabel: "진단에서 도출",
       provenance: `기술적 확인 항목 "${check.topic.trim()}"(${check.status})에서 도출`,
-    });
-  }
-  // AI 진단 자체의 추가 질문 → 범용 후보. 이름 상한(120자, 저장 정리 기준)을 넘으면
-  // 전문을 상세에 두어 정보 손실을 막는다.
-  for (const question of followUps) {
-    const name = question.length > 120 ? question.slice(0, 120) : question;
-    pushGenericCandidate({
-      kind: "generic",
-      id: null,
-      name,
-      category: "처리·판단 기준",
-      applicability: "적용 여부 미확정",
-      status: "미확정",
-      detail: question.length > 120 ? question : "",
-      source: "",
-      step: "",
-      origin: "candidate",
-      sourceLabel: "AI 추천",
-      provenance: "진단 추가 질문에서 도출",
     });
   }
   // AS-IS 사람 판단 항목 → 범용 후보.
@@ -287,7 +291,8 @@ export function deriveUnifiedRules(diagnosis: AxDiagnosis, storedGeneric?: reado
   return [...dRows, ...genericRows];
 }
 
-/** 도출 신호 출처가 하나라도 있는지. 빈 목록의 성격을 구분하는 데 쓴다. */
+/** 도출 신호 출처가 하나라도 있는지. 빈 목록의 성격을 구분하는 데 쓴다.
+ * 추가 질문은 규칙 후보를 만들지 않으므로 도출 신호가 아니다. */
 export function hasDerivationSignals(diagnosis: AxDiagnosis): boolean {
   const asIs = diagnosis.asIs ?? {};
   const poc = diagnosis.poc ?? {};
@@ -299,7 +304,6 @@ export function hasDerivationSignals(diagnosis: AxDiagnosis): boolean {
     || cleanList(poc.inputs).length >= 1
     || cleanList(poc.success).length >= 1
     || cleanList(poc.failure).length >= 1
-    || cleanList(diagnosis.followUpQuestions).length >= 1
     || (diagnosis.technicalChecks ?? []).some(item => item && (item.status === "확인 필요" || item.status === "불가"));
 }
 

@@ -395,14 +395,13 @@
   .ax-section-heading { gap: 8px; }
 }
 .ax-gate-line { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: inherit; color: var(--foreground); }
-/* Gate 3종: 진행 가능(초록)·확인 후 진행(앰버)·진행 보류(빨강). 배지·범례·차트 점·목록 점이
+/* Gate 3종: 진행 가능(초록)·확인 후 진행(노랑·앰버)·진행 보류(빨강). 배지·범례·차트 점·목록 점이
  * 같은 토큰을 쓴다. 점은 작은 크기에서도 구분되는 선명한 색(ready #16a34a·
- * conditional #d97706·blocked #dc2626)을 쓰고, 배지 글자는 가독성을 위해 같은 계열의
- * 더 진한 색(-text 토큰)을 쓴다. #372에서 유지했던 기존 토큰(#15803d·#b45309·
- * #b91c1c)을 본 변경에서 의도적으로 뒤집는다: conditional은 짙은 앰버에서 더 노란
- * 앰버 계열로, ready는 더 밝고 부드러운 초록으로, blocked는 더 선명한 빨강으로 바꾼다.
- * (#375 Gate 색상 큐의 변경을 합본에 흡수한 것이다.) */
-.ax-view { --ax-gate-ready: #16a34a; --ax-gate-ready-bg: #dcfce7; --ax-gate-ready-text: #15803d; --ax-gate-conditional: #d97706; --ax-gate-conditional-bg: #fef3c7; --ax-gate-conditional-text: #b45309; --ax-gate-blocked: #dc2626; --ax-gate-blocked-bg: #fee2e2; --ax-gate-blocked-text: #b91c1c; }
+ * conditional #eab308·blocked #dc2626)을 쓰고, 배지 글자는 가독성을 위해 같은 계열의
+ * 더 진한 색(-text 토큰)을 쓴다. conditional은 주황·갈색으로 보이던 #d97706 대신
+ * 초록·빨강과 명확히 구분되는 노란색(앰버 계열)을 쓰고, 배지 글자는 노란 배경 위
+ * 대비(AA)를 위해 진한 황갈색 #854d0e를 쓴다. */
+.ax-view { --ax-gate-ready: #16a34a; --ax-gate-ready-bg: #dcfce7; --ax-gate-ready-text: #15803d; --ax-gate-conditional: #eab308; --ax-gate-conditional-bg: #fef9c3; --ax-gate-conditional-text: #854d0e; --ax-gate-blocked: #dc2626; --ax-gate-blocked-bg: #fee2e2; --ax-gate-blocked-text: #b91c1c; }
 .ax-gate-badge[data-gate=ready] { background: var(--ax-gate-ready-bg); color: var(--ax-gate-ready-text); border-color: color-mix(in srgb, var(--ax-gate-ready) 28%, transparent); }
 .ax-gate-badge[data-gate=conditional] { background: var(--ax-gate-conditional-bg); color: var(--ax-gate-conditional-text); border-color: color-mix(in srgb, var(--ax-gate-conditional) 28%, transparent); }
 .ax-gate-badge[data-gate=blocked] { background: var(--ax-gate-blocked-bg); color: var(--ax-gate-blocked-text); border-color: color-mix(in srgb, var(--ax-gate-blocked) 28%, transparent); }
@@ -1041,7 +1040,9 @@
 .ax-decision-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
 .ax-decision-head h3 { margin: 0 0 4px; }
 .ax-decision-head p { margin: 0; }
-.ax-decision-progress { flex: none; display: flex; flex-direction: column; gap: 6px; min-width: 160px; text-align: right; }
+/* 완료 현황 → 진행 바 → "+ 규칙 추가"(문구 길이에 맞춘 너비, 우측 정렬) 순서의 세로 배치. */
+.ax-decision-progress { flex: none; display: flex; flex-direction: column; align-items: stretch; gap: 6px; min-width: 180px; text-align: right; }
+.ax-decision-add { align-self: flex-end; width: auto; margin-top: 4px; }
 .ax-decision-progress strong { font-size: var(--font-size-sm); font-variant-numeric: tabular-nums; }
 .ax-decision-bar { display: block; height: 6px; border-radius: 999px; background: color-mix(in srgb, var(--primary) 12%, var(--card)); overflow: hidden; }
 .ax-decision-bar > span { display: block; height: 100%; background: var(--primary); border-radius: 999px; }
@@ -1068,37 +1069,30 @@
 .ax-decision-save { display: flex; align-items: center; justify-content: flex-end; gap: 12px; flex-wrap: wrap; margin-top: 16px; }
 .ax-decision-save p { margin: 0; margin-right: auto; }
 
-/* 범용 업무 규칙 — 데스크톱 2열 · 모바일 1열 편집 그리드 */
-.ax-generic-panel { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; padding: 12px 14px 16px; border-top: 1px solid var(--border); }
+/* 범용 업무 규칙 — 기본 4개 항목(규칙명·적용 여부·실제 처리 규칙·확정 여부) 세로 배치 + 상세 설정(기본 접힘) */
+.ax-generic-panel { display: flex; flex-direction: column; gap: 12px; padding: 12px 14px 16px 62px; border-top: 1px solid var(--border); }
 .ax-generic-panel textarea { min-height: 96px; padding: 10px 12px; }
-.ax-generic-panel .ax-field-wide { grid-column: 1 / -1; }
-.ax-generic-delete { display: flex; justify-content: flex-end; }
+/* D규칙·범용 규칙 공통 선택창: COSS Select 흰색 배경·같은 높이·테두리·라운드·패딩·화살표. */
+.ax-rule-field .ax-rule-select { max-width: 360px; min-height: 36px; background: var(--card); font-weight: 400; }
+.ax-rule-error { font-size: var(--font-size-xs); font-weight: 400; color: #b91c1c; }
+.ax-rule-details { border-top: 1px dashed var(--border); padding-top: 8px; }
+.ax-rule-details-trigger { display: inline-flex; align-items: center; gap: 4px; padding: 4px 0; border: 0; background: transparent; color: var(--muted-foreground); font-size: var(--font-size-sm); font-weight: 600; cursor: pointer; }
+.ax-rule-details-trigger:hover { color: var(--foreground); }
+.ax-rule-details-trigger:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 4px; }
+.ax-rule-details-trigger > svg { transition: transform 150ms ease; }
+.ax-rule-details-trigger > svg.is-open { transform: rotate(180deg); }
+.ax-rule-details-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; padding: 8px 0 2px; }
+.ax-rule-provenance { grid-column: 1 / -1; margin: 0; font-size: var(--font-size-xs); }
+.ax-rule-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
 @media (max-width: 700px) {
-  .ax-generic-panel { grid-template-columns: minmax(0, 1fr); }
-  .ax-decision-panel { padding-left: 14px; }
-  .ax-decision-progress { min-width: 0; text-align: left; }
+  .ax-generic-panel, .ax-decision-panel { padding-left: 14px; }
+  .ax-rule-details-grid { grid-template-columns: minmax(0, 1fr); }
+  .ax-rule-field .ax-rule-select { max-width: none; }
+  .ax-decision-progress { min-width: 0; width: 100%; text-align: left; }
 }
 
-/* 업무 규칙 확인 통합 — 도출 후보 출처 칩(상태 색상과 구분되는 중립 색) · 신규 배지 */
-.ax-decision-source { flex: none; font-size: 11px; font-weight: 600; border-radius: 999px; padding: 2px 8px; white-space: nowrap; background: #eef2f7; color: #43536b; border: 1px solid #d5dce6; }
+/* 업무 규칙 확인 통합 — 신규 배지 */
 .ax-decision-no-new { width: auto; padding: 0 10px; font-size: 11px; }
-
-/* 규칙 추가 모달 (레퍼런스 2) — 헤더 · 내부 스크롤 본문 · 하단 우측 버튼 · 2열 그리드 */
-.ax-rule-modal-head { padding: 20px 44px 0 20px; }
-.ax-rule-modal-head h3 { margin: 0 0 4px; font-size: 18px; }
-.ax-rule-modal-head p { margin: 0; }
-.ax-rule-modal-body { min-height: 0; overflow-y: auto; padding: 16px 20px; }
-.ax-rule-modal-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
-.ax-rule-modal-grid .ax-field-wide { grid-column: 1 / -1; }
-.ax-rule-modal-grid textarea { min-height: 96px; padding: 10px 12px; }
-.ax-rule-modal-error { margin: 4px 0 0; font-size: var(--font-size-xs); color: #b91c1c; }
-.ax-rule-modal-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 0 20px 20px; }
-@media (max-width: 700px) {
-  .ax-rule-modal-grid { grid-template-columns: minmax(0, 1fr); }
-  .ax-rule-modal-head { padding: 16px 44px 0 16px; }
-  .ax-rule-modal-body { padding: 12px 16px; }
-  .ax-rule-modal-foot { padding: 0 16px 16px; }
-}
 
 /* 결과·로드맵 간소화: ① 구현 전 확인(검토 영역 공통 아코디언 카드) · ② 구현 범위·완료 기준 요약 */
 .ax-precheck { padding: 0 0 20px; text-align: left; }
