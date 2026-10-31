@@ -207,12 +207,16 @@ export const verificationFailureSchema = z.object({
   error: z.string().trim().max(2000).optional(),
   reproduction: z.string().trim().max(2000).optional(),
 }).strict();
-/** 검증 라운드 1건: 보고 일시가 라운드 구분자이며, 코드 이력은 Git에 위임한다. */
+/** 검증 라운드 1건: 보고 일시가 라운드 구분자이며, 코드 이력은 Git에 위임한다.
+ * environment는 검증 환경(로컬·스테이징·운영 주소 등) 선택 필드다. 선택 필드라
+ * 필드가 없는 기존 데이터도 그대로 검증·마이그레이션된다. */
 export const verificationResultSchema = z.object({
   reportedAt: z.iso.datetime(),
   failures: z.array(verificationFailureSchema).max(50),
   keptFeatures: z.array(z.string().trim().max(500)).max(50).optional(),
   implementationNote: z.string().trim().max(2000).optional(),
+  /** 검증 환경 (선택). AxVerificationInput.environment와 같은 값이다. */
+  environment: z.string().trim().max(500).optional(),
   rulesNote: z.string().trim().max(2000).optional(),
   unconfirmedRules: z.array(z.string().trim().max(500)).max(20).optional(),
   testRunFailure: z.string().trim().max(2000).optional(),

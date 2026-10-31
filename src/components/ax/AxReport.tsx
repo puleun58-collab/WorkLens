@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { HitlReviewPanel } from "./HitlReview";
 import { extractReviewableItems, extractPlanReviewableItems, findReview, getValidConfirmedReviews, type ReviewableItem } from "@/lib/ax/hitl";
 import { Tabs, TabsList, TabsTab, TabsPanel } from "@/components/ui/tabs";
-import { buildAllInOnePrompt, buildFixPrompt, guideCodeDisplayText, guideProseDisplayText, planSummary, setupGuide, TOOL_GUIDES, type AxCheckTone, type AxGitFlowBlock, type AxGuideBlock, type AxGuideSection, type AxPlanSummary, type AxToolId } from "@/lib/ax/guide";
+import { buildFixPrompt, checkAllInOnePromptDelivery, guideCodeDisplayText, guideProseDisplayText, planSummary, setupGuide, TOOL_GUIDES, type AxCheckTone, type AxGitFlowBlock, type AxGuideBlock, type AxGuideSection, type AxPlanSummary, type AxToolId } from "@/lib/ax/guide";
 
 const VERDICT_LABELS = { 자동화: "자동화", "AI 보조": "AI 보조", "사람 유지": "담당자 수행" } as const;
 const OWNER_LABELS = { 시스템: "시스템", AI: "AI", 사용자: "담당자" } as const;
@@ -1002,8 +1002,11 @@ export function AxExecutionPackage({ plan, target, taskName, taskContext, prereq
   hitlReviews?: import("@/lib/ax/types").HitlReview[];
   genericRules?: import("@/lib/ax/types").GenericRule[];
 }) {
+  const [showFindings, setShowFindings] = useState(false);
   const name = TOOL_GUIDES[target].name;
-  const prompt = buildAllInOnePrompt(plan, target, {
+  // P1: 본문은 래퍼가 반환한 지시문 그대로 렌더링하고, 전달 검사는 본문 아래
+  // 한 줄 요약 + 기본 접힘 상태의 finding 목록으로만 표시한다 (본문 텍스트 변경 없음).
+  const { prompt, delivery } = checkAllInOnePromptDelivery(plan, target, {
     taskName,
     prerequisites,
     diagnosis,
@@ -1014,6 +1017,13 @@ export function AxExecutionPackage({ plan, target, taskName, taskContext, prereq
   });
   return <div className="ax-package">
     <AxPrompt key={prompt} prompt={prompt} name={name} />
+    <div className="ax-delivery-check">
+      <p className="ax-muted">전달 검사: 확정 {delivery.confirmedTotal}건 중 전달 {delivery.deliveredCount}건 · 문제 {delivery.findings.length}건</p>
+      {delivery.findings.length ? <>
+        <div className="ax-actions"><Button type="button" variant="outline" size="sm" aria-expanded={showFindings} onClick={() => setShowFindings(value => !value)}>{showFindings ? "전달 문제 접기" : `전달 문제 ${delivery.findings.length}건 보기`}</Button></div>
+        {showFindings ? <ul role="list">{delivery.findings.map((finding, i) => <li key={i}>{finding.message}</li>)}</ul> : null}
+      </> : null}
+    </div>
   </div>;
 }
 
@@ -1059,6 +1069,7 @@ export function AxFixPromptSection({ diagnosis, plan, taskName, taskContext, pre
   const [failures, setFailures] = useState<AxFixDraftFailure[]>([emptyAxFixDraftFailure()]);
   const [keptText, setKeptText] = useState("");
   const [implementationNote, setImplementationNote] = useState("");
+  const [environment, setEnvironment] = useState("");
   const [rulesNote, setRulesNote] = useState("");
   const [unconfirmedText, setUnconfirmedText] = useState("");
   const [testRunFailure, setTestRunFailure] = useState("");
@@ -1101,6 +1112,7 @@ export function AxFixPromptSection({ diagnosis, plan, taskName, taskContext, pre
       })),
       ...(splitLines(keptText).length ? { keptFeatures: splitLines(keptText) } : {}),
       ...(text(implementationNote) ? { implementationNote: text(implementationNote) } : {}),
+      ...(text(environment) ? { environment: text(environment) } : {}),
       ...(text(rulesNote) ? { rulesNote: text(rulesNote) } : {}),
       ...(splitLines(unconfirmedText).length ? { unconfirmedRules: splitLines(unconfirmedText) } : {}),
       ...(text(testRunFailure) ? { testRunFailure: text(testRunFailure) } : {}),
@@ -1122,6 +1134,7 @@ export function AxFixPromptSection({ diagnosis, plan, taskName, taskContext, pre
       <div className="ax-actions"><Button type="button" variant="outline" onClick={() => setFailures(current => [...current, emptyAxFixDraftFailure()])}>실패 항목 추가</Button></div>
       <AxFixField label="유지할 정상 기능 (한 줄에 1건)" value={keptText} onChange={setKeptText} rows={2} maxLength={5000} />
       <AxFixField label="현재 구현 프로그램 목적·코드·버전" value={implementationNote} onChange={setImplementationNote} rows={2} maxLength={2000} />
+      <AxFixField label="검증 환경 (선택, 예: 로컬·스테이징·운영 주소)" value={environment} onChange={setEnvironment} rows={1} maxLength={500} />
       <AxFixField label="적용된 업무 규칙" value={rulesNote} onChange={setRulesNote} rows={2} maxLength={2000} />
       <AxFixField label="미확정 업무 규칙 (한 줄에 1건, 사용자 확인 필요 항목)" value={unconfirmedText} onChange={setUnconfirmedText} rows={2} maxLength={5000} />
       <AxFixField label="테스트 실행 실패 사유 (실행 자체가 안 된 경우)" value={testRunFailure} onChange={setTestRunFailure} rows={2} maxLength={2000} />
@@ -1138,7 +1151,59 @@ export function AxFixPromptSection({ diagnosis, plan, taskName, taskContext, pre
   </section>;
 }
 
-export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenerate, reviewProps, genericRules, activeTool: controlledTool, onToolChange }: {
+/** P3 — 검증 UI 진입 경로. #373의 기본 화면 대형 폼 제거와 충돌하지 않는다:
+ * 기본 상태는 접힘 상태의 한 줄 요약(토글 버튼)만 렌더링하고, 펼친 상태에서도
+ * 라운드 목록·안내 1행·버튼 1개만 보이며, 버튼을 눌렀을 때만 기존
+ * AxFixPromptSection을 그 자리 아래에 렌더링한다 (중복 폼을 새로 만들지 않고
+ * 컴포넌트·저장 경로를 변경하지 않는다). Gate blocked이면 차단 안내만 표시한다.
+ *
+ * 검증 결과 9개 기록 항목 매핑:
+ * - 구현 기능 = failures[].feature
+ * - 실패 단계 = failures[].feature (원본 범위 단계명 표기 권장)
+ * - 검증 환경 = verificationResultSchema.environment (선택 필드; 기존 데이터 검증에 영향 없음)
+ * - 기대 결과 = failures[].expected
+ * - 실제 결과 = failures[].actual
+ * - 오류 내용 = failures[].error
+ * - 재현 절차 = failures[].reproduction
+ * - 정상 기능 = keptFeatures
+ * - 수정 여부·재검증 결과 = 후속 라운드 + previousFailureNames 대조
+ * 실행하지 않은 테스트는 PASS로 기록하지 않는다. */
+export function AxVerificationEntry({ diagnosis, plan, taskName, taskContext, prerequisites, hitlReviews, hitlTool, genericRules, gate, verificationResults, onSaveVerificationResults }: {
+  diagnosis: AxDiagnosis;
+  plan: AxPlan | undefined;
+  taskName: string;
+  taskContext: string;
+  prerequisites: string[];
+  hitlReviews?: HitlReview[];
+  hitlTool: AxToolId;
+  genericRules?: import("@/lib/ax/types").GenericRule[];
+  gate: "ready" | "conditional" | "blocked";
+  verificationResults?: VerificationResult[];
+  onSaveVerificationResults?: (round: VerificationResult) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [formOpen, setFormOpen] = useState(false);
+  const rounds = verificationResults ?? [];
+  if (gate === "blocked") {
+    return <section className="ax-plan-block" aria-label="검증 결과 기록"><p role="status" className="ax-notice">현재 진단에서는 검증 결과 기록 불가</p></section>;
+  }
+  return <section className="ax-plan-block" aria-label="검증 결과 기록">
+    <div className="ax-actions"><Button type="button" variant="outline" aria-expanded={open} onClick={() => setOpen(value => !value)}>{`검증 결과 기록 · 수정·보완 지시문 — ${rounds.length ? `기록 ${rounds.length}건` : "기록 없음"}`}</Button></div>
+    {open ? <>
+      {rounds.length ? <div className="ax-fix-rounds">
+        <h5>저장된 검증 라운드</h5>
+        <ul role="list">{rounds.map((round, i) => <li key={`${round.reportedAt}-${i}`}>{new Date(round.reportedAt).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })} · 실패 {round.failures.length}건 — {round.failures.map(failure => failure.feature).join(" / ")}</li>)}</ul>
+        <p className="ax-muted">이전 라운드 실패 항목이 이번 입력과 겹치면 지시문에서 반복 실패 확인 대상으로 표시됩니다.</p>
+      </div> : <p className="ax-muted">저장된 검증 라운드가 없습니다.</p>}
+      <p className="ax-muted">수정·보완 지시문은 기존 검증 결과 입력 양식과 buildFixPrompt로 만듭니다. 실행하지 않은 테스트는 PASS로 기록하지 않습니다.</p>
+      {formOpen
+        ? <AxFixPromptSection diagnosis={diagnosis} plan={plan} taskName={taskName} taskContext={taskContext} prerequisites={prerequisites} hitlReviews={hitlReviews} hitlTool={hitlTool} genericRules={genericRules} gate={gate} verificationResults={verificationResults} onSaveVerificationResults={onSaveVerificationResults} />
+        : <div className="ax-actions"><Button type="button" variant="outline" onClick={() => setFormOpen(true)}>검증 결과 입력 열기</Button></div>}
+    </> : null}
+  </section>;
+}
+
+export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenerate, reviewProps, genericRules, activeTool: controlledTool, onToolChange, verificationResults, onSaveVerificationResults }: {
 
   diagnosis: AxDiagnosis;
   taskName: string;
@@ -1147,6 +1212,10 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
   onGenerate: (target: AxToolId) => void;
   reviewProps?: AxProcessReviewProps;
   genericRules?: import("@/lib/ax/types").GenericRule[];
+  /** P3 검증 UI 배선 (선택): 업무의 verificationResults와 저장 핸들러. 미제공 시
+   * 진입 경로는 표시되나 저장은 기존 폼의 핸들러 부재 안내를 따른다. */
+  verificationResults?: VerificationResult[];
+  onSaveVerificationResults?: (round: VerificationResult) => void;
   /** 제어 모드: 부모가 도구 선택을 소유하면 ①·②·올인원 지시문이 같은 도구의 검토를 따른다.
    * 미제공 시 기존 내부 상태 동작을 유지한다. */
   activeTool?: AxToolId;
@@ -1184,7 +1253,7 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
     </>}
     {reviewProps && (plans.codex || plans.claude) ? <AxPlanReview plans={plans} reviewProps={reviewProps} activeTool={activeTool} onToolChange={setSelectedTool} /> : null}
     <section ref={instructionsRef} id={`${instructionsId}-section`} className="ax-plan-instructions" aria-labelledby={instructionsId}>
-      {gate === "blocked" ? <><AxPlanHeading id={instructionsId} title="올인원 지시문" description="선택한 코딩 에이전트를 위한 통합 지시문을 생성합니다." /><p role="status" className="ax-notice">현재 진단에서는 구현 계획 생성 불가</p></> : <>
+      {gate === "blocked" ? <><AxPlanHeading id={instructionsId} title="올인원 지시문" description="선택한 코딩 에이전트를 위한 통합 지시문을 생성합니다." /><p role="status" className="ax-notice">현재 진단에서는 구현 계획 생성 불가</p><AxVerificationEntry diagnosis={diagnosis} plan={activePlan} taskName={taskName} taskContext={taskContext} prerequisites={prerequisites} hitlReviews={reviewProps?.reviews} hitlTool={activeTool} genericRules={genericRules} gate={gate} verificationResults={verificationResults} onSaveVerificationResults={onSaveVerificationResults} /></> : <>
         {plans.codex || plans.claude ?
           <Tabs className="ax-tool-tabs" value={activeTool} onValueChange={value => { if (value === "codex" || value === "claude") setSelectedTool(value); }}>
             <div className="ax-plan-instructions-head">
@@ -1193,7 +1262,7 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
                 <TabsList aria-label="AI 코딩 도구 선택"><TabsTab value="codex">Codex</TabsTab><TabsTab value="claude">Claude Code</TabsTab></TabsList>
               </div>
             </div>
-            {(["codex", "claude"] as const).map(target => <TabsPanel key={target} value={target}>{target === activeTool ? plans[target] ? <><p className="ax-plan-tool-hint">{TOOL_GUIDES[target].name}에서 현재 프로젝트를 열고 올인원 지시문 붙여넣기</p><AxExecutionPackage plan={plans[target]} target={target} taskName={taskName} taskContext={taskContext} prerequisites={prerequisites} diagnosis={diagnosis} hitlReviews={reviewProps?.reviews} genericRules={genericRules} /></> : <><p className="ax-plan-generate-hint">{TOOL_GUIDES[target].name}용 구현 계획 생성 후 올인원 지시문 확인</p>{generateButton(target)}</> : null}</TabsPanel>)}
+            {(["codex", "claude"] as const).map(target => <TabsPanel key={target} value={target}>{target === activeTool ? plans[target] ? <><p className="ax-plan-tool-hint">{TOOL_GUIDES[target].name}에서 현재 프로젝트를 열고 올인원 지시문 붙여넣기</p><AxExecutionPackage plan={plans[target]} target={target} taskName={taskName} taskContext={taskContext} prerequisites={prerequisites} diagnosis={diagnosis} hitlReviews={reviewProps?.reviews} genericRules={genericRules} /><AxVerificationEntry diagnosis={diagnosis} plan={plans[target]} taskName={taskName} taskContext={taskContext} prerequisites={prerequisites} hitlReviews={reviewProps?.reviews} hitlTool={target} genericRules={genericRules} gate={gate} verificationResults={verificationResults} onSaveVerificationResults={onSaveVerificationResults} /></> : <><p className="ax-plan-generate-hint">{TOOL_GUIDES[target].name}용 구현 계획 생성 후 올인원 지시문 확인</p>{generateButton(target)}</> : null}</TabsPanel>)}
           </Tabs> : <><AxPlanHeading id={instructionsId} title="올인원 지시문" description="선택한 코딩 에이전트를 위한 통합 지시문을 생성합니다." /><p className="ax-muted">도구별 구현 계획 생성 후 올인원 지시문 확인</p></>}
       </>}
     </section>

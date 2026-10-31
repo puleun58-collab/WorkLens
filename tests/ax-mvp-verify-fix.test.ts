@@ -49,13 +49,17 @@ describe("ax mvp verify-fix: 04 invariance", () => {
   // 확정 규칙 기준으로 교체했다. 구 버전(8543277) 출력과 신 출력의 diff가
   // 이 6개 지점뿐임을 직접 대조했으므로 고정값을 갱신한다. 04가 검증 입력에
   // 무관하게 동일하다는 불변성(2번째 테스트) 자체는 유지된다.
+  // 의도된 변경(P2 완료 불인정 기준, 2026-10-31): §05 업무 규칙 검증 뒤에
+  // 완료 불인정 기준 블록(10불릿 + 편향 방지 1행)이 삽입된다. 삽입 블록
+  // 길이가 길이 증가분(10499 − 10049 = 450자)과 정확히 일치하므로 본문
+  // 변경은 이 삽입뿐이다. 고정 길이·해시를 그에 맞춰 갱신한다.
   it("pins the representative 04 prompt byte-identical for codex and claude", () => {
     const options = optionsFor();
     const codex = buildAllInOnePrompt(planFixture, "codex", options);
     const claude = buildAllInOnePrompt(planFixture, "claude", options);
     expect(codex).toBe(claude);
-    expect(codex.length).toBe(10049);
-    expect(sha(codex)).toBe("d830a2f8a74171d53060373bc9b1dcc2a4a9c9e2b0986f3aa7a03b59f02ba9b4");
+    expect(codex.length).toBe(10499);
+    expect(sha(codex)).toBe("633855a0349045015f978b9b9daca55d63bcd9e6520a35572b4be6c985a0f0e3");
   });
 
   it("keeps 04 identical with empty and with present verification input, without mutating inputs", () => {
@@ -73,7 +77,7 @@ describe("ax mvp verify-fix: 04 invariance", () => {
     expect(fix).toContain("자료 수집");
     const after04 = buildAllInOnePrompt(planFixture, "codex", options);
     expect(after04).toBe(before04);
-    expect(sha(after04)).toBe("d830a2f8a74171d53060373bc9b1dcc2a4a9c9e2b0986f3aa7a03b59f02ba9b4");
+    expect(sha(after04)).toBe("633855a0349045015f978b9b9daca55d63bcd9e6520a35572b4be6c985a0f0e3");
     expect(before04).not.toContain("수정·보완 지시문");
     expect(before04).not.toContain("수정 대상 아님");
     expect(before04).not.toContain("반복 실패 확인 대상");

@@ -1136,6 +1136,9 @@
 .ax-fix-failure-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .ax-fix-failure-head strong { font-size: 14px; }
 .ax-fix-rounds { margin-top: 16px; }
+.ax-delivery-check { margin-top: 12px; }
+.ax-delivery-check ul { display: grid; gap: 6px; margin: 12px 0 0; padding: 0; list-style: none; }
+.ax-delivery-check li { font-size: 14px; line-height: 1.6; }
 .ax-fix-rounds h5 { margin: 0 0 8px; font-size: 14px; }
 .ax-fix-rounds ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .ax-fix-rounds li { font-size: 14px; line-height: 1.6; }
