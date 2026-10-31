@@ -54,7 +54,7 @@ async function openStep4(page: Page) {
   await seed(page, { ...emptyAxState(), tasks: [task], selectedTaskId: task.id, step: 4 });
   await ax(page);
   const section = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
-  await expect(section.getByRole("heading", { name: "구현 전 확인", exact: true })).toBeVisible();
+  await expect(section.getByRole("region", { name: "구현 전 확인", exact: true })).toBeVisible();
   return section;
 }
 

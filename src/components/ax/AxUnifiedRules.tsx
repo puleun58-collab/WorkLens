@@ -3,10 +3,10 @@
 import { useRef, useState } from "react";
 import { ChevronDown, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogPopup } from "@/components/ui/dialog";
 import { DECISION_POINT_DEFS } from "@/lib/ax/decision-points";
 import { GENERIC_RULE_APPLICABILITY, GENERIC_RULE_CATEGORIES, GENERIC_RULE_STATUSES } from "@/lib/ax/schema";
 import { resolveGenericRules } from "@/lib/ax/generic-rules";
@@ -22,7 +22,7 @@ import {
   type UnifiedGenericDraft,
   type UnifiedRuleDraft,
 } from "@/lib/ax/rule-questions";
-import type { AxDiagnosis, DecisionPoint, DecisionPointId, GenericRule, GenericRuleApplicability, GenericRuleCategory, GenericRuleStatus } from "@/lib/ax/types";
+import type { AxDiagnosis, DecisionPoint, DecisionPointId, DecisionPointStatus, GenericRule, GenericRuleApplicability, GenericRuleCategory, GenericRuleStatus } from "@/lib/ax/types";
 
 /**
  * 업무 규칙 확인 통합 편집 화면 (고정 D1~D7 + 별도 범용 카드의 대체).
@@ -30,7 +30,10 @@ import type { AxDiagnosis, DecisionPoint, DecisionPointId, GenericRule, GenericR
  *   하나의 카드 아코디언 목록으로 표시한다.
  * - 초안은 컴포넌트 상태에 두고, 저장 버튼으로 사용자 입력과 기존 미확정 메모도 보존한다.
  *   AI가 채운 값·도출된 후보는 저장 경로에 들어가지 않는다 (후보를 건드려 저장한 경우 제외).
- * - 모달 추가는 통합 목록 초안 추가이며, 최종 영속 저장은 통합 저장 버튼으로 수행한다.
+ * - 범용 규칙은 기본 4개 항목(규칙명·적용 여부·실제 처리 규칙·확정 여부)만 펼쳐 보이고,
+ *   분류·연계 D규칙·근거 출처·관련 단계·후보 근거는 "상세 설정"(기본 접힘)에 둔다.
+ * - "+ 규칙 추가"는 목록 맨 아래에 신규 항목을 인라인으로 열고, "목록에 추가"는 초안에만
+ *   반영한다. 최종 영속 저장은 통합 저장 버튼으로 수행한다.
  */
 
 /** 표시 전용 D 상태 배지 문구 (기존 DecisionPointsSection과 동일). */
@@ -39,15 +42,23 @@ const DECISION_BADGE: Record<UnifiedDecisionDraft["status"], string> = {
   "미확정": "미확정",
   "해당 없음": "해당 없음",
 };
+const DECISION_STATUS_OPTIONS: readonly DecisionPointStatus[] = ["미확정", "확정", "해당 없음"];
 
 /** 결정 지점 상세 입력 제한. 카운터 표시 기준이며 저장 의미를 바꾸지 않는다. */
 const DECISION_DETAIL_MAX_LENGTH = 2000;
+/** 범용 규칙 입력 상한: 저장 스키마(genericRuleSchema)와 같은 값이다. */
+const RULE_NAME_MAX_LENGTH = 120;
+const RULE_DETAIL_MAX_LENGTH = 2000;
+const RULE_SOURCE_MAX_LENGTH = 500;
+const RULE_STEP_MAX_LENGTH = 500;
 
-/** 규칙 추가 모달 입력 상한 (레퍼런스 2 카운터 기준. 저장 정리 상한과는 별개다). */
-const MODAL_NAME_MAX_LENGTH = 200;
-const MODAL_DETAIL_MAX_LENGTH = 1000;
-const MODAL_SOURCE_MAX_LENGTH = 200;
-const MODAL_STEP_MAX_LENGTH = 200;
+/** 기본 4개 항목 표시 문구. */
+const APPLICABILITY_LABEL = "이 규칙을 업무에 적용하나요?";
+const DETAIL_LABEL = "실제 처리 규칙";
+const STATUS_LABEL = "규칙 확정 여부";
+const DETAIL_HINT = "어떤 조건에서 무엇을 어떻게 처리해야 하는지 작성하세요. 필요한 경우 적용 조건·처리 방법·예외 상황·결과 처리 기준을 적고, 확인되지 않은 내용은 확정으로 표시하지 않습니다.";
+
+const NEW_RULE_KEY = "new-rule";
 
 const genericBadge = (rule: UnifiedGenericDraft): string =>
   rule.applicability === "해당 없음" ? "해당 없음"
@@ -58,34 +69,115 @@ const genericBadge = (rule: UnifiedGenericDraft): string =>
 const genericKey = (rule: UnifiedGenericDraft): string =>
   rule.id ?? `candidate:${rule.provenance ?? rule.name}`;
 
-interface ModalForm {
+/** 범용 규칙 입력값. 신규 항목은 분류·적용 여부·확정 상태를 사용자가 고르기 전까지 빈 값이다. */
+interface GenericRuleFieldValues {
   name: string;
-  category: string;
-  applicability: string;
-  status: string;
-  linkedDecisionId: string;
+  category: GenericRuleCategory | "";
+  applicability: GenericRuleApplicability | "";
+  status: GenericRuleStatus | "";
+  linkedDecisionId?: DecisionPointId;
   detail: string;
   source: string;
   step: string;
 }
 
-const emptyModalForm: ModalForm = {
-  name: "",
-  category: "",
-  applicability: "",
-  status: "",
-  linkedDecisionId: "",
-  detail: "",
-  source: "",
-  step: "",
-};
-
-interface ModalErrors {
+interface NewRuleErrors {
   name?: string;
   category?: string;
   applicability?: string;
   status?: string;
   duplicate?: string;
+}
+
+const emptyNewRule: GenericRuleFieldValues = { name: "", category: "", applicability: "", status: "", detail: "", source: "", step: "" };
+
+/** 규칙 선택창: D규칙·범용 규칙의 모든 선택 항목이 같은 COSS 흰색 Select를 쓴다. */
+function RuleSelect<T extends string>({ label, value, options, placeholder = "선택하세요", disabled, error, onChange }: {
+  label: string;
+  value: T | "";
+  options: readonly { value: T | ""; label: string }[];
+  placeholder?: string;
+  disabled?: boolean;
+  error?: string;
+  onChange: (value: T | "") => void;
+}) {
+  const hasEmptyOption = options.some(option => option.value === "");
+  return <label className="ax-field ax-rule-field">
+    <span>{label}</span>
+    <Select<string | null> value={value === "" && !hasEmptyOption ? null : value} disabled={disabled} onValueChange={next => onChange((next ?? "") as T | "")}>
+      <SelectTrigger className="ax-rule-select" aria-label={label} aria-invalid={error ? true : undefined}>
+        <SelectValue placeholder={placeholder}>{(current: string | null) => options.find(option => option.value === (current ?? ""))?.label ?? placeholder}</SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        {options.map(option => <SelectItem key={option.value || "empty"} value={option.value}>{option.label}</SelectItem>)}
+      </SelectContent>
+    </Select>
+    {error ? <span className="ax-rule-error" role="alert">{error}</span> : null}
+  </label>;
+}
+
+const plainOptions = <T extends string>(values: readonly T[]) => values.map(value => ({ value, label: value }));
+const LINKED_DECISION_OPTIONS = [
+  { value: "" as const, label: "연계 없음" },
+  ...(Object.entries(DECISION_DISPLAY) as [DecisionPointId, { title: string }][]).map(([id, entry]) => ({ value: id, label: `${id} ${entry.title}` })),
+];
+
+/** 범용 규칙 입력: 기본 4개 항목 + 상세 설정(기본 접힘). 저장 행·후보·신규 항목이 같은 UI를 쓴다.
+ * 적용 여부가 "해당 없음"이면 실제 처리 규칙·확정 여부 입력을 숨기되 값은 지우지 않는다
+ * (다시 적용으로 바꾸면 그대로 복구된다). */
+function GenericRuleFields({ value, onChange, disabled, errors, provenance, detailsOpen, onDetailsOpenChange }: {
+  value: GenericRuleFieldValues;
+  onChange: (patch: Partial<GenericRuleFieldValues>) => void;
+  disabled?: boolean;
+  errors?: NewRuleErrors;
+  provenance?: string;
+  detailsOpen: boolean;
+  onDetailsOpenChange: (open: boolean) => void;
+}) {
+  const notApplicable = value.applicability === "해당 없음";
+  return <>
+    <label className="ax-field ax-rule-field">
+      <span>규칙명</span>
+      <Input value={value.name} maxLength={RULE_NAME_MAX_LENGTH} disabled={disabled} aria-invalid={errors?.name || errors?.duplicate ? true : undefined}
+        onChange={event => onChange({ name: event.target.value })} placeholder="예: 월말 마감이 지난 주문은 다음 달 집계에 포함하지 않는다" />
+      {errors?.name ? <span className="ax-rule-error" role="alert">{errors.name}</span> : null}
+      {errors?.duplicate ? <span className="ax-rule-error" role="alert">{errors.duplicate}</span> : null}
+    </label>
+    <RuleSelect label={APPLICABILITY_LABEL} value={value.applicability} options={plainOptions(GENERIC_RULE_APPLICABILITY)} disabled={disabled} error={errors?.applicability}
+      onChange={applicability => onChange({ applicability })} />
+    {notApplicable ? null : <>
+      <label className="ax-field ax-rule-field">
+        <span>{DETAIL_LABEL}</span>
+        <Textarea value={value.detail} maxLength={RULE_DETAIL_MAX_LENGTH} disabled={disabled} rows={3} placeholder={DETAIL_HINT}
+          onChange={event => onChange({ detail: event.target.value })} />
+      </label>
+      <RuleSelect label={STATUS_LABEL} value={value.status} options={plainOptions(GENERIC_RULE_STATUSES)} disabled={disabled} error={errors?.status}
+        onChange={status => onChange({ status })} />
+    </>}
+    <Collapsible className="ax-rule-details" open={detailsOpen} onOpenChange={onDetailsOpenChange}>
+      <CollapsibleTrigger className="ax-rule-details-trigger">
+        상세 설정
+        <ChevronDown size={16} aria-hidden="true" className={detailsOpen ? "is-open" : ""} />
+      </CollapsibleTrigger>
+      <CollapsiblePanel className="ax-rule-details-panel">
+        <div className="ax-rule-details-grid">
+          <RuleSelect label="분류" value={value.category} options={plainOptions(GENERIC_RULE_CATEGORIES)} disabled={disabled} error={errors?.category}
+            onChange={category => onChange({ category })} />
+          <RuleSelect label="연계 D규칙 (선택)" value={value.linkedDecisionId ?? ""} options={LINKED_DECISION_OPTIONS} disabled={disabled}
+            onChange={linked => onChange({ linkedDecisionId: linked || undefined })} />
+          <label className="ax-field ax-rule-field">
+            <span>근거 출처 (선택)</span>
+            <Input value={value.source} maxLength={RULE_SOURCE_MAX_LENGTH} disabled={disabled} onChange={event => onChange({ source: event.target.value })} placeholder="예: 매뉴얼 3장, 담당 확인 메일" />
+          </label>
+          <label className="ax-field ax-rule-field">
+            <span>관련 단계 (선택)</span>
+            <Input value={value.step} maxLength={RULE_STEP_MAX_LENGTH} disabled={disabled} onChange={event => onChange({ step: event.target.value })} placeholder="예: 월말 집계" />
+          </label>
+          {provenance ? <p className="ax-muted ax-rule-provenance">후보 근거: {provenance}</p> : null}
+        </div>
+      </CollapsiblePanel>
+    </Collapsible>
+  </>;
 }
 
 export function UnifiedRulesSection({ diagnosis, genericRules, disabled: externallyDisabled, saveStatus, onSave }: {
@@ -113,27 +205,36 @@ export function UnifiedRulesSection({ diagnosis, genericRules, disabled: externa
   // 펼침 상태는 초안과 별개로 유지한다: 접었다 펴도 미저장 입력값이 사라지지 않는다.
   // 기본값은 모두 접힘(한 번에 한 항목만 펼침).
   const [openKey, setOpenKey] = useState<string | null>(null);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [modalForm, setModalForm] = useState<ModalForm>(emptyModalForm);
-  const [modalErrors, setModalErrors] = useState<ModalErrors>({});
+  // 항목별 상세 설정 펼침 (기본 접힘).
+  const [detailsOpen, setDetailsOpen] = useState<ReadonlySet<string>>(() => new Set());
+  // 인라인 신규 항목: "목록에 추가" 전까지 초안 목록과 분리된 작성 중 상태다.
+  const [newRule, setNewRule] = useState<GenericRuleFieldValues | null>(null);
+  const [newRuleErrors, setNewRuleErrors] = useState<NewRuleErrors>({});
   const savingRef = useRef(false);
 
   // 진행 현황: 통합 초안 기준. 분모는 실제로 적용되는 확인 대상 규칙 수이며,
   // 해당 없음은 분모에서 빠진다. 적용 여부 미확정은 별도 건수다.
   const progress = unifiedRuleProgress(drafts);
   const progressText = progress.total
-    ? `${progress.done}/${progress.total} 확인 완료`
+    ? `${progress.done}/${progress.total} 완료`
     : "확인할 규칙 없음";
   const progressSuffix = progress.applicabilityPending
-    ? ` · 적용 여부 확인 ${progress.applicabilityPending}건`
+    ? ` · 적용 확인 ${progress.applicabilityPending}건`
     : "";
 
+  const setDetailsOpenFor = (key: string, open: boolean) =>
+    setDetailsOpen(current => {
+      const next = new Set(current);
+      if (open) next.add(key); else next.delete(key);
+      return next;
+    });
   const updateDecision = (id: string, patch: Partial<UnifiedDecisionDraft>) =>
     setDrafts(current => current.map(item => item.kind === "decision" && item.id === id ? { ...item, ...patch } : item));
-  const updateGeneric = (key: string, patch: Partial<UnifiedGenericDraft>) => {
+  const updateGeneric = (key: string, patch: Partial<GenericRuleFieldValues>) => {
     setSaveState("idle");
+    // 저장 행·후보의 분류·적용 여부·확정 상태 선택창에는 빈 선택지가 없어 항상 저장 계약 값이 온다.
     setDrafts(current => current.map(item =>
-      item.kind === "generic" && genericKey(item) === key ? { ...item, ...patch, touched: true } : item));
+      item.kind === "generic" && genericKey(item) === key ? { ...item, ...(patch as Partial<UnifiedGenericDraft>), touched: true } : item));
   };
 
   const save = async () => {
@@ -152,26 +253,38 @@ export function UnifiedRulesSection({ diagnosis, genericRules, disabled: externa
     }
   };
 
-  const openModal = () => {
-    setModalForm(emptyModalForm);
-    setModalErrors({});
-    setModalOpen(true);
+  const startNewRule = () => {
+    setNewRule(emptyNewRule);
+    setNewRuleErrors({});
+    setDetailsOpenFor(NEW_RULE_KEY, false);
+    setOpenKey(NEW_RULE_KEY);
   };
 
-  const submitModal = () => {
-    const errors: ModalErrors = {};
-    const name = modalForm.name.trim();
+  const cancelNewRule = () => {
+    setNewRule(null);
+    setNewRuleErrors({});
+    setDetailsOpenFor(NEW_RULE_KEY, false);
+    if (openKey === NEW_RULE_KEY) setOpenKey(null);
+  };
+
+  const addNewRule = () => {
+    if (!newRule) return;
+    const errors: NewRuleErrors = {};
+    const name = newRule.name.trim();
     if (!name) errors.name = "규칙명을 입력하세요.";
-    if (!modalForm.category) errors.category = "분류를 선택하세요.";
-    if (!modalForm.applicability) errors.applicability = "적용 여부를 선택하세요.";
-    if (!modalForm.status) errors.status = "확정 상태를 선택하세요.";
+    if (!newRule.applicability) errors.applicability = "적용 여부를 선택하세요.";
+    // 해당 없음이면 확정 여부 입력을 숨기므로, 그때는 미확정으로 둔다 (자동 확정하지 않는다).
+    if (!newRule.status && newRule.applicability !== "해당 없음") errors.status = "확정 상태를 선택하세요.";
+    if (!newRule.category) errors.category = "분류를 선택하세요.";
     if (name) {
       const key = name.replace(/\s+/gu, " ").trim();
       const clash = drafts.some(item =>
         item.kind === "generic" && item.name.replace(/\s+/gu, " ").trim() === key);
       if (clash) errors.duplicate = "이미 같은 이름의 규칙이 있습니다. 기존 규칙을 편집하세요.";
     }
-    setModalErrors(errors);
+    setNewRuleErrors(errors);
+    // 필수 상세 필드(분류)가 비어 있으면 상세 설정을 펼쳐 오류를 보여준다.
+    if (errors.category) setDetailsOpenFor(NEW_RULE_KEY, true);
     if (Object.keys(errors).length) return;
     // 저장+초안 합산 기준 다음 id. 후보는 id를 소비하지 않는다.
     let max = 0;
@@ -185,28 +298,24 @@ export function UnifiedRulesSection({ diagnosis, genericRules, disabled: externa
       kind: "generic",
       id,
       name,
-      category: modalForm.category as GenericRuleCategory,
-      applicability: modalForm.applicability as GenericRuleApplicability,
-      status: modalForm.status as GenericRuleStatus,
-      detail: modalForm.detail,
-      source: modalForm.source,
-      step: modalForm.step,
-      ...(modalForm.linkedDecisionId ? { linkedDecisionId: modalForm.linkedDecisionId as DecisionPointId } : {}),
+      category: newRule.category as GenericRuleCategory,
+      applicability: newRule.applicability as GenericRuleApplicability,
+      status: (newRule.status || "미확정") as GenericRuleStatus,
+      detail: newRule.detail,
+      source: newRule.source,
+      step: newRule.step,
+      ...(newRule.linkedDecisionId ? { linkedDecisionId: newRule.linkedDecisionId } : {}),
       origin: "user",
       touched: true,
     };
-    // 사용자 추가 규칙은 저장·사용자 행 뒤, 후보 앞에 둔다 (사용자 규칙이 후보 아래에 묻히지 않게).
-    setDrafts(current => {
-      let idx = current.length;
-      for (let i = current.length - 1; i >= 0; i--) {
-        const item = current[i];
-        if (item.kind === "generic" && item.origin !== "candidate") { idx = i + 1; break; }
-      }
-      return [...current.slice(0, idx), rule, ...current.slice(idx)];
-    });
+    // 작성한 위치(목록 맨 아래)에 그대로 추가한다.
+    setDrafts(current => [...current, rule]);
+    setDetailsOpenFor(id, detailsOpen.has(NEW_RULE_KEY));
+    setDetailsOpenFor(NEW_RULE_KEY, false);
+    setNewRule(null);
+    setNewRuleErrors({});
     setOpenKey(id);
     setSaveState("idle");
-    setModalOpen(false);
   };
 
   // D5 선택형 UI용 D4 확정 상태 목록 (초안 기준). D4 미확정 시에는 기존 자유 입력 유지한다.
@@ -214,6 +323,7 @@ export function UnifiedRulesSection({ diagnosis, genericRules, disabled: externa
   const emptyText = hasDerivationSignals(diagnosis)
     ? "확인 대상 규칙이 없습니다."
     : "진단 정보가 부족해 규칙을 도출하지 못했습니다. 업무에 실제로 필요한 규칙이 있으면 '+ 규칙 추가'로 근거와 함께 추가하세요.";
+  const newRuleOpen = openKey === NEW_RULE_KEY;
 
   return <section className="ax-surface ax-decision" id="ax-decision-points" aria-label="업무 규칙 확인">
     <div className="ax-decision-head">
@@ -222,12 +332,12 @@ export function UnifiedRulesSection({ diagnosis, genericRules, disabled: externa
         <p className="ax-muted">자동화에 필요한 업무 규칙을 확인합니다. 확정된 내용은 올인원 지시문에 반영됩니다.</p>
       </div>
       <div className="ax-decision-progress">
-        <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={openModal}>+ 규칙 추가</Button>
         <strong>{progressText}{progressSuffix}</strong>
         <span className="ax-decision-bar" aria-hidden="true"><span style={{ width: `${progress.total ? progress.done / progress.total * 100 : 0}%` }} /></span>
+        <Button type="button" variant="outline" size="sm" className="ax-decision-add" disabled={disabled || newRule !== null} onClick={startNewRule}>+ 규칙 추가</Button>
       </div>
     </div>
-    {drafts.length ? <div className="ax-decision-list">
+    {drafts.length || newRule ? <div className="ax-decision-list">
       {drafts.map(item => {
         if (item.kind === "decision") {
           const def = DECISION_POINT_DEFS.find(entry => entry.id === item.id)!;
@@ -241,29 +351,20 @@ export function UnifiedRulesSection({ diagnosis, genericRules, disabled: externa
               onClick={() => setOpenKey(isOpen ? null : item.id)}>
               <span className="ax-decision-no">{item.id}</span>
               <span className="ax-decision-title"><strong>{display.title}</strong><small>{display.question}</small></span>
-              {item.origin === "candidate" && item.sourceLabel ? <span className="ax-decision-source">{item.sourceLabel}</span> : null}
               <span className="ax-decision-badge" data-status={item.status}>{DECISION_BADGE[item.status]}</span>
               <ChevronDown size={18} aria-hidden="true" className={isOpen ? "is-open" : ""} />
             </button>
             {isOpen ? <div className="ax-decision-panel">
-              {item.origin === "candidate" && item.provenance ? <p className="ax-muted">근거: {item.provenance}</p> : null}
-              <label className="ax-field">{decisionPanelLabel(item.id, "상태")}
-                <select aria-label={decisionPanelLabel(item.id, "상태")} value={item.status} disabled={disabled}
-                  onChange={e => { updateDecision(item.id, { status: e.target.value as UnifiedDecisionDraft["status"] }); setSaveState("idle"); }}>
-                  <option value="미확정">미확정</option>
-                  <option value="확정">확정</option>
-                  <option value="해당 없음">해당 없음</option>
-                </select>
-              </label>
+              <RuleSelect label={decisionPanelLabel(item.id, "상태")} value={item.status} options={plainOptions(DECISION_STATUS_OPTIONS)} disabled={disabled}
+                onChange={status => { if (status) { updateDecision(item.id, { status }); setSaveState("idle"); } }} />
               {item.status === "해당 없음" ? null : item.id === "D5" && d4States ? <>
-                <label className="ax-field">{decisionPanelLabel(item.id, "상세")}
-                  <select aria-label={decisionPanelLabel(item.id, "상세")} value={item.detail ?? ""} disabled={disabled}
-                    onChange={e => { updateDecision(item.id, { detail: e.target.value }); setSaveState("idle"); }}>
-                    <option value="">선택하세요</option>
-                    {d5Mismatch ? <option value={item.detail}>{item.detail} (결과 상태 (D4) 목록 외 값)</option> : null}
-                    {d4States.map(name => <option key={name} value={name}>{name}</option>)}
-                  </select>
-                </label>
+                <RuleSelect label={decisionPanelLabel(item.id, "상세")} value={item.detail ?? ""} disabled={disabled}
+                  options={[
+                    { value: "", label: "선택하세요" },
+                    ...(d5Mismatch ? [{ value: item.detail, label: `${item.detail} (결과 상태 (D4) 목록 외 값)` }] : []),
+                    ...d4States.map(name => ({ value: name, label: name })),
+                  ]}
+                  onChange={detail => { updateDecision(item.id, { detail }); setSaveState("idle"); }} />
                 {d5Mismatch ? <p className="ax-muted" role="status">현재 값이 결과 상태 (D4) 목록에 없습니다. 결과 상태 (D4) 중 하나로 수정하세요. 수정 전까지 기존값이 유지됩니다.</p> : null}
               </> : <label className="ax-field">{decisionPanelLabel(item.id, "상세")}
                 <Textarea rows={4} maxLength={DECISION_DETAIL_MAX_LENGTH} aria-label={decisionPanelLabel(item.id, "상세")} placeholder={def.detailHint} disabled={disabled}
@@ -282,66 +383,14 @@ export function UnifiedRulesSection({ diagnosis, genericRules, disabled: externa
               ? <span className="ax-decision-no">{item.id}</span>
               : <span className="ax-decision-no ax-decision-no-new">신규</span>}
             <span className="ax-decision-title"><strong>{item.name.trim() || "새 규칙"}</strong><small>{item.category}</small></span>
-            {item.origin === "candidate" && item.sourceLabel ? <span className="ax-decision-source">{item.sourceLabel}</span> : null}
             <span className="ax-decision-badge" data-status={genericBadge(item)}>{genericBadge(item)}</span>
             <ChevronDown size={18} aria-hidden="true" className={isOpen ? "is-open" : ""} />
           </button>
           {isOpen ? <div className="ax-generic-panel">
-            {item.origin === "candidate" && item.provenance ? <p className="ax-muted ax-field-wide">근거: {item.provenance}</p> : null}
-            <label className="ax-field ax-field-wide">
-              <span>규칙명</span>
-              <Input value={item.name} disabled={disabled} onChange={event => updateGeneric(key, { name: event.target.value })} placeholder="예: 월말 마감이 지난 주문은 다음 달 집계에 포함하지 않는다" />
-            </label>
-            <label className="ax-field">
-              <span>분류</span>
-              <Select value={item.category} disabled={disabled} onValueChange={value => updateGeneric(key, { category: value as GenericRuleCategory })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {GENERIC_RULE_CATEGORIES.map(entry => <SelectItem key={entry} value={entry}>{entry}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </label>
-            <label className="ax-field">
-              <span>적용 여부</span>
-              <Select value={item.applicability} disabled={disabled} onValueChange={value => updateGeneric(key, { applicability: value as GenericRuleApplicability })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {GENERIC_RULE_APPLICABILITY.map(entry => <SelectItem key={entry} value={entry}>{entry}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </label>
-            <label className="ax-field">
-              <span>확정 상태</span>
-              <Select value={item.status} disabled={disabled} onValueChange={value => updateGeneric(key, { status: value as GenericRuleStatus })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {GENERIC_RULE_STATUSES.map(entry => <SelectItem key={entry} value={entry}>{entry}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </label>
-            <label className="ax-field">
-              <span>연계 D규칙 (선택)</span>
-              <Select value={item.linkedDecisionId ?? ""} disabled={disabled} onValueChange={value => updateGeneric(key, { linkedDecisionId: value ? value as DecisionPointId : undefined })}>
-                <SelectTrigger><SelectValue placeholder="연계 없음" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="">연계 없음</SelectItem>
-                  {(Object.entries(DECISION_DISPLAY) as [DecisionPointId, { title: string }][]).map(([id, entry]) => <SelectItem key={id} value={id}>{id} {entry.title}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </label>
-            <label className="ax-field ax-field-wide">
-              <span>상세 내용</span>
-              <Textarea value={item.detail ?? ""} disabled={disabled} onChange={event => updateGeneric(key, { detail: event.target.value })} rows={3} placeholder="적용 조건·예외·출력·제한을 구체적으로 적습니다. 불확실한 내용은 확정으로 표시하지 않습니다." />
-            </label>
-            <label className="ax-field">
-              <span>근거 출처</span>
-              <Input value={item.source ?? ""} disabled={disabled} onChange={event => updateGeneric(key, { source: event.target.value })} placeholder="예: 매뉴얼 3장, 담당 확인 메일" />
-            </label>
-            <label className="ax-field">
-              <span>관련 단계</span>
-              <Input value={item.step ?? ""} disabled={disabled} onChange={event => updateGeneric(key, { step: event.target.value })} placeholder="예: 월말 집계" />
-            </label>
-            {item.origin === "candidate" ? null : <div className="ax-field-wide ax-generic-delete">
+            <GenericRuleFields value={item} disabled={disabled} onChange={patch => updateGeneric(key, patch)}
+              provenance={item.origin === "candidate" ? item.provenance : undefined}
+              detailsOpen={detailsOpen.has(key)} onDetailsOpenChange={open => setDetailsOpenFor(key, open)} />
+            {item.origin === "candidate" ? null : <div className="ax-rule-actions">
               <Button type="button" variant="ghost" size="sm" disabled={disabled} onClick={() => { setSaveState("idle"); setDrafts(current => current.filter(entry => !(entry.kind === "generic" && genericKey(entry) === key))); }}>
                 <Trash2 size={16} /> 이 규칙 삭제
               </Button>
@@ -349,85 +398,28 @@ export function UnifiedRulesSection({ diagnosis, genericRules, disabled: externa
           </div> : null}
         </div>;
       })}
+      {newRule ? <div className={`ax-decision-row ax-rule-new${newRuleOpen ? " is-open" : ""}`} id="ax-rule-new" data-status="신규">
+        <button type="button" className="ax-decision-row-head" aria-expanded={newRuleOpen} disabled={disabled}
+          onClick={() => setOpenKey(newRuleOpen ? null : NEW_RULE_KEY)}>
+          <span className="ax-decision-no ax-decision-no-new">신규</span>
+          <span className="ax-decision-title"><strong>{newRule.name.trim() || "새 규칙"}</strong>{newRule.category ? <small>{newRule.category}</small> : null}</span>
+          <ChevronDown size={18} aria-hidden="true" className={newRuleOpen ? "is-open" : ""} />
+        </button>
+        {newRuleOpen ? <div className="ax-generic-panel">
+          <GenericRuleFields value={newRule} disabled={disabled} errors={newRuleErrors}
+            onChange={patch => setNewRule(current => current ? { ...current, ...patch } : current)}
+            detailsOpen={detailsOpen.has(NEW_RULE_KEY)} onDetailsOpenChange={open => setDetailsOpenFor(NEW_RULE_KEY, open)} />
+          <div className="ax-rule-actions">
+            <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={cancelNewRule}>취소</Button>
+            <Button type="button" size="sm" disabled={disabled} onClick={addNewRule}>목록에 추가</Button>
+          </div>
+        </div> : null}
+      </div> : null}
     </div> : <p className="ax-muted">{emptyText}</p>}
     <div className="ax-decision-save">
       <Button type="button" disabled={disabled} onClick={save}>저장</Button>
       {saveState === "saved" && saveStatus === "이 브라우저에 저장됨" ? <p className="ax-muted" role="status">업무 규칙을 저장했습니다.</p> : null}
       {saveState === "failed" ? <p className="ax-muted" role="alert">업무 규칙을 저장하지 못했습니다. 입력 내용은 유지됩니다. 저장 상태를 확인하고 다시 시도하세요.</p> : null}
     </div>
-    <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-      <DialogPopup className="sm:max-w-[600px]" bottomStickOnMobile={false}>
-        <div className="ax-rule-modal-head">
-          <h3>규칙 추가</h3>
-          <p className="ax-muted">업무에 실제로 필요한 규칙을 추가합니다. 확정된 규칙은 올인원 지시문에 반영됩니다.</p>
-        </div>
-        <div className="ax-rule-modal-body">
-          <div className="ax-rule-modal-grid">
-            <label className="ax-field ax-field-wide">
-              <span>규칙명 *</span>
-              <Input value={modalForm.name} maxLength={MODAL_NAME_MAX_LENGTH} onChange={event => setModalForm(current => ({ ...current, name: event.target.value }))}
-                placeholder="예: 월말 마감이 지난 주문은 다음 달 집계에 포함하지 않는다" />
-              <span className="ax-decision-counter">{modalForm.name.length} / {MODAL_NAME_MAX_LENGTH}</span>
-              {modalErrors.name ? <span className="ax-rule-modal-error" role="alert">{modalErrors.name}</span> : null}
-            </label>
-            <label className="ax-field">
-              <span>분류 *</span>
-              <select aria-label="분류 *" value={modalForm.category} onChange={event => setModalForm(current => ({ ...current, category: event.target.value }))}>
-                <option value="">선택하세요</option>
-                {GENERIC_RULE_CATEGORIES.map(entry => <option key={entry} value={entry}>{entry}</option>)}
-              </select>
-              {modalErrors.category ? <span className="ax-rule-modal-error" role="alert">{modalErrors.category}</span> : null}
-            </label>
-            <label className="ax-field">
-              <span>적용 여부 *</span>
-              <select aria-label="적용 여부 *" value={modalForm.applicability} onChange={event => setModalForm(current => ({ ...current, applicability: event.target.value }))}>
-                <option value="">선택하세요</option>
-                {GENERIC_RULE_APPLICABILITY.map(entry => <option key={entry} value={entry}>{entry}</option>)}
-              </select>
-              {modalErrors.applicability ? <span className="ax-rule-modal-error" role="alert">{modalErrors.applicability}</span> : null}
-            </label>
-            <label className="ax-field">
-              <span>확정 상태 *</span>
-              <select aria-label="확정 상태 *" value={modalForm.status} onChange={event => setModalForm(current => ({ ...current, status: event.target.value }))}>
-                <option value="">선택하세요</option>
-                {GENERIC_RULE_STATUSES.map(entry => <option key={entry} value={entry}>{entry}</option>)}
-              </select>
-              {modalErrors.status ? <span className="ax-rule-modal-error" role="alert">{modalErrors.status}</span> : null}
-            </label>
-            <label className="ax-field">
-              <span>연계 D규칙 (선택)</span>
-              <select aria-label="연계 D규칙 (선택)" value={modalForm.linkedDecisionId} onChange={event => setModalForm(current => ({ ...current, linkedDecisionId: event.target.value }))}>
-                <option value="">연계 없음</option>
-                {(Object.entries(DECISION_DISPLAY) as [DecisionPointId, { title: string }][]).map(([id, entry]) => <option key={id} value={id}>{id} {entry.title}</option>)}
-              </select>
-            </label>
-            <label className="ax-field ax-field-wide">
-              <span>상세 내용</span>
-              <Textarea rows={3} maxLength={MODAL_DETAIL_MAX_LENGTH} value={modalForm.detail}
-                onChange={event => setModalForm(current => ({ ...current, detail: event.target.value }))}
-                placeholder="적용 조건·예외·출력·제한을 구체적으로 적습니다. 불확실한 내용은 확정으로 표시하지 않습니다." />
-              <span className="ax-decision-counter">{modalForm.detail.length} / {MODAL_DETAIL_MAX_LENGTH}</span>
-            </label>
-            <label className="ax-field">
-              <span>근거 출처 (선택)</span>
-              <Input value={modalForm.source} maxLength={MODAL_SOURCE_MAX_LENGTH} onChange={event => setModalForm(current => ({ ...current, source: event.target.value }))}
-                placeholder="예: 매뉴얼 3장, 담당 확인 메일" />
-              <span className="ax-decision-counter">{modalForm.source.length} / {MODAL_SOURCE_MAX_LENGTH}</span>
-            </label>
-            <label className="ax-field">
-              <span>관련 단계 (선택)</span>
-              <Input value={modalForm.step} maxLength={MODAL_STEP_MAX_LENGTH} onChange={event => setModalForm(current => ({ ...current, step: event.target.value }))}
-                placeholder="예: 월말 집계" />
-              <span className="ax-decision-counter">{modalForm.step.length} / {MODAL_STEP_MAX_LENGTH}</span>
-            </label>
-          </div>
-          {modalErrors.duplicate ? <p className="ax-rule-modal-error" role="alert">{modalErrors.duplicate}</p> : null}
-        </div>
-        <div className="ax-rule-modal-foot">
-          <Button type="button" variant="outline" onClick={() => setModalOpen(false)}>취소</Button>
-          <Button type="button" onClick={submitModal}>추가</Button>
-        </div>
-      </DialogPopup>
-    </Dialog>
   </section>;
 }

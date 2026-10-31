@@ -88,9 +88,12 @@ test("Single markers are uniform gate-coloured dots with legend colours", async 
   }));
   expect(dots.map(dot => `${dot.w}x${dot.h}`)).toEqual(["16x16", "16x16", "16x16"]);
   expect(new Set(dots.map(dot => dot.gate))).toEqual(new Set(["ready", "conditional", "blocked"]));
+  // 진행 가능 = 초록, 확인 후 진행 = 노랑(앰버 계열), 진행 보류 = 빨강.
+  const palette: Record<string, string> = { ready: "rgb(22, 163, 74)", conditional: "rgb(234, 179, 8)", blocked: "rgb(220, 38, 38)" };
   for (const dot of dots) {
     const legend = await page.locator(`.ax-legend-dot[data-gate=${dot.gate}]`).evaluate(element => getComputedStyle(element).backgroundColor);
     expect(dot.bg).toBe(legend);
+    expect(dot.bg).toBe(palette[dot.gate!]);
   }
   // 선택 마커만 pressed이고, 선택이 바뀌면 링이 따라간다.
   const markers = page.locator(".ax-bubble");
@@ -213,7 +216,7 @@ test("Level and Gate badges share one geometry; gate colours match the legend", 
   // 업무를 바꿔도 Gate 배지 색상만 바뀌고 규격은 유지되며, 범례 색상과 일치한다.
   const expected: Record<string, { bg: string; text: string }> = {
     ready: { bg: "rgb(220, 252, 231)", text: "rgb(21, 128, 61)" },
-    conditional: { bg: "rgb(254, 243, 199)", text: "rgb(180, 83, 9)" },
+    conditional: { bg: "rgb(254, 249, 195)", text: "rgb(133, 77, 14)" },
     blocked: { bg: "rgb(254, 226, 226)", text: "rgb(185, 28, 28)" },
   };
   for (const [gate, colours] of Object.entries(expected)) {

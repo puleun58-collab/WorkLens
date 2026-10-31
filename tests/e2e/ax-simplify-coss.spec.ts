@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { navigateWorkspace } from "./navigation";
 import { outputFixture, planFixture } from "../fixtures/ax";
+import { addInlineRule, chooseOption } from "./ax-rules";
 
 async function registerAndDiagnose(page: Page) {
   const diagnosis = outputFixture();
@@ -31,7 +32,7 @@ async function confirmDecision(page: Page, rowPattern: RegExp, rowId: string) {
   // 기본은 모두 접힘이므로, 이미 펼쳐진 행은 다시 클릭하지 않는다(접힘 방지).
   const head = page.getByRole("button", { name: rowPattern });
   if ((await head.getAttribute("aria-expanded")) !== "true") await head.click();
-  await page.locator(`#ax-decision-${rowId}`).getByLabel("상태").selectOption("확정");
+  await chooseOption(page.locator(`#ax-decision-${rowId}`), "상태", "확정");
 }
 
 test("AX 간소화·COSS 통일: 판단 하단 문구 제거·매트릭스 버튼 제거·다음 행동 형식·로드맵 헤더·확인사항 이동", async ({ page }) => {
@@ -49,7 +50,7 @@ test("AX 간소화·COSS 통일: 판단 하단 문구 제거·매트릭스 버�
   await confirmDecision(page, /D6 빈 파일 처리/, "D6");
   await page.locator('section[aria-label="업무 규칙 확인"]').getByRole("button", { name: "저장", exact: true }).click();
   // D 4건 확정 / D 분모 4건 + 범용 후보 적용 여부 확인 5건(기술적 확인 4건 + 사람 판단 1건).
-  await expect(page.locator('section[aria-label="업무 규칙 확인"]').getByText("4/4 확인 완료 · 적용 여부 확인 5건", { exact: true })).toBeVisible();
+  await expect(page.locator('section[aria-label="업무 규칙 확인"]').getByText("4/4 완료 · 적용 확인 5건", { exact: true })).toBeVisible();
 
   // B. 매트릭스 상세 카드 자체가 §9로 제거됐다 (이동 버튼 제거를 넘어 카드 자체가 없음).
   // 이동은 상단 단계 내비게이션으로 한다.
@@ -86,7 +87,7 @@ test("AX 간소화·COSS 통일: 판단 하단 문구 제거·매트릭스 버�
   await expect(precheck.getByRole("button", { name: "예시 확인" })).toHaveCount(0);
   // 펼치면 실제 미해결 항목이 보이고, 항목별 이동 버튼은 생기지 않는다.
   // 표시 건수는 배지 건수와 같다 (같은 집계 기준).
-  await precheck.getByRole("button", { name: /구현 전 확인.*펼치기/ }).click();
+  await precheck.getByRole("button", { name: /구현 전 확인/ }).click();
   await expect(precheck.locator(".ax-precheck-items")).toBeVisible();
   const badgeText = await precheck.locator(".ax-precheck-head").textContent();
   const badgeCount = Number(/미해결 (\d+)건/.exec(badgeText ?? "")?.[1]);
@@ -111,14 +112,7 @@ test("AX 간소화·COSS 통일: 판단 하단 문구 제거·매트릭스 버�
 
   // E. 범용 규칙 저장 후 결과·로드맵 복귀: 규칙을 저장하고 로드맵으로 돌아가면 같은 업무가 유지된다.
   const unified = page.locator('section[aria-label="업무 규칙 확인"]');
-  const dialog = page.locator('[data-slot="dialog-popup"]');
-  await unified.getByRole("button", { name: "+ 규칙 추가", exact: true }).click();
-  await expect(dialog.getByRole("heading", { name: "규칙 추가" })).toBeVisible();
-  await dialog.getByLabel(/규칙명/).fill("운송장 중복 기준");
-  await dialog.getByLabel("분류 *").selectOption("처리·판단 기준");
-  await dialog.getByLabel("적용 여부 *").selectOption("적용 여부 미확정");
-  await dialog.getByLabel("확정 상태 *").selectOption("미확정");
-  await dialog.getByRole("button", { name: "추가", exact: true }).click();
+  await addInlineRule(unified, { name: "운송장 중복 기준", category: "처리·판단 기준", applicability: "적용 여부 미확정", status: "미확정" });
   await unified.getByRole("button", { name: "저장", exact: true }).click();
   await expect(unified.getByText("업무 규칙을 저장했습니다.", { exact: true })).toBeVisible();
   await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();

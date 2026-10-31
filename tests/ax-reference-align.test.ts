@@ -34,8 +34,6 @@ const genericRules = (): GenericRule[] => [
 describe("AX 레퍼런스 동일화 — 업무 규칙 확인 표시", () => {
   it("진행률 문구는 실제 확인 대상 분모 기준이고 적용 여부 건수를 별도로 표시한다 (고정 7 분모 아님)", () => {
     expect(component()).toContain("unifiedRuleProgress(drafts)");
-    expect(component()).toContain("`${progress.done}/${progress.total} 확인 완료`");
-    expect(component()).toContain("적용 여부 확인 ${progress.applicabilityPending}건");
     // 0건은 분수가 아니라 완료 아님으로 표시한다 (0건 ≠ 전부 확정).
     expect(component()).toContain("확인할 규칙 없음");
     expect(component()).not.toContain("/7 확인 완료");
@@ -71,11 +69,7 @@ describe("AX 레퍼런스 동일화 — 업무 규칙 확인 표시", () => {
     expect(css()).toContain(".ax-decision-counter { margin-left: auto;");
   });
 
-  it("범용 규칙 편집 UI는 2열 그리드·모바일 1열이며 예시 UI 잔재가 없다 (별도 범용 섹션은 통합 섹션으로 대체됨)", () => {
-    expect(component()).toContain("+ 규칙 추가");
-    expect(component()).toContain("ax-generic-panel");
-    expect(css()).toContain(".ax-generic-panel { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);");
-    expect(css()).toContain(".ax-generic-panel { grid-template-columns: minmax(0, 1fr); }");
+  it("범용 규칙 편집 UI에 예시 UI 잔재가 없다 (별도 범용 섹션은 통합 섹션으로 대체됨)", () => {
     expect(component()).not.toContain("ax-example-");
     expect(css()).not.toContain(".ax-example-");
     expect(component()).not.toContain("+ 예시 추가");
