@@ -484,7 +484,21 @@ function sectionHeading(section: ResearchSection): string {
  * marks a received excerpt that is not the whole article: it must not read
  * as if the full text had been shown.
  */
-const mcpTruncated = (excerpt: string): boolean => /\.\.\.\s*$/u.test(excerpt.trim());
+/** Upstream excerpts end with "..." or "…" when cut; an unmarked cut is
+ * still possible, so the task-evidence section also carries a general note. */
+const mcpTruncated = (excerpt: string): boolean => /(?:\.\.\.|…)\s*$/u.test(excerpt.trim());
+
+/** Annex originals mix plain text with HTML table markup. LawTextBlock
+ * renders plain text only, so table rows become text rows (row break +
+ * cell separator) and remaining tags are stripped; the stored annex text
+ * is untouched. */
+function annexDisplayText(text: string): string {
+  return lawDisplayText(text
+    .replace(/<\s*\/\s*tr\s*>/giu, "\n")
+    .replace(/<\s*\/\s*t[hd]\s*>/giu, " ｜ ")
+    .replace(/&nbsp;/giu, " ")
+    .replace(/<[^>]*>/gu, ""));
+}
 
 function readerText(text: string): string {
   return dedupeArticleHeadings(lawDisplayText(text.split(/\r?\n/u).filter((line) =>
@@ -610,8 +624,9 @@ function DecisionList({ entries }: { entries: ResearchDecision[] }) {
 }
 
 /** Additional sources keep their rows; repeated excerpts link to their existing detail. */
-function SupplementView({ supplement, hasArticles, sourceTargets, onSourceSelect }: {
+function SupplementView({ supplement, hasArticles, shownArticleKeys, sourceTargets, onSourceSelect }: {
   supplement: NonNullable<ResearchEnrichment["supplement"]>; hasArticles: boolean;
+  shownArticleKeys?: ReadonlySet<string>;
   sourceTargets: ReadonlyMap<string, string>; onSourceSelect: (id: string) => void;
 }) {
   if (!supplement.articles.length) {
@@ -620,8 +635,12 @@ function SupplementView({ supplement, hasArticles, sourceTargets, onSourceSelect
       <p className="research-meta">{supplement.status === "failed" ? "관련 조문 추가 조회 실패" : "관련 법령을 충분히 확인하지 못했습니다"}</p>
     </div>;
   }
-  const titleMatches = supplement.articles.filter(hasQuestionTermInTitle);
-  const otherArticles = supplement.articles.filter((article) => !hasQuestionTermInTitle(article));
+  // Articles the task-evidence toggle already shows are not listed again;
+  // the count keeps the audit trail, and the toggle keeps the excerpt.
+  const isShown = (article: (typeof supplement.articles)[number]) => shownArticleKeys?.has(`${article.law}\u0000${article.jo}`) ?? false;
+  const titleMatches = supplement.articles.filter((article) => hasQuestionTermInTitle(article) && !isShown(article));
+  const otherArticles = supplement.articles.filter((article) => !hasQuestionTermInTitle(article) && !isShown(article));
+  const excludedCount = supplement.articles.length - titleMatches.length - otherArticles.length;
   return <>{[titleMatches, otherArticles].map((articles, groupIndex) => articles.length > 0 && <div key={groupIndex}
     className="legal-analysis-section research-supplement" data-kind="supplement" data-status={supplement.status}>
     <h3>{groupIndex === 0 ? "제목에 질문 용어가 포함된 조문" : "추가로 조회한 조문"} <span className="research-meta">{articles.length}건</span></h3>
@@ -644,7 +663,8 @@ function SupplementView({ supplement, hasArticles, sourceTargets, onSourceSelect
           return url ? <span className="research-meta"><a href={url} target="_blank" rel="noreferrer">법제처 원문 보기</a></span> : null; })()}
       </li>;
     })}</ul>
-  </div>)}</>;
+  </div>)}
+  {excludedCount > 0 && <p className="research-meta">이미 항목별 법적 근거에서 확인한 조문 {excludedCount}건은 별도로 표시하지 않았습니다.</p>}</>;
 }
 
 /** Shown when the question could not be split into issues this time; the reason is named, since a busy AI is not a missing law. */
@@ -812,12 +832,17 @@ function ResearchSectionView({ section, task, relevance, retried, lawSystem, art
     const match = /^\s*\[(법률|시행령|시행규칙)\]\s*(.+)$/u.exec(line);
     return match ? [{ level: match[1], content: match[2] }] : [];
   }) : [];
-  const hierarchy: Array<{ level: string; content: string; appended?: boolean }> = lawSystem && baseHierarchy.length > 0 ? appendMissingLawSystemArticles(baseHierarchy, lawSystem) : baseHierarchy;
-  const appendedHierarchyCount = hierarchy.length - baseHierarchy.length;
+  // Identical response rows collapse to one tier row; the full original
+  // lines stay in the "출처 내용 전체 보기" toggle below.
+  const dedupedBaseHierarchy = baseHierarchy.filter((row, index) => baseHierarchy.findIndex((other) => other.level === row.level && other.content.trim() === row.content.trim()) === index);
+  const collapsedHierarchyCount = baseHierarchy.length - dedupedBaseHierarchy.length;
+  const hierarchy: Array<{ level: string; content: string; appended?: boolean }> = lawSystem && dedupedBaseHierarchy.length > 0 ? appendMissingLawSystemArticles(dedupedBaseHierarchy, lawSystem) : dedupedBaseHierarchy;
+  const appendedHierarchyCount = hierarchy.length - dedupedBaseHierarchy.length;
   return <div className={className} data-kind={section.kind}>
     {heading && <h3>{heading}</h3>}
     {hierarchy.length > 0 ? <><dl className="research-hierarchy">{hierarchy.map((item, index) => <div key={index}><dt>{item.level}</dt><dd>{item.content}{item.appended && <span className="research-meta"> 추가 조회</span>}</dd></div>)}</dl>
-      {lawSystem && <p className="research-meta">이 목록은 원래 응답 행(중복·다른 법령·미식별 행 포함)을 보존합니다. 상단 고유 조문 수의 전체 목록과 관계별 확인 수준은 항목별 법적 근거에서 확인하세요.</p>}
+      {lawSystem && <p className="research-meta">이 목록은 법령 체계상의 위치(법률·시행령·시행규칙)별로 조문을 정리한 것입니다. 각 조문의 위임관계 확인 수준은 항목별 법적 근거에서, 원래 응답 전문은 아래 '출처 내용 전체 보기'에서 확인할 수 있습니다.</p>}
+      {collapsedHierarchyCount > 0 && <p className="research-meta">중복된 응답 행 {collapsedHierarchyCount}건을 하나로 합쳤습니다.</p>}
       {appendedHierarchyCount > 0 && <p className="research-meta">최종 검증 근거 중 응답 목록에 없던 조문 {appendedHierarchyCount}건을 보완했습니다.</p>}</>
       : steps.length >= 2 ? <ol className="research-steps">{steps.map((step, index) => <li key={`${step.number}-${index}`}>{step.text}</li>)}</ol>
         : text && <LawTextBlock className="legal-analysis-lines" text={text.length > preview.length ? `${preview}…` : preview} />}
@@ -1020,7 +1045,11 @@ export function ResearchResult({ data, request, expandSources = false, onExpandS
   const isLawSystem = data.task === "law_system" || (full && Boolean(data.lawSystem));
   // Verified annex originals only: a list entry is never shown here, and a
   // merely identified (truncated) original is not presented as verified.
+  // Identified and unrecovered annexes get their own blocks below, so a
+  // missing table is never hidden behind the "확인한" heading.
   const verifiedAnnexes = (data.annexes ?? []).filter((annex) => annex.status === "verified");
+  const identifiedAnnexes = (data.annexes ?? []).filter((annex) => annex.status === "identified");
+  const unrecoveredAnnexes = (data.annexes ?? []).filter((annex) => annex.status === "failed" || annex.status === "not-found");
   // One status vocabulary for every task, decided by what was actually adopted, never by hit counts.
   const status: ResearchStatus = full
     ? evidenceStatus === "matched" ? notice ? "partial" : "matched" : evidenceStatus === "partial" ? "partial" : hasCandidates ? "weak" : otherFailureSignal || data.followup?.status === "failed" ? "failed" : "none"
@@ -1033,6 +1062,9 @@ export function ResearchResult({ data, request, expandSources = false, onExpandS
 
   const confirmationGap = researchConfirmationGap(data, status);
   const taskItems = taskEvidence?.items.map((item) => ({ ...item, references: taskEvidenceReferences(item) })) ?? [];
+  // Articles the task-evidence toggle already shows (law + article): the
+  // supplement lists only the rest, so one article is not shown twice.
+  const taskArticleKeys = new Set(taskItems.flatMap((item) => item.references.map((article) => `${article.law}\u0000${article.jo}`)));
   const hasTaskDetail = (item: (typeof taskItems)[number]) => item.references.length > 0
     || (data.task === "action_basis" && (item.basisRefs !== undefined || item.requirementRefs !== undefined));
   // Only an actual complete verdict proves that these remaining reads are reference-only.
@@ -1089,7 +1121,9 @@ export function ResearchResult({ data, request, expandSources = false, onExpandS
       <strong>{articleHeadingText(article.law, article.jo, article.title)}</strong>
       <span className="research-meta">{"relation" in article ? LAW_SYSTEM_RELATION_LABEL[article.relation] : "조회 원문에서 이 항목의 근거 문언 확인"}{"expression" in article && article.expression ? ` · ${article.expression}` : ""}</span>
       {"note" in article && article.note ? <span className="research-meta">{article.note}</span> : null}
-      {"excerpt" in article && <><LawTextBlock className="legal-analysis-lines" text={article.excerpt} /><a className="research-meta" href={lawSourceUrl(article.law, article.jo)} target="_blank" rel="noreferrer">법제처 원문 보기</a></>}
+      {"excerpt" in article && <><LawTextBlock className="legal-analysis-lines" text={article.excerpt} />
+        {mcpTruncated(article.excerpt) && <p className="research-meta">중략된 발췌입니다. 조문 전문은 법령 검색에서 확인하세요.</p>}
+        <a className="research-meta" href={lawSourceUrl(article.law, article.jo)} target="_blank" rel="noreferrer">법제처 원문 보기</a></>}
     </li>
   );
   /** Asked articles for the law-system toggle header (structure A). */
@@ -1209,7 +1243,26 @@ export function ResearchResult({ data, request, expandSources = false, onExpandS
         <ul>{verifiedAnnexes.map((annex, index) => <li key={`${annex.law}-${annex.label}-${index}`}>
           <span className="research-issue-label">{annex.law} {annex.label}{annex.title ? ` (${annex.title})` : ""}</span>
           {annex.url && <span className="research-meta"><a href={annex.url} target="_blank" rel="noreferrer">법제처 원문 보기</a></span>}
+          {annex.text && <details className="law-detail-source research-more">
+            <SourceToggleSummary label="별표 원문 보기" openLabel="별표 원문 접기" />
+            <LawTextBlock className="legal-analysis-lines" text={annexDisplayText(annex.text)} />
+          </details>}
         </li>)}</ul>
+      </div>}
+      {identifiedAnnexes.length > 0 && <div className="research-original research-issues is-assessed" data-annexes-partial>
+        <span>원문 일부만 확인된 별표·서식</span>
+        <ul>{identifiedAnnexes.map((annex, index) => <li key={`${annex.law}-${annex.label}-${index}`}>
+          <span className="research-issue-label">{annex.law} {annex.label}{annex.title ? ` (${annex.title})` : ""}</span>
+          {annex.url && <span className="research-meta"><a href={annex.url} target="_blank" rel="noreferrer">법제처 원문 보기</a></span>}
+        </li>)}</ul>
+        <p className="research-meta">원문 전체가 확인되지 않았습니다. 전체 내용은 법제처 원문 보기에서 확인하세요.</p>
+      </div>}
+      {unrecoveredAnnexes.length > 0 && <div className="research-original research-issues is-assessed" data-annexes-missing>
+        <span>원문 미확보 별표·서식</span>
+        <ul>{unrecoveredAnnexes.map((annex, index) => <li key={`${annex.law}-${annex.label}-${index}`}>
+          <span className="research-issue-label">{annex.law} {annex.label}{annex.title ? ` (${annex.title})` : ""}</span>
+        </li>)}</ul>
+        <p className="research-meta">원문을 확보하지 못했습니다. 해당 별표·서식의 세부 기준은 법제처에서 직접 확인하세요.</p>
       </div>}
     </ResearchResultSummary>
     {/* Only when there is no top issue list to reuse (uninterpreted result):
@@ -1347,6 +1400,7 @@ export function ResearchResult({ data, request, expandSources = false, onExpandS
     </section>}
     {taskItems.some(hasTaskDetail) && <section className="research-group research-task-details" aria-label="항목별 법적 근거">
       <h3>{isLawSystem ? "위임관계 검증 근거" : "항목별 법적 근거"}</h3>
+      <p className="research-meta">표시되는 발췌는 원문의 일부일 수 있습니다. 조문 전문은 발췌 아래의 법제처 원문 보기에서 확인하세요.</p>
       {taskItems.map((item, index) => hasTaskDetail(item) && <div key={index}
         id={`research-task-evidence-${index + 1}`} className="legal-analysis-section research-source-target" tabIndex={-1}>
         <h3 tabIndex={-1}>{item.label} <span className="research-issue-status" data-status={item.status}>{TASK_EVIDENCE_LABEL[item.status]}</span></h3>
@@ -1415,7 +1469,7 @@ export function ResearchResult({ data, request, expandSources = false, onExpandS
       </> : <p className="research-meta">원문을 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.</p>}
     </details>
     {showSupplement && <section className="research-group" aria-label="추가 조회 자료">
-      <SupplementView supplement={supplement} hasArticles={articleCount > 0}
+      <SupplementView supplement={supplement} hasArticles={articleCount > 0} shownArticleKeys={taskArticleKeys}
         sourceTargets={sourceTargets} onSourceSelect={showSource} />
     </section>}
     <p className="legal-analysis-note">조회 경로: {result.sources.map((source) => source.replace(" OPEN API", "")).join(" · ")}. {RESULT_NOTE}</p>

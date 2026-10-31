@@ -105,8 +105,7 @@ describe("research result source structure", () => {
     const html = render({ ...base, task, text: initial, lawSystem });
     // Top summary keeps relation phrases only (no provision count, per §6);
     // the count-free summary and every relation stay accessible below.
-    // (The scope is the top area only: a lower hierarchy note legitimately
-    // refers to the top count concept in words.)
+    // The tier note below no longer refers to a top count (§6 removed it).
     const top = html.slice(0, html.indexOf('aria-label="항목별 법적 근거"'));
     expect(top).toContain("직접 위임 확인됨 · 추가 확인 필요");
     expect(top).not.toContain("고유 조문");
@@ -116,7 +115,9 @@ describe("research result source structure", () => {
     const lower = html.slice(html.indexOf('aria-label="항목별 법적 근거"'));
     for (const jo of ["제40조", "제41조", "제42조"]) expect(lower).toContain(jo);
     expect(lower).toContain("법 제39조에 따른");
-    expect(html).toContain("중복·다른 법령·미식별 행 포함");
+    expect(html).toContain("법령 체계상의 위치");
+    expect(html).toContain("원래 응답 전문은 아래");
+    expect(html).not.toContain("상단 고유 조문 수");
   });
 
   it("appends missing system provisions without deleting or counting original duplicate, foreign or unparsed rows", () => {
@@ -245,4 +246,61 @@ describe("research result source structure", () => {
       expect(html.indexOf('class="law-detail-source research-source"')).toBeLessThan(html.indexOf('aria-label="추가 조회 자료"'));
     });
   }
+
+  it("shows verified annex text folded and keeps partial and missing annexes out of the verified block", () => {
+    const html = render({ ...base, annexes: [
+      { law: "식품위생법 시행규칙", label: "별표 23", sourceArticle: "제75조", citation: "별표 23", status: "verified" as const,
+        title: "행정처분의 기준", text: "Ⅰ. 일반기준\n<table><tr><td>구분</td><td>위반행위</td></tr><tr><td>1차</td><td>경고</td></tr></table>",
+        url: "https://example.test/annex23" },
+      { law: "식품위생법 시행령", label: "별표 1", sourceArticle: "제53조", citation: "별표 1", status: "identified" as const,
+        title: "과징금 산정", url: "https://example.test/annex1" },
+      { law: "식품위생법 시행령", label: "별표 2", sourceArticle: "제53조", citation: "별표 2", status: "failed" as const },
+    ] });
+    expect(html).toContain("확인한 별표·서식 원문");
+    expect(html).toContain("별표 원문 보기");
+    expect(html).toContain("구분 ｜ 위반행위");
+    expect(html).toContain("1차 ｜ 경고");
+    expect(html).not.toContain("<td>");
+    const verifiedBlock = html.indexOf("확인한 별표·서식 원문");
+    const partialBlock = html.indexOf("원문 일부만 확인된 별표·서식");
+    const missingBlock = html.indexOf("원문 미확보 별표·서식");
+    expect(partialBlock).toBeGreaterThan(verifiedBlock);
+    expect(missingBlock).toBeGreaterThan(partialBlock);
+    expect(html.slice(partialBlock)).toContain("식품위생법 시행령 별표 1");
+    expect(html.slice(missingBlock)).toContain("식품위생법 시행령 별표 2");
+    expect(html).toContain("원문 전체가 확인되지 않았습니다");
+    expect(html).toContain("원문을 확보하지 못했습니다");
+  });
+
+  it("collapses duplicate tier rows and drops the stale top-count reference", () => {
+    const text = "═══ 법체계 확인: 개인정보 보호법 ═══\n▶ 3단 비교 (법률·시행령·시행규칙)\n[시행령] 개인정보 보호법 시행령 제40조 (청구 방법)\n[시행령] 개인정보 보호법 시행령 제40조 (청구 방법)\n";
+    const html = render({ ...base, task: "law_system", text, lawSystem: { status: "partial", items: [
+      { label: "시행령", status: "found", articles: [
+        { law: "개인정보 보호법 시행령", jo: "제40조", title: "청구 방법", relation: "direct" },
+      ] },
+    ] } });
+    expect(html).toContain("중복된 응답 행 1건을 하나로 합쳤습니다.");
+    expect(html).toContain("법령 체계상의 위치");
+    expect(html).not.toContain("상단 고유 조문 수");
+  });
+
+  it("lists supplement articles already shown in the task-evidence toggle only once", () => {
+    const html = render({ ...base, task: "action_basis", actionBasis: { status: "matched", items: [
+      { label: "처분·허가 근거", status: "found", basisRefs: [{ law: article.law, jo: article.jo, title: article.title, excerpt: "① 해고의 기준을 확인한다." }] },
+      { label: "적용 요건", status: "found", requirementRefs: [] },
+    ] }, enrichment: { supplement: { status: "found", articles: [
+      article, { ...article, jo: "제24조" },
+    ] } } });
+    expect(html).toContain("이미 항목별 법적 근거에서 확인한 조문 1건은 별도로 표시하지 않았습니다.");
+    expect(html).toContain("근로기준법 제24조");
+  });
+
+  it("marks an ellipsis-cut excerpt in the task-evidence toggle and notes that excerpts may be partial", () => {
+    const html = render({ ...base, task: "action_basis", actionBasis: { status: "viewed", items: [
+      { label: "처분·허가 근거", status: "viewed", basisRefs: [{ law: article.law, jo: article.jo, title: article.title, excerpt: "① 일부 발췌 …" }] },
+    ] } });
+    const lower = html.slice(html.indexOf('aria-label="항목별 법적 근거"'));
+    expect(lower).toContain("중략된 발췌입니다");
+    expect(lower).toContain("표시되는 발췌는 원문의 일부일 수 있습니다");
+  });
 });
