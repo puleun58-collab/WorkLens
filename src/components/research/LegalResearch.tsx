@@ -841,7 +841,7 @@ function ResearchSectionView({ section, task, relevance, retried, lawSystem, art
   return <div className={className} data-kind={section.kind}>
     {heading && <h3>{heading}</h3>}
     {hierarchy.length > 0 ? <><dl className="research-hierarchy">{hierarchy.map((item, index) => <div key={index}><dt>{item.level}</dt><dd>{item.content}{item.appended && <span className="research-meta"> 추가 조회</span>}</dd></div>)}</dl>
-      {lawSystem && <p className="research-meta">이 목록은 법령 체계상의 위치(법률·시행령·시행규칙)별로 조문을 정리한 것입니다. 각 조문의 위임관계 확인 수준은 항목별 법적 근거에서, 원래 응답 전문은 아래 '출처 내용 전체 보기'에서 확인할 수 있습니다.</p>}
+      {lawSystem && <p className="research-meta">이 목록은 법령 체계상의 위치(법률·시행령·시행규칙)별로 조문을 정리한 것입니다. 각 조문의 위임관계 확인 수준은 항목별 법적 근거에서, 원래 응답 전문은 아래 「출처 내용 전체 보기」에서 확인할 수 있습니다.</p>}
       {collapsedHierarchyCount > 0 && <p className="research-meta">중복된 응답 행 {collapsedHierarchyCount}건을 하나로 합쳤습니다.</p>}
       {appendedHierarchyCount > 0 && <p className="research-meta">최종 검증 근거 중 응답 목록에 없던 조문 {appendedHierarchyCount}건을 보완했습니다.</p>}</>
       : steps.length >= 2 ? <ol className="research-steps">{steps.map((step, index) => <li key={`${step.number}-${index}`}>{step.text}</li>)}</ol>
