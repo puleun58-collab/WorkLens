@@ -1062,19 +1062,23 @@
 .ax-decision-badge[data-status="해당 없음"] { background: #edf1f6; color: #43536b; border-color: #d5dce6; }
 .ax-decision-row-head > svg { flex: none; color: var(--muted-foreground); transition: transform 150ms ease; }
 .ax-decision-row-head > svg.is-open { transform: rotate(180deg); }
-.ax-decision-panel { display: flex; flex-direction: column; gap: 12px; padding: 12px 14px 16px 62px; border-top: 1px solid var(--border); }
-/* D규칙 상태 선택: 라벨과 선택창을 한 묶음으로 카드 가로 중앙에 둔다 (선택창 텍스트는 좌측 정렬). */
-.ax-decision-panel > .ax-rule-field:first-child { align-self: center; width: min(360px, 100%); }
+.ax-decision-panel { display: flex; flex-direction: column; gap: 12px; padding: 12px 14px 16px; border-top: 1px solid var(--border); }
+/* D규칙·범용 규칙 입력 폼: 폼 전체를 카드 가로 중앙의 한 열(최대 640px)에 두고, 그 안의 라벨·입력창은
+   모두 같은 좌측 시작선에 둔다 (개별 입력창 중앙 정렬 없음). */
+.ax-decision-panel > *, .ax-generic-panel > * { width: 100%; max-width: 640px; align-self: center; }
 .ax-decision-panel textarea { min-height: 96px; padding: 10px 12px; }
 .ax-decision-counter { margin-left: auto; font-size: var(--font-size-xs); color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
 .ax-decision-save { display: flex; align-items: center; justify-content: flex-end; gap: 12px; flex-wrap: wrap; margin-top: 16px; }
 .ax-decision-save p { margin: 0; margin-right: auto; }
 
-/* 범용 업무 규칙 — 기본 4개 항목(규칙명·적용 여부·실제 처리 규칙·확정 여부) 세로 배치 + 상세 설정(기본 접힘) */
-.ax-generic-panel { display: flex; flex-direction: column; gap: 12px; padding: 12px 14px 16px 62px; border-top: 1px solid var(--border); }
+/* 범용 업무 규칙 — 규칙명·분류(직접 추가 규칙)·업무 적용 여부·처리 기준·확정 상태 + 추가 정보(선택, 기본 접힘) */
+.ax-generic-panel { display: flex; flex-direction: column; gap: 12px; padding: 12px 14px 16px; border-top: 1px solid var(--border); }
+.ax-rule-identity-edit { display: flex; justify-content: flex-end; margin-bottom: -8px; }
 .ax-generic-panel textarea { min-height: 96px; padding: 10px 12px; }
 /* D규칙·범용 규칙 공통 선택창: COSS Select 흰색 배경·같은 높이·테두리·라운드·패딩·화살표. */
 .ax-rule-field .ax-rule-select { max-width: 360px; min-height: 36px; background: var(--card); font-weight: 400; }
+/* 추가 정보 (선택): 기존 결정 항목 연결 선택창은 같은 열의 적용 단계 입력창과 같은 폭이다. */
+.ax-rule-details-grid .ax-rule-field .ax-rule-select { max-width: none; }
 .ax-rule-error { font-size: var(--font-size-xs); font-weight: 400; color: #b91c1c; }
 .ax-rule-details { border-top: 1px dashed var(--border); padding-top: 8px; }
 .ax-rule-details-trigger { display: inline-flex; align-items: center; gap: 4px; padding: 4px 0; border: 0; background: transparent; color: var(--muted-foreground); font-size: var(--font-size-sm); font-weight: 600; cursor: pointer; }
@@ -1085,7 +1089,7 @@
 .ax-rule-details-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; padding: 8px 0 2px; }
 .ax-rule-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
 @media (max-width: 700px) {
-  .ax-generic-panel, .ax-decision-panel { padding-left: 14px; }
+  .ax-generic-panel, .ax-decision-panel { padding-inline: 14px; }
   .ax-rule-details-grid { grid-template-columns: minmax(0, 1fr); }
   .ax-rule-field .ax-rule-select { max-width: none; }
   .ax-decision-progress { min-width: 0; width: 100%; text-align: left; }

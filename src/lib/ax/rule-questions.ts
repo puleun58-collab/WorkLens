@@ -229,7 +229,14 @@ export function deriveUnifiedRules(diagnosis: AxDiagnosis, storedGeneric?: reado
   const candidateNames = new Set<string>();
   const pushGenericCandidate = (candidate: UnifiedGenericDraft): void => {
     const key = normalize(candidate.name);
-    if (!key || storedNames.has(key) || candidateNames.has(key)) return;
+    if (!key || candidateNames.has(key)) return;
+    if (storedNames.has(key)) {
+      // 저장된 규칙이 진단 도출 후보와 같은 이름이면 그 후보에서 저장된 것이다: 화면 표시용
+      // 도출 근거만 붙이고(저장 계약에는 없음) 후보를 다시 만들지 않는다.
+      const stored = genericRows.find(row => row.origin === "stored" && normalize(row.name) === key);
+      if (stored && !stored.provenance) stored.provenance = candidate.provenance;
+      return;
+    }
     // 확인 질문(정보 요청)은 처리 기준이 아니므로 어떤 출처에서 오든 후보로 만들지 않는다.
     if (isConfirmationQuestion(candidate.name)) return;
     candidateNames.add(key);
