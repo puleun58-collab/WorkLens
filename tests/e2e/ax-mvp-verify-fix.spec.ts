@@ -66,9 +66,9 @@ test("verification record UI is removed below the all-in-one instruction for bot
   };
   const task = { ...taskFixture("fix-a", { ...diagnosisFixture, planCodex: planFixture, planClaude: planFixture }), name: "수정 지시문 확인 업무", verificationResults: [round] };
   const plan = await openPlan(page, task);
-  // 올인원 지시문·전달 검사는 그대로 표시되고, 그 아래 검증 기록 UI만 없다.
+  // 올인원 지시문은 그대로 표시되고, 전달 검사 요약 줄과 검증 기록 UI는 없다.
   await expect(plan.getByRole("button", { name: "Codex용 올인원 지시문 복사", exact: true })).toBeVisible();
-  await expect(plan.getByText("전달 검사: 확정 0건 중 전달 0건 · 문제 0건")).toBeVisible();
+  await expect(plan.getByText(/전달 검사:/u)).toHaveCount(0);
   await expectNoVerificationUi(plan);
   await plan.getByRole("tab", { name: "Claude Code", exact: true }).click();
   await expect(plan.getByRole("button", { name: "Claude Code용 올인원 지시문 복사", exact: true })).toBeVisible();

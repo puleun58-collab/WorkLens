@@ -308,27 +308,23 @@ export function hasDerivationSignals(diagnosis: AxDiagnosis): boolean {
 }
 
 /**
- * 통합 완료 현황. ruleProgress의 기본 집계 규칙에 연결 중복 제외를 적용한다:
- * - D: 확정은 완료, 미확정은 분모, 해당 없음은 제외.
- * - 범용: 적용+확정은 완료, 적용+미확정은 분모, 적용 여부 미확정은 분모 외 별도 건수, 해당 없음은 제외.
- * - 목록에 연결 대상 D가 있으면 그 D의 상태로 한 번만 집계한다 (해당 없음 쌍은 제외).
- *   연결 대상이 없는 범용 규칙은 기존대로 집계하며, 저장값 자체는 병합하지 않는다.
+ * 업무 규칙 검토 완료율. 화면에 표시된 모든 검토 항목(카드 1장 = 1건)이 분모다.
+ * 검토가 끝난 항목만 완료로 센다:
+ * - D: 확정 또는 해당 없음(미적용) 결정 → 완료, 미확정 → 미완료.
+ * - 범용: 해당 없음(미적용) 결정 또는 적용+확정 → 완료, 적용+미확정·적용 여부 미확정(선택 전) → 미완료.
+ * 연계 D가 있어도 별도 카드로 각각 검토하므로 분모에서 빼지 않는다. 이 값은 검토 완료율이며
+ * 구현 가능 여부(Gate·필수 조건)와는 별개다. applicabilityPending은 내부 참고용 건수다.
  */
 export function unifiedRuleProgress(items: readonly UnifiedRuleDraft[]): RuleProgress {
   let done = 0;
-  let total = 0;
   let applicabilityPending = 0;
-  const decisionIds = new Set(items.filter(item => item.kind === "decision").map(item => item.id));
   for (const item of items) {
-    if (item.kind === "generic" && item.linkedDecisionId && decisionIds.has(item.linkedDecisionId)) continue;
     if (item.kind === "decision") {
-      if (item.status === "확정") { done += 1; total += 1; }
-      else if (item.status === "미확정") total += 1;
-    } else if (item.applicability === "적용" && item.status === "확정") { done += 1; total += 1; }
-    else if (item.applicability === "적용") total += 1;
+      if (item.status !== "미확정") done += 1;
+    } else if (item.applicability === "해당 없음" || (item.applicability === "적용" && item.status === "확정")) done += 1;
     else if (item.applicability === "적용 여부 미확정") applicabilityPending += 1;
   }
-  return { done, total, applicabilityPending };
+  return { done, total: items.length, applicabilityPending };
 }
 
 /** 통합 초안을 저장 페이로드로 변환한다. 기존 저장 계약을 유지한다. */

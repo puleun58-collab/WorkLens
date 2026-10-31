@@ -1060,10 +1060,11 @@
 .ax-decision-badge[data-status="확정"] { background: #e9f7ee; color: #166534; }
 .ax-decision-badge[data-status="미확정"] { background: #fff4df; color: #b45309; border-color: #f8d9a0; }
 .ax-decision-badge[data-status="해당 없음"] { background: #edf1f6; color: #43536b; border-color: #d5dce6; }
-.ax-decision-badge[data-status="적용 여부 확인 필요"] { background: #fff4df; color: #b45309; border-color: #f8d9a0; }
 .ax-decision-row-head > svg { flex: none; color: var(--muted-foreground); transition: transform 150ms ease; }
 .ax-decision-row-head > svg.is-open { transform: rotate(180deg); }
 .ax-decision-panel { display: flex; flex-direction: column; gap: 12px; padding: 12px 14px 16px 62px; border-top: 1px solid var(--border); }
+/* D규칙 상태 선택: 라벨과 선택창을 한 묶음으로 카드 가로 중앙에 둔다 (선택창 텍스트는 좌측 정렬). */
+.ax-decision-panel > .ax-rule-field:first-child { align-self: center; width: min(360px, 100%); }
 .ax-decision-panel textarea { min-height: 96px; padding: 10px 12px; }
 .ax-decision-counter { margin-left: auto; font-size: var(--font-size-xs); color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
 .ax-decision-save { display: flex; align-items: center; justify-content: flex-end; gap: 12px; flex-wrap: wrap; margin-top: 16px; }
@@ -1082,7 +1083,6 @@
 .ax-rule-details-trigger > svg { transition: transform 150ms ease; }
 .ax-rule-details-trigger > svg.is-open { transform: rotate(180deg); }
 .ax-rule-details-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; padding: 8px 0 2px; }
-.ax-rule-provenance { grid-column: 1 / -1; margin: 0; font-size: var(--font-size-xs); }
 .ax-rule-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
 @media (max-width: 700px) {
   .ax-generic-panel, .ax-decision-panel { padding-left: 14px; }
@@ -1137,6 +1137,9 @@
 .ax-plan-instructions-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .ax-plan-instructions-head .ax-plan-toolbar { margin-top: 0; }
 .ax-plan-instructions-head + * { margin-top: 16px; }
+/* 자동화 구현 계획 / 올인원 지시문: 같은 너비·시작선의 두 흰색 영역으로 나눈다. */
+.ax-plan-stack { display: grid; gap: 16px; min-width: 0; }
+.ax-instructions-surface > .ax-plan-instructions { border-top: 0; padding-top: 0; }
 @media (max-width: 700px) {
   .ax-scope-summary-groups { grid-template-columns: minmax(0, 1fr); }
 }

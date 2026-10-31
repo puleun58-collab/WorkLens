@@ -1012,13 +1012,11 @@ export function AxExecutionPackage({ plan, target, taskName, taskContext, prereq
   });
   return <div className="ax-package">
     <AxPrompt key={prompt} prompt={prompt} name={name} />
-    <div className="ax-delivery-check">
-      <p className="ax-muted">전달 검사: 확정 {delivery.confirmedTotal}건 중 전달 {delivery.deliveredCount}건 · 문제 {delivery.findings.length}건</p>
-      {delivery.findings.length ? <>
-        <div className="ax-actions"><Button type="button" variant="outline" size="sm" aria-expanded={showFindings} onClick={() => setShowFindings(value => !value)}>{showFindings ? "전달 문제 접기" : `전달 문제 ${delivery.findings.length}건 보기`}</Button></div>
-        {showFindings ? <ul role="list">{delivery.findings.map((finding, i) => <li key={i}>{finding.message}</li>)}</ul> : null}
-      </> : null}
-    </div>
+    {/* 전달 검사는 내부에서 그대로 수행하고, 실제 전달 문제가 있을 때만 안내한다 (상시 요약 줄은 표시하지 않음). */}
+    {delivery.findings.length ? <div className="ax-delivery-check">
+      <div className="ax-actions"><Button type="button" variant="outline" size="sm" aria-expanded={showFindings} onClick={() => setShowFindings(value => !value)}>{showFindings ? "전달 문제 접기" : `전달 문제 ${delivery.findings.length}건 보기`}</Button></div>
+      {showFindings ? <ul role="list">{delivery.findings.map((finding, i) => <li key={i}>{finding.message}</li>)}</ul> : null}
+    </div> : null}
   </div>;
 }
 
@@ -1180,7 +1178,9 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
     heading?.focus({ preventScroll: true });
   }
   const generateButton = (target: AxToolId) => <Button key={target} type="button" variant="outline" className="ax-plan-generate" disabled={!!busy || gate === "blocked"} onClick={() => onGenerate(target)}><FileCode2 aria-hidden="true" />{busy === target ? target === "codex" ? "Codex 계획 생성 중…" : "Claude 계획 생성 중…" : `${TOOL_GUIDES[target].name}용 구현 계획 생성`}</Button>;
-  return <section className="ax-surface" id="ax-plan-section" aria-label="자동화 구현 계획">
+  // 구현 계획(구현 전 확인·범위·구현 계획 검토)과 올인원 지시문(지시문·설치 가이드)은 별도의 흰색
+  // 영역으로 나눈다. 바깥 래퍼는 기존 "자동화 구현 계획" 영역 이름과 이동 대상 id를 그대로 유지한다.
+  return <div className="ax-plan-stack" id="ax-plan-section" role="region" aria-label="자동화 구현 계획"><section className="ax-surface">
     <div className="ax-plan-head"><h3>자동화 구현 계획</h3></div>
     <AxPrecheckSection summary={summary} />
     <AxScopeSummary summary={summary} />
@@ -1190,6 +1190,8 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
       {!plans.codex && !plans.claude ? <div className="ax-actions">{generateButton("codex")}{generateButton("claude")}</div> : null}
     </>}
     {reviewProps && (plans.codex || plans.claude) ? <AxPlanReview plans={plans} reviewProps={reviewProps} activeTool={activeTool} onToolChange={setSelectedTool} /> : null}
+  </section>
+  <section className="ax-surface ax-instructions-surface">
     <section ref={instructionsRef} id={`${instructionsId}-section`} className="ax-plan-instructions" aria-labelledby={instructionsId}>
       {gate === "blocked" ? <><AxPlanHeading id={instructionsId} title="올인원 지시문" description="선택한 코딩 에이전트를 위한 통합 지시문을 생성합니다." /><p role="status" className="ax-notice">현재 진단에서는 구현 계획 생성 불가</p></> : <>
         {plans.codex || plans.claude ?
@@ -1216,7 +1218,7 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
         </AccordionItem>
       </Accordion>
     </section> : null}
-  </section>;
+  </section></div>;
 }
 
 /** 구현 계획 검토 섹션 (Codex/Claude Code별) - 테이블형 UI

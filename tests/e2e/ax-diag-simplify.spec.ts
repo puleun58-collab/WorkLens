@@ -22,8 +22,9 @@ test("AX 진단 간소화: D1~D7 아코디언 단일 펼침·진행률·저장·
   await registerAndDiagnose(page, "운송장 검증", "운송장 데이터를 입력받아 누락·중복을 검사하고 검증 결과를 출력한다.");
   const decision = page.locator('section[aria-label="업무 규칙 확인"]');
   // 고정 7개가 아니라 진단에서 도출된 D3·D4·D5·D6 후보 4건이 분모이고,
-  // 범용 후보 2건(시스템 접근·최종 승인)은 적용 여부 확인 건수로 별도 표시된다.
-  await expect(decision.getByText("0/4 완료 · 적용 확인 2건", { exact: true })).toBeVisible();
+  // 검토 완료율 분모는 화면에 표시된 모든 규칙(D 4건 + 범용 후보 2건)이다.
+  await expect(decision.getByText("0/6 완료", { exact: true })).toBeVisible();
+  await expect(decision).not.toContainText("적용 확인");
 
   // 기본은 모두 접힘이므로 D3 행을 펼쳐 입력한다. D4를 펼치면 D3이 접히고,
   // 다시 D3을 펼쳐도 미저장 입력이 유지된다.
@@ -39,7 +40,7 @@ test("AX 진단 간소화: D1~D7 아코디언 단일 펼침·진행률·저장·
 
   // 해당 없음이면 상세 입력이 숨겨지고, 되돌리면 다시 보인다.
   await page.getByRole("button", { name: /D4 결과 상태/ }).click();
-  await chooseOption(page.locator("#ax-decision-D4"), "상태", "해당 없음");
+  await chooseOption(page.locator("#ax-decision-D4"), "상태", "미적용");
   await expect(page.locator("#ax-decision-D4").getByLabel("대조 기준")).toHaveCount(0);
   await chooseOption(page.locator("#ax-decision-D4"), "상태", "미확정");
   await expect(page.locator("#ax-decision-D4").getByLabel("대조 기준")).toBeVisible();
@@ -49,7 +50,7 @@ test("AX 진단 간소화: D1~D7 아코디언 단일 펼침·진행률·저장·
   // 저장되지 않아 다음 렌더링에서 다시 도출된다.
   await decision.getByRole("button", { name: "저장", exact: true }).click();
   await expect(decision.getByText("업무 규칙을 저장했습니다.", { exact: true })).toBeVisible();
-  await expect(decision.getByText("1/4 완료 · 적용 확인 2건", { exact: true })).toBeVisible();
+  await expect(decision.getByText("1/6 완료", { exact: true })).toBeVisible();
   // useAxState 저장은 디바운스되므로 플러시될 때까지 poll한 뒤 새로고침한다 (즉시 새로고침하면 저장 전 상태로 복원된다).
   await expect.poll(async () => {
     const value = await page.evaluate(async () => {
@@ -86,10 +87,10 @@ test("AX 진단 간소화: 통합 규칙 인라인 추가·아코디언 초안 �
   const newRow = unified.locator("#ax-rule-new");
   await expect(newRow).toBeVisible();
   await expect(unified.locator(".ax-decision-row").last()).toHaveAttribute("id", "ax-rule-new");
-  // 필수 항목 없이 목록에 추가하면 오류를 표시하고, 상세 설정의 분류 오류는 상세 설정을 자동으로 펼친다.
+  // 필수 항목 없이 목록에 추가하면 기본 입력 영역에서 바로 오류를 표시한다.
   await newRow.getByRole("button", { name: "목록에 추가", exact: true }).click();
-  await expect(newRow.getByText("규칙명을 입력하세요.")).toBeVisible();
-  await expect(newRow.getByText("분류를 선택하세요.")).toBeVisible();
+  await expect(newRow.getByText("규칙 이름을 입력하세요.")).toBeVisible();
+  await expect(newRow.getByText("규칙 분류를 선택하세요.")).toBeVisible();
   // 취소하면 작성 중인 신규 항목만 사라진다.
   await newRow.getByRole("button", { name: "취소", exact: true }).click();
   await expect(newRow).toHaveCount(0);
@@ -97,9 +98,9 @@ test("AX 진단 간소화: 통합 규칙 인라인 추가·아코디언 초안 �
   for (const name of ["규칙 A", "규칙 B"]) await addInlineRule(unified, { name, category: "처리·판단 기준", applicability: "적용 여부 미확정", status: "미확정" });
   // 행을 접었다 펼쳐도 작성 중인 입력값이 사라지지 않는다.
   await unified.getByRole("button", { name: /R1 규칙 A/ }).click();
-  await expect(unified.getByLabel("규칙명")).toHaveValue("규칙 A");
+  await expect(unified.getByLabel("규칙 이름")).toHaveValue("규칙 A");
   await unified.getByRole("button", { name: /R2 규칙 B/ }).click();
-  await expect(unified.getByLabel("규칙명")).toHaveValue("규칙 B");
+  await expect(unified.getByLabel("규칙 이름")).toHaveValue("규칙 B");
   // 규칙 1 삭제 후 남은 규칙은 R2로 유지되고 규칙 B를 유지한다 (id 재부여 없음).
   await unified.getByRole("button", { name: /R1 규칙 A/ }).click();
   await unified.getByRole("button", { name: "이 규칙 삭제" }).click();
@@ -171,7 +172,7 @@ test("AX 진단 간소화: 모바일 390에서 인라인 규칙 추가·범용 �
   expect(head).toEqual({ order: true, right: true, narrow: true });
   await unified.getByRole("button", { name: "+ 규칙 추가", exact: true }).click();
   const newRow = unified.locator("#ax-rule-new");
-  await newRow.getByRole("button", { name: "상세 설정" }).click();
+  await newRow.getByRole("button", { name: "추가 정보 (선택)" }).click();
   const grid = newRow.locator(".ax-rule-details-grid");
   await expect(grid).toBeVisible();
   expect(await grid.evaluate(element => getComputedStyle(element).gridTemplateColumns.split(" ").length)).toBe(1);
@@ -183,4 +184,34 @@ test("AX 진단 간소화: 모바일 390에서 인라인 규칙 추가·범용 �
   await expect(page.locator(".ax-generic-panel")).toBeVisible();
   overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
+});
+
+test("AX 업무 규칙 검토 완료율: 미적용 결정은 완료, 선택 전은 미완료, 배지는 미확정/확정/미적용, 저장 후 유지", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await registerAndDiagnose(page, "운송장 검증", "운송장 데이터를 입력받아 누락·중복을 검사하고 검증 결과를 출력한다.");
+  const unified = page.locator('section[aria-label="업무 규칙 확인"]');
+  const row = unified.locator(".ax-decision-row").filter({ hasText: "시스템 접근" });
+  await expect(row.locator(".ax-decision-badge")).toHaveText("미확정");
+  await row.locator(".ax-decision-row-head").click();
+  // 선택 전 상태가 그대로 보이고, 후보 근거 문구는 표시하지 않는다.
+  await expect(row.getByRole("combobox", { name: "업무 적용 여부" })).toHaveText("선택 전");
+  await expect(row).not.toContainText("후보 근거");
+  await chooseOption(row, "업무 적용 여부", "미적용");
+  await expect(row.locator(".ax-decision-badge")).toHaveText("미적용");
+  await expect(unified.getByText("1/6 완료", { exact: true })).toBeVisible();
+  // 다시 적용으로 바꾸면 확정 전이므로 미완료로 돌아간다.
+  await chooseOption(row, "업무 적용 여부", "적용");
+  await expect(unified.getByText("0/6 완료", { exact: true })).toBeVisible();
+  await chooseOption(row, "업무 적용 여부", "미적용");
+  await unified.getByRole("button", { name: "저장", exact: true }).click();
+  await expect(unified.getByText("업무 규칙을 저장했습니다.", { exact: true })).toBeVisible();
+  await expect.poll(async () => page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>(resolve => { const req = indexedDB.open("worklens-ax", 1); req.onsuccess = () => resolve(req.result); });
+    const record = await new Promise<{ tasks?: Array<{ genericRules?: Array<{ applicability: string }> }> } | undefined>(resolve => { const req = db.transaction("state", "readonly").objectStore("state").get("current"); req.onsuccess = () => resolve(req.result); });
+    db.close();
+    return record?.tasks?.[0]?.genericRules?.[0]?.applicability;
+  }), { timeout: 10_000 }).toBe("해당 없음");
+  await page.reload();
+  await navigateWorkspace(page, "업무 자동화 진단");
+  await expect(page.locator('section[aria-label="업무 규칙 확인"]').getByText("1/6 완료", { exact: true })).toBeVisible();
 });

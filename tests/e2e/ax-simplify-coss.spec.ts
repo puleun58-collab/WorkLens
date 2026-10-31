@@ -49,8 +49,8 @@ test("AX 간소화·COSS 통일: 판단 하단 문구 제거·매트릭스 버�
   await confirmDecision(page, /D5 판단 불가 처리/, "D5");
   await confirmDecision(page, /D6 빈 파일 처리/, "D6");
   await page.locator('section[aria-label="업무 규칙 확인"]').getByRole("button", { name: "저장", exact: true }).click();
-  // D 4건 확정 / D 분모 4건 + 범용 후보 적용 여부 확인 5건(기술적 확인 4건 + 사람 판단 1건).
-  await expect(page.locator('section[aria-label="업무 규칙 확인"]').getByText("4/4 완료 · 적용 확인 5건", { exact: true })).toBeVisible();
+  // D 4건 확정 / 표시된 규칙 9건(D 4건 + 범용 후보 5건: 기술적 확인 4건 + 사람 판단 1건).
+  await expect(page.locator('section[aria-label="업무 규칙 확인"]').getByText("4/9 완료", { exact: true })).toBeVisible();
 
   // B. 매트릭스 상세 카드 자체가 §9로 제거됐다 (이동 버튼 제거를 넘어 카드 자체가 없음).
   // 이동은 상단 단계 내비게이션으로 한다.
