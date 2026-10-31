@@ -159,6 +159,21 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
         await expect(sections.nth(1)).toHaveClass(/is-focused/);
         await expect(sections.nth(1).locator("h3")).toBeFocused();
         await expect(sections.nth(1)).toBeInViewport();
+        // A mouse jump marks the section with its own highlight only — no second box on the heading.
+        expect(await sections.nth(1).locator("h3").evaluate((element) => getComputedStyle(element).outlineStyle)).toBe("none");
+        // "관련 법령·판례 상세 보기" starts on the same line as the "근거 보기" rows above it.
+        const [toggleLeft, jumpLeft] = await sections.nth(1).evaluate((section) => [
+          section.querySelector(".research-issue-refs > summary > span")!.getBoundingClientRect().left,
+          section.querySelector(".research-core-sources .research-source-jump")!.getBoundingClientRect().left,
+        ]);
+        expect(Math.abs(toggleLeft - jumpLeft)).toBeLessThanOrEqual(1);
+        // A keyboard jump keeps the heading's focus ring for keyboard users.
+        await output.locator(".research-issues .research-issue-jump").first().focus();
+        await page.keyboard.press("Enter");
+        await expect(sections.first().locator("h3")).toBeFocused();
+        expect(await sections.first().locator("h3").evaluate((element) => getComputedStyle(element).outlineStyle)).toBe("solid");
+        await output.locator(".research-issues .research-issue-jump").nth(1).click();
+        await expect(sections.nth(1).locator("h3")).toBeFocused();
         await sections.nth(1).locator("summary").click();
         await expect(sections.nth(1).locator("h3")).toContainText("부당해고 여부");
         await expect(sections.nth(1).locator(".research-issue-refs .research-hits")).toContainText("부당해고 여부");

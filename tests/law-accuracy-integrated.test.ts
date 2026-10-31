@@ -28,22 +28,28 @@ const DELEGATION_TEXT = `═══ 법체계 확인: 개인정보 보호법 ═�
 
 describe("assessLawSystem with the asked article", () => {
   it("counts only an anchor citing the asked article as a direct delegation", () => {
-    const result = assessLawSystem(DELEGATION_TEXT, "개인정보보호법 제38조와 시행령의 관계");
-    const decree = result.items.find((item) => item.label === "시행령")!;
-    const rule = result.items.find((item) => item.label === "시행규칙")!;
+    // The question asks about the decree only: the decree link decides the
+    // verdict, and the unasked 시행규칙 (no direct citation) is out of scope.
+    const decreeOnly = assessLawSystem(DELEGATION_TEXT, "개인정보보호법 제38조와 시행령의 관계");
+    const decree = decreeOnly.items.find((item) => item.label === "시행령")!;
     expect(decree.status).toBe("found");
     expect(decree.detail).toContain("법률에서 위임한 사항 확인 1건");
+    expect(decreeOnly.items.find((item) => item.label === "시행규칙")).toBeUndefined();
+    expect(decreeOnly.status).toBe("matched");
+    // Asking about both tiers keeps the 시행규칙 requirement.
+    const both = assessLawSystem(DELEGATION_TEXT, "개인정보보호법 제38조와 시행령·시행규칙의 관계");
+    const rule = both.items.find((item) => item.label === "시행규칙")!;
     expect(rule.status).toBe("viewed");
     expect(rule.detail).toContain("위임 관련 표현 발견 1건");
     expect(rule.detail).toContain("질문한 조항과 참조 조항이 다름");
     // One direct tier only: partial, never matched from a mismatched anchor.
-    expect(result.status).toBe("partial");
+    expect(both.status).toBe("partial");
   });
 
   it("does not confirm any tier from anchors citing only other articles", () => {
     const result = assessLawSystem(DELEGATION_TEXT, "개인정보보호법 제99조와 시행령의 관계");
     expect(result.status).toBe("viewed");
-    expect(result.items.filter((item) => item.label !== "법률").map((item) => item.status)).toEqual(["viewed", "viewed"]);
+    expect(result.items.filter((item) => item.label !== "법률").map((item) => item.status)).toEqual(["viewed"]);
   });
 
   it("accepts an explicit articles input and keeps the no-question behaviour", () => {

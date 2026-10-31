@@ -8,15 +8,12 @@ const item = (articles: TaskEvidenceArticle[]): TaskEvidenceItem =>
   ({ label: "시행령", status: "found", articles });
 
 describe("lawSystemTopSummary", () => {
-  it("shows relation phrases only, never a provision count", () => {
-    expect(lawSystemTopSummary(item([article("direct", "제1조")]))).toBe("직접 위임 확인됨");
-    expect(lawSystemTopSummary(item([article("other", "제2조")]))).toBe("추가 확인 필요");
-    expect(lawSystemTopSummary(item([article("direct", "제1조"), article("unidentified", "제3조")]))).toBe("직접 위임 확인됨 · 추가 확인 필요");
-    expect(lawSystemTopSummary(item([article("related", "제4조")]))).toBe("추가 확인 필요");
+  it("names only directly linked provisions, never a count, and never lists a non-direct provision as linked", () => {
+    expect(lawSystemTopSummary(item([article("direct", "제1조")]))).toBe("직접 연결: 제1조(위임 조항)");
+    expect(lawSystemTopSummary(item([article("direct", "제1조"), article("twoWay", "제5조"), article("unidentified", "제3조")]))).toBe("직접 연결: 제1조(위임 조항) · 제5조(위임 조항)");
+    expect(lawSystemTopSummary(item([article("other", "제2조")]))).toBe("질문한 조항과의 직접 연결 미확인");
+    expect(lawSystemTopSummary(item([article("related", "제4조")]))).toBe("질문한 조항과의 직접 연결 미확인");
     expect(lawSystemTopSummary(item([]))).toBeUndefined();
-    for (const summary of [lawSystemTopSummary(item([article("twoWay", "제1조")]))]) {
-      expect(summary).not.toContain("건");
-    }
   });
 });
 

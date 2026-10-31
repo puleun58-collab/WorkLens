@@ -93,8 +93,10 @@ describe("research result source structure", () => {
     expect(html).toMatch(/research-summary-status[^>]*data-tone="warning"[^>]*>.*?서식 원문 확인 필요/u);
     expect(html).toContain("서식 원문 추가 확인 필요");
     expect(html).not.toContain("별표·서식 원문 미확보");
-    expect(html.match(/data-slot="alert-title"/gu)).toHaveLength(2);
-    expect(html).toMatch(/research-summary-notice[^>]*data-tone="error"[^>]*>.*?추가 자료 조회 미완료/u);
+    // The retrieval failure is a different cause, named inside the one notice instead of a second box.
+    expect(html.match(/data-slot="alert-title"/gu)).toHaveLength(1);
+    expect(html).toContain("일부 자료 조회도 완료되지 않았습니다. 조회 실패는 근거가 없다는 뜻이 아닙니다.");
+    expect(html).not.toContain("추가 자료 조회 미완료");
   });
 
   it.each(["law_system", "full_research"] as const)("keeps the final law-system relations accessible in %s", (task) => {
@@ -103,21 +105,25 @@ describe("research result source structure", () => {
     const lawSystem = assessLawSystem(initial + additional, "개인정보 보호법 제38조 위임관계");
     expect(lawSystem.items.find((item) => item.label === "시행령")?.articles).toHaveLength(3);
     const html = render({ ...base, task, text: initial, lawSystem });
-    // Top summary keeps relation phrases only (no provision count, per §6);
-    // the count-free summary and every relation stay accessible below.
-    // The tier note below no longer refers to a top count (§6 removed it).
-    const top = html.slice(0, html.indexOf('aria-label="항목별 법적 근거"'));
-    expect(top).toContain("직접 위임 확인됨 · 추가 확인 필요");
-    expect(top).not.toContain("고유 조문");
+    // Top: the core answer — provisions directly linked to the asked article,
+    // named once, never counted; every relation stays accessible below.
+    const top = html.slice(0, html.indexOf('aria-label="법령 단계별 관계"'));
+    expect(top).toContain("직접 연결: 제40조(청구 방법) · 제41조(청구 기준)");
+    expect(top).not.toContain("제42조");
     expect(html).toContain("위임관계 확인 필요");
-    expect(html).toContain("최종 검증 근거 중 응답 목록에 없던 조문 2건을 보완했습니다.");
-    expect(html.match(/추가 조회<\/span>/gu)).toHaveLength(2);
-    const lower = html.slice(html.indexOf('aria-label="항목별 법적 근거"'));
+    const lower = html.slice(html.indexOf('aria-label="법령 단계별 관계"'));
     for (const jo of ["제40조", "제41조", "제42조"]) expect(lower).toContain(jo);
+    // A provision citing another article stays in the folded extra list, apart from the direct links.
+    expect(lower.indexOf("추가 조회 조문 보기 · 1건")).toBeLessThan(lower.indexOf("법 제39조에 따른"));
     expect(lower).toContain("법 제39조에 따른");
-    expect(html).toContain("법령 체계상의 위치");
-    expect(html).toContain("원래 응답 전문은 아래");
-    expect(html).not.toContain("상단 고유 조문 수");
+    expect(html).not.toContain("법령 체계상의 위치");
+    if (task === "full_research") {
+      expect(html).toContain("최종 검증 근거 중 응답 목록에 없던 조문 2건을 보완했습니다.");
+      expect(html.match(/추가 조회<\/span>/gu)).toHaveLength(2);
+    } else {
+      // 법체계 확인: the tier section is the single home; the raw 3단 비교 listing is not repeated.
+      expect(html).not.toContain('class="research-hierarchy"');
+    }
   });
 
   it("appends missing system provisions without deleting or counting original duplicate, foreign or unparsed rows", () => {
@@ -191,14 +197,14 @@ describe("research result source structure", () => {
         { law: "근로기준법 시행령", jo: "제7조", title: "적용범위", relation: "direct", expression },
       ] }, { label: "시행규칙", status: "none", detail: "미확보" },
     ] } });
-    const lower = html.indexOf('aria-label="항목별 법적 근거"');
+    const lower = html.indexOf('aria-label="법령 단계별 관계"');
     expect(lower).toBeGreaterThan(0);
     expect(html.slice(0, lower)).not.toContain(expression);
     expect(html.slice(0, lower)).not.toContain("고유 검증 설명");
     expect(html.slice(lower)).toContain(expression);
     expect(html.slice(lower)).toContain("고유 검증 설명");
     expect(html).not.toContain("상세 근거 ·");
-    expect(html).toContain("직접 위임 확인됨");
+    expect(html.slice(0, lower)).toContain("직접 연결: 제7조(적용범위)");
     const delegationTop = html.slice(0, lower);
     expect(delegationTop).not.toContain("고유 조문");
     // The top summary keeps relation phrases only (no provision count) and
@@ -258,9 +264,9 @@ describe("research result source structure", () => {
     ] });
     expect(html).toContain("확인한 별표·서식 원문");
     expect(html).toContain("별표 원문 보기");
-    expect(html).toContain("구분 ｜ 위반행위");
-    expect(html).toContain("1차 ｜ 경고");
-    expect(html).not.toContain("<td>");
+    // The table keeps its rows and columns as a real table, cell by cell.
+    expect(html).toContain('<table class="research-annex-table"><tbody><tr><td>구분</td><td>위반행위</td></tr><tr><td>1차</td><td>경고</td></tr></tbody></table>');
+    expect(html).not.toContain("구분 ｜ 위반행위");
     const verifiedBlock = html.indexOf("확인한 별표·서식 원문");
     const partialBlock = html.indexOf("원문 일부만 확인된 별표·서식");
     const missingBlock = html.indexOf("원문 미확보 별표·서식");
@@ -274,14 +280,18 @@ describe("research result source structure", () => {
 
   it("collapses duplicate tier rows and drops the stale top-count reference", () => {
     const text = "═══ 법체계 확인: 개인정보 보호법 ═══\n▶ 3단 비교 (법률·시행령·시행규칙)\n[시행령] 개인정보 보호법 시행령 제40조 (청구 방법)\n[시행령] 개인정보 보호법 시행령 제40조 (청구 방법)\n";
-    const html = render({ ...base, task: "law_system", text, lawSystem: { status: "partial", items: [
-      { label: "시행령", status: "found", articles: [
-        { law: "개인정보 보호법 시행령", jo: "제40조", title: "청구 방법", relation: "direct" },
+    const lawSystem = { status: "partial" as const, items: [
+      { label: "시행령", status: "found" as const, articles: [
+        { law: "개인정보 보호법 시행령", jo: "제40조", title: "청구 방법", relation: "direct" as const },
       ] },
-    ] } });
+    ] };
+    const html = render({ ...base, task: "full_research", text, lawSystem });
     expect(html).toContain("중복된 응답 행 1건을 하나로 합쳤습니다.");
-    expect(html).toContain("법령 체계상의 위치");
     expect(html).not.toContain("상단 고유 조문 수");
+    // 법체계 확인 shows the provision once in its tier section, not again in a raw listing.
+    const own = render({ ...base, task: "law_system", text, lawSystem });
+    expect(own).not.toContain("중복된 응답 행");
+    expect(own.match(/제40조/gu)?.length).toBeGreaterThan(0);
   });
 
   it("lists supplement articles already shown in the task-evidence toggle only once", () => {
@@ -291,7 +301,7 @@ describe("research result source structure", () => {
     ] }, enrichment: { supplement: { status: "found", articles: [
       article, { ...article, jo: "제24조" },
     ] } } });
-    expect(html).toContain("이미 항목별 법적 근거에서 확인한 조문 1건은 별도로 표시하지 않았습니다.");
+    expect(html).toContain("위 근거 영역에서 이미 확인한 조문 1건은 별도로 표시하지 않았습니다.");
     expect(html).toContain("근로기준법 제24조");
   });
 

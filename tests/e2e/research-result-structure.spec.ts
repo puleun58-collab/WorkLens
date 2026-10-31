@@ -79,14 +79,16 @@ for (const width of [1440, 390]) {
     // no longer repeats the article list or its jump button; the detail
     // section below is the single home for the provision and its delegation wording.
     await expect(top.getByRole("button", { name: "근거 보기", exact: true })).toHaveCount(0);
-    await expect(top).toContainText("직접 위임 확인됨");
+    await expect(top).toContainText("직접 연결: 제7조(적용범위)");
     await expect(top).not.toContainText("고유 조문");
-    const details = output.getByRole("region", { name: "항목별 법적 근거" });
+    const details = output.getByRole("region", { name: "법령 단계별 관계" });
     await expect(details.locator("details[open]")).toHaveCount(0);
     await details.locator("details summary").first().click();
     await expect(details.getByText(expression, { exact: false })).toBeVisible();
     expect((await details.locator("#research-task-evidence-1").boundingBox())!.y).toBeGreaterThanOrEqual(64);
-    await expect(output.locator(".research-hierarchy")).toContainText("근로기준법 시행령 제7조");
+    // The tier section is the single home: the raw 3단 비교 listing is not repeated below it.
+    await expect(output.locator(".research-hierarchy")).toHaveCount(0);
+    await expect(details).toContainText("근로기준법 시행령 제7조");
     await expect(top.locator("h3")).toHaveAttribute("data-status", "partial");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   });

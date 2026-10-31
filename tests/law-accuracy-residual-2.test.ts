@@ -144,7 +144,8 @@ describe("round 2 §B: law-system counts, wording and membership", () => {
     expect(item.articles?.map((a) => `${a.jo}:${a.relation}`)).toEqual(
       ["제45조:twoWay", "제13조:other", "제2조:unidentified", "제12조:related"]);
     expect(item.articles?.[0].expression).toContain("법 제38조에 따라");
-    expect(result.status).toBe("partial");
+    // The question asks about the decree only, so the confirmed decree link completes it.
+    expect(result.status).toBe("matched");
   });
 
   it("counts a duplicated detail header once", () => {

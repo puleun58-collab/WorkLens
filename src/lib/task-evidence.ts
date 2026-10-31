@@ -22,7 +22,14 @@ export type TaskEvidenceStatus = "matched" | "partial" | "viewed" | "none" | "fa
 export type TaskEvidenceItemStatus = "found" | "viewed" | "none" | "failed";
 
 export interface TaskEvidenceItem {
+  /** Stable internal kind (e.g. "처분·허가 근거"); verdict code keys on it. */
   label: string;
+  /** Reader-facing name chosen from the question's legal act (e.g. "처분 근거",
+   * "허가 근거"); `label` stays the identifier. */
+  title?: string;
+  /** A supporting kind the question did not require: shown, never counted in
+   * the overall verdict (missing it never demotes, finding it never completes). */
+  optional?: boolean;
   status: TaskEvidenceItemStatus;
   /** Counts or citations behind the item, e.g. "시행령 4건 · 위임 연결 2건". */
   detail?: string;

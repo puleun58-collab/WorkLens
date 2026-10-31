@@ -358,10 +358,10 @@ describe("residual §3: law-system assessment with one identity", () => {
   ].join("\n");
   it("no longer drops already-retrieved 시행령 articles for a spaced official name", () => {
     const spaced = assessLawSystem(detailText("개인정보 보호법"), "개인정보 보호법 제38조와 시행령의 관계");
-    expect(spaced.status).toBe("partial");
+    expect(spaced.status).toBe("matched");
     expect(spaced.items.find((item) => item.label === "시행령")?.status).toBe("found");
     const joined = assessLawSystem(detailText("개인정보 보호법"), "개인정보보호법 제38조와 시행령의 관계");
-    expect(joined.status).toBe("partial");
+    expect(joined.status).toBe("matched");
   });
   it("still excludes another regime that merely shares the 보호법 suffix", () => {
     const other = assessLawSystem(detailText("신용정보 보호법"), "개인정보 보호법 제38조와 시행령의 관계");
@@ -378,7 +378,7 @@ describe("residual §3: law-system assessment with one identity", () => {
     expect(assessLawSystem(base, "개인정보 보호법 제38조와 시행령의 관계").status).toBe("viewed");
     const retryBlock = delegatingDetailBlocks(detailText("개인정보 보호법"), ["제38조"], base);
     expect(retryBlock).toContain("제45조");
-    expect(assessLawSystem(base + retryBlock, "개인정보 보호법 제38조와 시행령의 관계").status).toBe("partial");
+    expect(assessLawSystem(base + retryBlock, "개인정보 보호법 제38조와 시행령의 관계").status).toBe("matched");
   });
 });
 

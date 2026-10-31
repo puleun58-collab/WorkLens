@@ -541,7 +541,7 @@ export async function runLegalResearch(
       ? await enrichResearch(request.task, request.query, text, sources).catch(() => undefined) : undefined;
     const followup = await retrieveResearchFollowup(request.task, request.query, text, enrichment, sources,
       request.task === "law_system" ? request.articles : undefined);
-    const annexes = await retrieveAnnexes(request.query, followup.articles, mcpAnnexReader(context));
+    const annexes = await retrieveAnnexes(request.query, followup.articles, mcpAnnexReader(context), request.task);
     const combinedText = text + followupDetailText(followup.articles);
     if (followup.articles.length) {
       const existing = enrichment?.supplement?.articles ?? [];

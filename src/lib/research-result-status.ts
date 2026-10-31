@@ -9,15 +9,19 @@ export function researchConfirmationGap(data: LawResearchData, status: ResearchS
   const gaps = new Map<string, string>();
   if (data.task === "action_basis" && data.actionBasis) {
     for (const item of data.actionBasis.items) {
-      if (item.status === "found") continue;
-      if (item.label === "처분·허가 근거") gaps.set("처분 근거", "처분·허가의 권한과 법적 근거 조문을 확인해야 합니다.");
-      else if (item.label === "적용 요건") gaps.set("적용 요건", "대상·행위·요건·예외에 관한 근거를 추가로 확인해야 합니다. 구체적인 사실관계의 충족 여부는 판단하지 않았습니다.");
-      else gaps.set(item.label, `${item.label}의 직접 근거를 추가로 확인해야 합니다.`);
+      // A supporting kind the question did not require never raises a gap.
+      if (item.status === "found" || item.optional) continue;
+      if (item.label === "처분·허가 근거") {
+        const kind = item.title && item.title !== "처분·허가 근거" ? item.title : "처분 근거";
+        gaps.set(kind, `질문한 법적 행위의 권한과 법적 근거 조문(${kind})을 확인해야 합니다.`);
+      } else if (item.label === "적용 요건") gaps.set("적용 요건", "대상·행위·요건·예외에 관한 근거를 추가로 확인해야 합니다. 구체적인 사실관계의 충족 여부는 판단하지 않았습니다.");
+      else gaps.set(item.title ?? item.label, `${item.title ?? item.label}의 직접 근거를 추가로 확인해야 합니다.`);
     }
   }
   if (data.task === "law_system" || data.task === "full_research") {
-    const missing = data.lawSystem?.items.filter((item) => item.label !== "법률" && item.status !== "found") ?? [];
-    if (missing.length) gaps.set("위임관계", `${missing.map((item) => item.label).join("·")}와 질문 조문 사이의 직접 위임관계가 미확인입니다. 조회된 조문과 인용·위임 표현의 확인 수준은 항목별 근거에서 구분합니다.`);
+    // Only the tiers the question asked about; an out-of-scope tier is never a gap.
+    const missing = data.lawSystem?.items.filter((item) => item.label !== "법률" && item.status !== "found" && !item.optional) ?? [];
+    if (missing.length) gaps.set("위임관계", `질문한 법률 조항과 ${missing.map((item) => item.label).join("·")}의 직접 연결 관계를 확인하지 못했습니다.`);
   }
   if (data.task === "procedure_detail" && data.procedure) {
     for (const requirement of data.procedure.requirements) {
@@ -34,6 +38,6 @@ export function researchConfirmationGap(data: LawResearchData, status: ResearchS
   if (!gaps.size) return;
   if (gaps.size > 1) return { kinds: [...gaps.keys()], badge: "추가 확인 필요", title: "필수 항목 추가 확인 필요", text: [...gaps.values()].join(" ") };
   const [kind, text] = [...gaps][0];
-  const specific = ["처분 근거", "적용 요건", "위임관계", "서식 원문"].includes(kind);
+  const specific = ["처분 근거", "허가 근거", "과징금 부과 근거", "과태료 부과 근거", "법적 근거", "적용 요건", "위임관계", "서식 원문"].includes(kind);
   return { kinds: [kind], badge: specific ? `${kind} 확인 필요` : "추가 확인 필요", title: specific ? `${kind} 추가 확인 필요` : "필수 항목 추가 확인 필요", text };
 }
