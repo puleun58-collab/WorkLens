@@ -28,7 +28,7 @@ import type { AxDiagnosis, DecisionPoint, DecisionPointId, GenericRule, GenericR
  * 업무 규칙 확인 통합 편집 화면 (고정 D1~D7 + 별도 범용 카드의 대체).
  * - 하나의 "업무 규칙 확인" 영역만 유지한다. 저장된 행 + 진단에서 도출된 후보를
  *   하나의 카드 아코디언 목록으로 표시한다.
- * - 초안은 컴포넌트 상태에만 두고, 저장 버튼을 눌러 사용자가 확정한 값만 저장한다.
+ * - 초안은 컴포넌트 상태에 두고, 저장 버튼으로 사용자 입력과 기존 미확정 메모도 보존한다.
  *   AI가 채운 값·도출된 후보는 저장 경로에 들어가지 않는다 (후보를 건드려 저장한 경우 제외).
  * - 모달 추가는 통합 목록 초안 추가이며, 최종 영속 저장은 통합 저장 버튼으로 수행한다.
  */
@@ -88,22 +88,28 @@ interface ModalErrors {
   duplicate?: string;
 }
 
-export function UnifiedRulesSection({ diagnosis, genericRules, disabled, onSave }: {
+export function UnifiedRulesSection({ diagnosis, genericRules, disabled: externallyDisabled, saveStatus, onSave }: {
   diagnosis: AxDiagnosis;
   /** 범용 규칙 (저장된 값 기준). */
   genericRules?: GenericRule[];
   disabled?: boolean;
-  onSave: (points: DecisionPoint[], rules: GenericRule[]) => void;
+  saveStatus: string;
+  onSave: (points: DecisionPoint[], rules: GenericRule[]) => Promise<boolean>;
 }) {
   // 저장 후 부모가 새 값을 내려주면 초안을 동기화한다 (effect가 아닌 렌더 중 조정 패턴).
   const draftsKey = JSON.stringify({ d: diagnosis.decisionPoints ?? [], g: resolveGenericRules(genericRules) });
   const [drafts, setDrafts] = useState<UnifiedRuleDraft[]>(() => deriveUnifiedRules(diagnosis, genericRules));
   const [prevDraftsKey, setPrevDraftsKey] = useState(draftsKey);
-  if (prevDraftsKey !== draftsKey) {
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "failed">("idle");
+  const [submittedDraftsKey, setSubmittedDraftsKey] = useState<string | null>(null);
+  // Parent state updates precede persistence. Keep the exact draft until saving succeeds.
+  if (prevDraftsKey !== draftsKey && saveState !== "saving") {
     setPrevDraftsKey(draftsKey);
-    setDrafts(deriveUnifiedRules(diagnosis, genericRules));
+    if (saveState !== "failed" || draftsKey !== submittedDraftsKey) {
+      setDrafts(deriveUnifiedRules(diagnosis, genericRules));
+    }
   }
-  const [saved, setSaved] = useState(false);
+  const disabled = externallyDisabled || saveState === "saving";
   // 펼침 상태는 초안과 별개로 유지한다: 접었다 펴도 미저장 입력값이 사라지지 않는다.
   // 기본값은 모두 접힘(한 번에 한 항목만 펼침).
   const [openKey, setOpenKey] = useState<string | null>(null);
@@ -124,18 +130,23 @@ export function UnifiedRulesSection({ diagnosis, genericRules, disabled, onSave 
 
   const updateDecision = (id: string, patch: Partial<UnifiedDecisionDraft>) =>
     setDrafts(current => current.map(item => item.kind === "decision" && item.id === id ? { ...item, ...patch } : item));
-  const updateGeneric = (key: string, patch: Partial<UnifiedGenericDraft>) =>
+  const updateGeneric = (key: string, patch: Partial<UnifiedGenericDraft>) => {
+    setSaveState("idle");
     setDrafts(current => current.map(item =>
       item.kind === "generic" && genericKey(item) === key ? { ...item, ...patch, touched: true } : item));
+  };
 
-  const save = () => {
+  const save = async () => {
     if (savingRef.current) return;
     savingRef.current = true;
+    setSaveState("saving");
     try {
-      // 미확정 D는 저장하지 않고, 미터치 범용 후보도 저장하지 않는다 (기존 계약 유지).
+      // 저장된 미확정 D와 작성한 메모는 보존하고, 미터치 빈 후보는 저장하지 않는다.
       const { points, rules } = unifiedSavePayloads(drafts, resolveGenericRules(genericRules));
-      onSave(points, rules);
-      setSaved(true);
+      setSubmittedDraftsKey(JSON.stringify({ d: points, g: resolveGenericRules(rules) }));
+      setSaveState(await onSave(points, rules) ? "saved" : "failed");
+    } catch {
+      setSaveState("failed");
     } finally {
       savingRef.current = false;
     }
@@ -194,7 +205,7 @@ export function UnifiedRulesSection({ diagnosis, genericRules, disabled, onSave 
       return [...current.slice(0, idx), rule, ...current.slice(idx)];
     });
     setOpenKey(id);
-    setSaved(false);
+    setSaveState("idle");
     setModalOpen(false);
   };
 
@@ -238,7 +249,7 @@ export function UnifiedRulesSection({ diagnosis, genericRules, disabled, onSave 
               {item.origin === "candidate" && item.provenance ? <p className="ax-muted">근거: {item.provenance}</p> : null}
               <label className="ax-field">{decisionPanelLabel(item.id, "상태")}
                 <select aria-label={decisionPanelLabel(item.id, "상태")} value={item.status} disabled={disabled}
-                  onChange={e => { updateDecision(item.id, { status: e.target.value as UnifiedDecisionDraft["status"] }); setSaved(false); }}>
+                  onChange={e => { updateDecision(item.id, { status: e.target.value as UnifiedDecisionDraft["status"] }); setSaveState("idle"); }}>
                   <option value="미확정">미확정</option>
                   <option value="확정">확정</option>
                   <option value="해당 없음">해당 없음</option>
@@ -247,7 +258,7 @@ export function UnifiedRulesSection({ diagnosis, genericRules, disabled, onSave 
               {item.status === "해당 없음" ? null : item.id === "D5" && d4States ? <>
                 <label className="ax-field">{decisionPanelLabel(item.id, "상세")}
                   <select aria-label={decisionPanelLabel(item.id, "상세")} value={item.detail ?? ""} disabled={disabled}
-                    onChange={e => { updateDecision(item.id, { detail: e.target.value }); setSaved(false); }}>
+                    onChange={e => { updateDecision(item.id, { detail: e.target.value }); setSaveState("idle"); }}>
                     <option value="">선택하세요</option>
                     {d5Mismatch ? <option value={item.detail}>{item.detail} (결과 상태 (D4) 목록 외 값)</option> : null}
                     {d4States.map(name => <option key={name} value={name}>{name}</option>)}
@@ -256,7 +267,7 @@ export function UnifiedRulesSection({ diagnosis, genericRules, disabled, onSave 
                 {d5Mismatch ? <p className="ax-muted" role="status">현재 값이 결과 상태 (D4) 목록에 없습니다. 결과 상태 (D4) 중 하나로 수정하세요. 수정 전까지 기존값이 유지됩니다.</p> : null}
               </> : <label className="ax-field">{decisionPanelLabel(item.id, "상세")}
                 <Textarea rows={4} maxLength={DECISION_DETAIL_MAX_LENGTH} aria-label={decisionPanelLabel(item.id, "상세")} placeholder={def.detailHint} disabled={disabled}
-                  value={item.detail ?? ""} onChange={e => { updateDecision(item.id, { detail: e.target.value }); setSaved(false); }} />
+                  value={item.detail ?? ""} onChange={e => { updateDecision(item.id, { detail: e.target.value }); setSaveState("idle"); }} />
                 <span className="ax-decision-counter">{(item.detail ?? "").length} / {DECISION_DETAIL_MAX_LENGTH}</span>
               </label>}
             </div> : null}
@@ -331,7 +342,7 @@ export function UnifiedRulesSection({ diagnosis, genericRules, disabled, onSave 
               <Input value={item.step ?? ""} disabled={disabled} onChange={event => updateGeneric(key, { step: event.target.value })} placeholder="예: 월말 집계" />
             </label>
             {item.origin === "candidate" ? null : <div className="ax-field-wide ax-generic-delete">
-              <Button type="button" variant="ghost" size="sm" disabled={disabled} onClick={() => setDrafts(current => current.filter(entry => !(entry.kind === "generic" && genericKey(entry) === key)))}>
+              <Button type="button" variant="ghost" size="sm" disabled={disabled} onClick={() => { setSaveState("idle"); setDrafts(current => current.filter(entry => !(entry.kind === "generic" && genericKey(entry) === key))); }}>
                 <Trash2 size={16} /> 이 규칙 삭제
               </Button>
             </div>}
@@ -341,7 +352,8 @@ export function UnifiedRulesSection({ diagnosis, genericRules, disabled, onSave 
     </div> : <p className="ax-muted">{emptyText}</p>}
     <div className="ax-decision-save">
       <Button type="button" disabled={disabled} onClick={save}>저장</Button>
-      {saved ? <p className="ax-muted">업무 규칙을 저장했습니다.</p> : null}
+      {saveState === "saved" && saveStatus === "이 브라우저에 저장됨" ? <p className="ax-muted" role="status">업무 규칙을 저장했습니다.</p> : null}
+      {saveState === "failed" ? <p className="ax-muted" role="alert">업무 규칙을 저장하지 못했습니다. 입력 내용은 유지됩니다. 저장 상태를 확인하고 다시 시도하세요.</p> : null}
     </div>
     <Dialog open={modalOpen} onOpenChange={setModalOpen}>
       <DialogPopup className="sm:max-w-[600px]" bottomStickOnMobile={false}>

@@ -63,6 +63,57 @@ beforeEach(() => {
 afterEach(async () => { cleanup?.(); await settle(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe("AX hook storage protection", () => {
+  it("awaits normal persistence and shares the global save status without a second debounce write", async () => {
+    const hook = await mount();
+    const next = { ...hook.state, step: 2 };
+    const gate = Promise.withResolvers<string | undefined>();
+    harness.save.mockImplementationOnce(async () => { await gate.promise; record = structuredClone(next); return JSON.stringify(record); });
+    let resolved = false;
+    const saving = hook.updateAndSave(next).then(result => { resolved = true; return result; });
+    await settle();
+    expect(render().saveStatus).toBe("저장 중"); expect(resolved).toBe(false);
+    expect(harness.save.mock.calls[0][2]).toBe(false);
+    gate.resolve(undefined);
+    expect(await saving).toBe(true); expect(render().saveStatus).toBe("이 브라우저에 저장됨");
+    await vi.advanceTimersByTimeAsync(300);
+    expect(harness.save).toHaveBeenCalledTimes(1); expect(record).toEqual(next);
+  });
+  it("keeps failed edits and permits a user retry with revision checks", async () => {
+    const hook = await mount(); const next = { ...hook.state, step: 2 };
+    harness.save.mockRejectedValueOnce(new Error("failed"));
+    expect(await hook.updateAndSave(next)).toBe(false);
+    expect(render().saveStatus).toBe("저장 실패"); expect(render().state).toEqual(next);
+    expect(await render().updateAndSave(current => ({ ...current, step: 3 }))).toBe(true);
+    expect(render().storageProtection).toBe("writable"); expect(render().loadNotice).toBe("");
+    expect(render().saveStatus).toBe("이 브라우저에 저장됨"); expect(record).toEqual({ ...next, step: 3 });
+    expect(harness.save.mock.calls.every(call => call[2] === false)).toBe(true);
+  });
+  it("never retries over another tab's newer revision", async () => {
+    const hook = await mount(); const next = { ...hook.state, step: 2 };
+    harness.save.mockRejectedValueOnce(new Error("failed"));
+    expect(await hook.updateAndSave(next)).toBe(false);
+    const other = { ...emptyAxState(), step: 4 }; record = other;
+    expect(await render().updateAndSave(next)).toBe(false);
+    expect(render().storageProtection).toBe("conflict"); expect(record).toEqual(other);
+    expect(await render().updateAndSave(next)).toBe(false);
+    expect(harness.save).toHaveBeenCalledTimes(2);
+  });
+  it.each([null, { schemaVersion: 999 }, { broken: true }])("awaited save preserves protected invalid originals: %j", async original => {
+    record = original; const hook = await mount();
+    expect(await hook.updateAndSave({ ...hook.state, step: 2 })).toBe(false);
+    expect(render().storageProtection).toBe("invalid"); expect(harness.save).not.toHaveBeenCalled();
+    expect(record).toEqual(original); expect(render().saveStatus).toBe("자동 저장 중단");
+  });
+  it("does not report success or unlock protection if a notification arrives during persistence", async () => {
+    const hook = await mount();
+    const gate = Promise.withResolvers<string | undefined>();
+    harness.save.mockReturnValueOnce(gate.promise);
+    const saving = hook.updateAndSave({ ...hook.state, step: 2 }); await settle();
+    harness.channel?.onmessage?.({ data: { type: "ax-saved", tabId: "other-tab" } });
+    gate.resolve(undefined);
+    expect(await saving).toBe(false);
+    expect(render().storageProtection).toBe("conflict"); expect(render().saveStatus).toBe("자동 저장 중단");
+  });
   it.each([null, { schemaVersion: 999 }, { broken: true }])("preserves invalid original through editing and pending unmount: %j", async original => {
     record = structuredClone(original);
     let hook = await mount();

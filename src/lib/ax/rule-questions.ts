@@ -304,15 +304,19 @@ export function hasDerivationSignals(diagnosis: AxDiagnosis): boolean {
 }
 
 /**
- * 통합 완료 현황. ruleProgress와 동일한 집계 규칙을 통합 초안에 적용한다:
+ * 통합 완료 현황. ruleProgress의 기본 집계 규칙에 연결 중복 제외를 적용한다:
  * - D: 확정은 완료, 미확정은 분모, 해당 없음은 제외.
  * - 범용: 적용+확정은 완료, 적용+미확정은 분모, 적용 여부 미확정은 분모 외 별도 건수, 해당 없음은 제외.
+ * - 목록에 연결 대상 D가 있으면 그 D의 상태로 한 번만 집계한다 (해당 없음 쌍은 제외).
+ *   연결 대상이 없는 범용 규칙은 기존대로 집계하며, 저장값 자체는 병합하지 않는다.
  */
 export function unifiedRuleProgress(items: readonly UnifiedRuleDraft[]): RuleProgress {
   let done = 0;
   let total = 0;
   let applicabilityPending = 0;
+  const decisionIds = new Set(items.filter(item => item.kind === "decision").map(item => item.id));
   for (const item of items) {
+    if (item.kind === "generic" && item.linkedDecisionId && decisionIds.has(item.linkedDecisionId)) continue;
     if (item.kind === "decision") {
       if (item.status === "확정") { done += 1; total += 1; }
       else if (item.status === "미확정") total += 1;
@@ -328,9 +332,11 @@ export function unifiedSavePayloads(
   drafts: readonly UnifiedRuleDraft[],
   storedGeneric: readonly GenericRule[],
 ): { points: DecisionPoint[]; rules: GenericRule[] } {
-  // D: 확정/해당 없음만 저장한다. 미확정은 저장하지 않는다 (기존 관례).
+  // D: 저장된 미확정 상태·메모와 작성한 후보 메모도 보존한다 (§5.4).
+  // 손대지 않은 빈 미확정 후보만 제외한다. 생성 경로의 확정 규칙 판정은 그대로 유지한다.
   const points: DecisionPoint[] = drafts
-    .filter((item): item is UnifiedDecisionDraft => item.kind === "decision" && item.status !== "미확정")
+    .filter((item): item is UnifiedDecisionDraft => item.kind === "decision"
+      && (item.status !== "미확정" || item.origin === "stored" || Boolean(item.detail.trim())))
     .map(item => ({
       id: item.id,
       status: item.status,

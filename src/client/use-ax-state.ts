@@ -16,10 +16,11 @@ export function useAxState() {
   const current = useRef(state), pending = useRef(false), mounted = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const queue = useRef<Promise<void>>(Promise.resolve());
-  function persist(snapshot: AxStateV2, clear = false, explicit = false): Promise<boolean> {
+  function persist(snapshot: AxStateV2, clear = false, explicit = false, retryUnavailable = false): Promise<boolean> {
     const channel = broadcast.current;
     const saved = queue.current.then(async () => {
-      if (!explicit && protection.current !== "writable") return false;
+      const retrying = retryUnavailable && protection.current === "unavailable";
+      if (!explicit && protection.current !== "writable" && !retrying) return false;
       try {
         revision.current = clear ? await clearAxState(revision.current, explicit) : await saveAxState(snapshot, revision.current, explicit);
         // A notification received during this write still requires a reload or explicit replacement.
@@ -27,10 +28,16 @@ export function useAxState() {
           protection.current = "writable";
           if (mounted.current) { setStorageProtection("writable"); setLoadNotice(""); setExternalChange(false); }
         }
+        // A user retry still uses the original revision check. Never unlock a conflict
+        // received during the write, or permit automatic retries of unavailable storage.
+        if (retrying && protection.current === "unavailable") {
+          protection.current = "writable";
+          if (mounted.current) { setStorageProtection("writable"); setLoadNotice(""); }
+        }
         if (mounted.current && protection.current === "writable" && current.current === snapshot && !pending.current) setSaveStatus("이 브라우저에 저장됨");
         try { channel?.postMessage({ type: "ax-saved", tabId: tabId.current }); }
         catch { /* Notification failures must not change a successful save. */ }
-        return true;
+        return protection.current === "writable";
       } catch (error) {
         protection.current = error instanceof AxStorageConflictError ? "conflict" : "unavailable";
         if (mounted.current) {
@@ -93,6 +100,14 @@ export function useAxState() {
     clearTimeout(timer.current);
     timer.current = setTimeout(() => { pending.current = false; void persist(next); }, 300);
   }
+  /** User save: await the same queued, revision-checked persistence used by autosave.
+   * Retain local edits on failure; only unavailable storage can be retried without replacement. */
+  function updateAndSave(change: AxStateV2 | ((value: AxStateV2) => AxStateV2)): Promise<boolean> {
+    update(change);
+    clearTimeout(timer.current); pending.current = false;
+    if (protection.current === "unavailable") setSaveStatus("저장 중");
+    return persist(current.current, false, false, true);
+  }
   /** 최신 상태 읽기 (오래된 React 클로저 상태 방지용) */
   function getState(): AxStateV2 {
     return current.current;
@@ -102,5 +117,5 @@ export function useAxState() {
     current.current = next; setState(next); setSaveStatus("저장 중");
     return persist(next, clear, true);
   }
-  return { state, update, getState, replace, ready, saveStatus: ready ? saveStatus : "불러오는 중", loadNotice, externalChange, storageProtection };
+  return { state, update, updateAndSave, getState, replace, ready, saveStatus: ready ? saveStatus : "불러오는 중", loadNotice, externalChange, storageProtection };
 }

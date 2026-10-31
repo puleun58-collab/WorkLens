@@ -111,7 +111,7 @@ function AxSelectedReport({ task, busy, onGenerate, onSaveReview, onSaveVerifica
 }
 
 export function AxDiagnosisView() {
-  const { state, update, getState, replace, ready, saveStatus, loadNotice, externalChange, storageProtection } = useAxState();
+  const { state, update, updateAndSave, getState, replace, ready, saveStatus, loadNotice, externalChange, storageProtection } = useAxState();
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const activeRun = useRef(false), activeAi = useRef(false), alive = useRef(true);
@@ -257,7 +257,7 @@ export function AxDiagnosisView() {
    * 한 번의 저장 동작으로 갱신한다 (두 반영이 같은 렌더링에 적용된다). */
   function saveUnifiedRules(taskId: string, points: import("@/lib/ax/types").DecisionPoint[], rules: import("@/lib/ax/types").GenericRule[]) {
     const now = new Date().toISOString();
-    update(current => ({
+    return updateAndSave(current => ({
       ...current,
       tasks: current.tasks.map(t => {
         if (t.id !== taskId) return t;
@@ -267,7 +267,6 @@ export function AxDiagnosisView() {
         return { ...withDecision, genericRules: rules, updatedAt: now } as import("@/lib/ax/types").AxTaskV2;
       }),
     }));
-    setMessage("업무 규칙을 저장했습니다.");
   }
   /** 검증 결과 라운드 저장: reviews·genericRules와 같은 저장 경로로, 업무 단위
    * verificationResults 목록에 추가한다. 기존 라운드를 보존하고 스키마 상한
@@ -813,6 +812,7 @@ export function AxDiagnosisView() {
                 diagnosis={selected.diagnosis}
                 genericRules={(selected as import("@/lib/ax/types").AxTaskV2).genericRules}
                 disabled={!!busy}
+                saveStatus={saveStatus}
                 onSave={(points, rules) => saveUnifiedRules(selected.id, points, rules)}
               />
             </> : null}
