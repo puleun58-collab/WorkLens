@@ -1836,16 +1836,22 @@ test("RESEARCH every task applies the same result rules while keeping its own st
       for (const text of await output.locator(":scope > .research-overview, :scope > .research-group").allInnerTexts()) {
         expect(text, task).not.toMatch(/후보|검색 보정|시그널|STEP\s*\d|API 조건|내부 검색어/u);
       }
-      // An empty section is one line; the whole-law TOC follows the detail material; "나머지 조문" keeps its fold.
+      // Empty sections stay concise; independent detail material precedes the folded whole-law TOC.
       await expect(output.locator("p[data-status='not_found']"), task).toHaveText("법령 해석례 · 자료 없음");
       const supporting = await output.locator(".research-supporting details").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-kind")));
       expect(supporting.indexOf("detail"), task).toBeLessThan(supporting.indexOf("law_toc"));
-      // Group headings and the supporting "상세 근거" heading share one size.
+      // Group headings and the supporting source heading share one size.
       const headingSizes = await output.locator(":scope > .research-group > h3, :scope > .research-supporting > h3")
         .evaluateAll((nodes) => nodes.map((node) => getComputedStyle(node).fontSize));
       expect(headingSizes.length, task).toBeGreaterThan(0);
       expect(new Set(headingSizes).size, task).toBe(1);
-      await expect(output.locator("details summary").filter({ hasText: /나머지 조문 \d+건 보기/u }), task).toHaveCount(1);
+      if (task === "law_system" || task === "action_basis") {
+        // The single evidence list keeps all ten fetched provisions instead
+        // of repeating a second "remaining articles" section.
+        await expect(output.locator(".research-task-sources .research-hits > li"), task).toHaveCount(10);
+      } else {
+        await expect(output.locator("details summary").filter({ hasText: /나머지 조문 \d+건 보기/u }), task).toHaveCount(1);
+      }
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), task).toBe(true);
     }
   }

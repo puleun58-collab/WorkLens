@@ -58,7 +58,20 @@ for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
     const expression = "대통령령으로 정하는 상세 위임 문언을 전부 보존한다.";
     await page.route("**/api/law/research", route => route.fulfill({ json: { data: {
-      found: true, task: "law_system", text: "═══ 법체계 ═══\n▶ 3단 비교\n[법률] 근로기준법 제23조 (해고 등의 제한)\n[시행령] 근로기준법 시행령 제7조 (적용범위)", markers: [],
+      found: true, task: "law_system", text: `═══ 법체계 ═══
+▶ 3단 비교
+[법률] 근로기준법 제23조 (해고 등의 제한)
+[시행령] 근로기준법 시행령 제7조 (적용범위)
+▶ 조회 조문 상세
+[시행령] 근로기준법 시행령 제7조 (적용범위)
+${expression}
+▶ 관련 판례 상세
+판결요지: 판례 원문을 보존한다.
+▶ 근로기준법 본문
+법령명: 근로기준법
+목차 (총 2개 조문)
+제1조 목적
+제2조 정의`, markers: [],
       lawSystem: { status: "partial", items: [
         { label: "시행령", status: "found", detail: "검증 집계와 고유 설명", articles: [
           { law: "근로기준법 시행령", jo: "제7조", title: "적용범위", relation: "direct", expression },
@@ -92,6 +105,14 @@ for (const width of [1440, 390]) {
     await expect(output.locator(".research-hierarchy")).toHaveCount(0);
     await expect(source).toContainText("근로기준법 시행령 제7조");
     await expect(top.locator("h3")).toHaveAttribute("data-status", "partial");
+    const reference = output.locator(".research-supporting");
+    await expect(reference.locator("h3")).toHaveText("참고 원자료");
+    await expect(reference.locator("details")).toHaveCount(2);
+    await expect(reference.locator("details").first()).toHaveAttribute("data-kind", "detail");
+    await expect(reference.locator("details").last()).toHaveAttribute("data-kind", "law_toc");
+    await expect(reference).toContainText("판례 원문을 보존한다.");
+    await expect(reference).not.toContainText(expression);
+    await expect(reference.locator("details[open]")).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   });
 

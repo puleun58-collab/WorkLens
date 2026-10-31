@@ -1209,6 +1209,15 @@ export function ResearchResult({ data, request, expandSources = false, onExpandS
       excerpt: article.excerpt, effective: article.effectiveDate, source: officialSource(article.law, article.jo) })),
   ]) : [];
   const taskSourceKeys = new Set(evidenceRows.map((row) => `${row.law}\u0000${row.jo}`));
+  // Keep independent source material (e.g. precedent details and whole-law
+  // navigation) available. Only a statute detail already represented by the
+  // single provision list is redundant.
+  const referenceSections = unifiedTask ? supporting.filter((section) => {
+    if (section.kind === "law_toc") return true;
+    const articles = detailArticles(section.lines.join("\n"));
+    return !articles.length || !articles.every((article) => article.law && evidenceRows.some((row) =>
+      row.law === article.law && row.jo === article.jo && row.excerpt.trim() === article.body.trim()));
+  }) : supporting;
   /** One provision row for the task-evidence toggle; the toggle's list is
    * the single home for provisions (detail text never repeats it). */
   const taskReferenceItem = (article: (typeof taskItems)[number]["references"][number], key: string | number) => (
@@ -1588,15 +1597,16 @@ export function ResearchResult({ data, request, expandSources = false, onExpandS
       // A duplicated annex list (same entries under two headings) renders
       // once: the server aggregate already counts it once, and the screen
       // must not show it as two lists.
-      // 법체계 확인: the tier relation section above is the single home for
-      // the 3단 비교 provisions and the follow-up reads behind them (and a
-      // bare law-ID metadata line says nothing new); the raw listing stays in
-      // 출처 원문 전체 보기.
+      // A structured tier relation already has one home above; without that
+      // data, retain the response's original 3단 comparison instead of
+      // hiding the only available relationship description.
       const sections = mergeDuplicateAnnexSections(candidatePrimary).filter((section) => groupOf(section, data.task) === group
         && !(unifiedTask && section.status === "available" && (
           section.kind === "law_articles" && section.articles?.every((article) => taskSourceKeys.has(`${article.law}\u0000${article.jo}`))
           || section.kind === "annex" && (data.annexes?.length ?? 0) > 0
-          || /3단 비교|법령 체계|추가 조회 조문|위임 대조 추가 조회/u.test(section.heading ?? "")
+          || /추가 조회 조문|위임 대조 추가 조회/u.test(section.heading ?? "")
+          || /3단 비교|법령 체계/u.test(section.heading ?? "")
+            && (data.task !== "law_system" || taskItems.some(hasTaskDetail))
           || !section.heading && section.lines.every((line) => !line.trim() || /^\s*법령ID\s*:/u.test(line)))));
       if (!sections.length) return null;
       return <section key={group} className="research-group" data-group={group}>
@@ -1608,10 +1618,10 @@ export function ResearchResult({ data, request, expandSources = false, onExpandS
           sourceTargets={sourceTargets} onSourceSelect={showSource} />)}
       </section>;
     })}
-    {supporting.length > 0 && !unifiedTask && <section className="legal-analysis-section research-supporting">
-      <h3>상세 근거</h3>
-      {/* The material this answer drew on first; whole-law tables of contents are a browsing aid, so they come after. */}
-      {[...supporting].sort((a, b) => Number(a.kind === "law_toc") - Number(b.kind === "law_toc")).map((section, index) => {
+    {referenceSections.length > 0 && <section className="legal-analysis-section research-supporting">
+      <h3>{unifiedTask ? "참고 원자료" : "상세 근거"}</h3>
+      {/* Case/decision details remain available; a whole-law TOC is a browsing aid, never a second provision list. */}
+      {[...referenceSections].sort((a, b) => Number(a.kind === "law_toc") - Number(b.kind === "law_toc")).map((section, index) => {
         const heading = sectionHeading(section) || "상세 자료";
         const label = section.kind === "law_toc" && section.toc
           ? `${section.toc.law ? `${lawDisplayText(section.toc.law)} ` : ""}법령 목차 보기 · ${section.toc.count.toLocaleString("ko-KR")}개 조문`
