@@ -42,10 +42,13 @@ test("AX reset tooltip shows after detail expand settles", async ({ page }) => {
   await expect(page.getByRole("button", { name: "AI 값으로", exact: true })).toHaveCount(0);
   await expect(reset).toHaveCount(1); await expect(reset).toBeEnabled();
   await expect(reset.locator("svg.lucide-rotate-ccw")).toHaveCount(1);
-  // 고정 FAB이 뷰포트 우하단 콘텐츠를 덮을 수 있다. 간소화로 짧아진 레이아웃에서는
-  // 스크롤 없이 버튼이 FAB 아래에 놓여 hover가 전달되지 않으므로, hover 전에 버튼을
-  // 뷰포트 중앙으로 이동한다 (툴팁 동작 자체는 변경되지 않는다).
-  await reset.evaluate(element => element.scrollIntoView({ block: "center" }));
+  // 부드러운 스크롤이 진행 중인 좌표로 hover하면 배지가 FAB 아래로 이동할 수 있다.
+  // 즉시 중앙 정렬한 뒤 실제 위치가 안전한지 확인하고 hover한다.
+  await reset.evaluate(element => element.scrollIntoView({ block: "center", behavior: "instant" }));
+  await expect.poll(async () => {
+    const box = await reset.boundingBox();
+    return box ? box.y + box.height / 2 : 1000;
+  }).toBeLessThan(700);
   await reset.hover();
   await expect(page.getByRole("tooltip").or(page.locator('[data-slot="tooltip-popup"]')).first()).toContainText("AI 제안값으로 되돌리기");
   await page.mouse.move(0, 0);

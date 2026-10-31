@@ -258,3 +258,27 @@ test("AX D규칙 과거 '해당 없음' 저장값은 미적용으로 그대로 �
   await expect(page.getByRole("option")).toHaveText(["확정", "미확정"]);
   await page.keyboard.press("Escape");
 });
+
+test("AX 진단 결과 요약: 판정 분포 3카드는 실제 단계 판정 건수, 핵심 판단 패널·확인 필요 항목 목록을 표시한다", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await registerAndDiagnose(page, "운송장 검증", "운송장 데이터를 입력받아 누락·중복을 검사하고 검증 결과를 출력한다.");
+  const steps = outputFixture().stepAssessments;
+  const cards = page.locator(".ax-diag-card .ax-verdict-card");
+  await expect(cards).toHaveCount(3);
+  for (const [index, verdict, label] of [[0, "자동화", "자동화 적합"], [1, "AI 보조", "AI 보조 적합"], [2, "사람 유지", "담당자 수행"]] as const) {
+    await expect(cards.nth(index).locator("dt")).toHaveText(label);
+    await expect(cards.nth(index).locator("dd strong")).toHaveText(String(steps.filter(step => step.verdict === verdict).length));
+  }
+  // 상세 헤더: Gate 배지가 Level 배지보다 먼저다.
+  await expect(page.locator(".ax-diag-badges > *").first()).toHaveClass(/ax-gate-badge/);
+  const judgement = page.getByRole("group", { name: "핵심 판단" });
+  await expect(judgement).toContainText("핵심 판단");
+  await expect(judgement).toContainText("확인 필요");
+  await expect(judgement).toContainText("다음 단계");
+  const checks = page.locator(".ax-diag-checks");
+  const total = await checks.locator("li").count();
+  const need = await checks.locator('.ax-check-badge[data-kind="need"]').count();
+  await expect(checks.locator(".ax-diag-checks-head")).toContainText(`총 ${total}건 · 확인 필요 ${need}건`);
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
+});

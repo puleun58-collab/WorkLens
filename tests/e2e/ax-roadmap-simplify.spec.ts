@@ -131,7 +131,7 @@ test("AX roadmap simplify: ①은 요약 배지만 표시하고 업무 전환 �
   await expect(page.getByRole("tab", { name: "업무 진단", exact: true })).toHaveAttribute("aria-selected", "true");
 });
 
-test("AX roadmap simplify: 검토 표와 도구 동기화는 유지된다", async ({ page }) => {
+test("AX roadmap simplify: 구현 계획 검토와 도구 동기화는 유지된다", async ({ page }) => {
   const diagnosis: AxDiagnosis = {
     ...diagnosisFixture,
     planCodex: { ...planFixture, implementation: ["Codex 전용 항목"] },
@@ -139,12 +139,17 @@ test("AX roadmap simplify: 검토 표와 도구 동기화는 유지된다", asyn
   };
   const task = taskFixture("simplify-review", diagnosis);
   const plan = await openStep4(page, [task], task.id);
-  const review = plan.getByRole("region", { name: "구현 계획 검토", exact: true });
-  await expect(review).toBeVisible();
-  await plan.getByRole("tab", { name: "Claude Code", exact: true }).click();
+  const review = plan.getByRole("region", { name: "구현 계획", exact: true });
+  await expect(review.locator(".ax-plan-group")).toHaveCount(1);
+  await expect(review.locator(".ax-plan-step")).toHaveCount(0);
+  await review.getByRole("button", { name: "전체 펼치기" }).click();
+  await expect(review.locator(".ax-plan-step")).toContainText(["Codex 전용 항목"]);
+  await review.getByRole("button", { name: "Claude Code", exact: true }).click();
+  await expect(review.locator(".ax-plan-step")).toContainText(["Claude 전용 항목"]);
   await expect(plan.locator(".ax-prompt")).toContainText("Claude 전용 항목");
   await expect(plan.locator(".ax-prompt")).not.toContainText("Codex 전용 항목");
-  await plan.getByRole("tab", { name: "Codex", exact: true }).click();
+  await review.getByRole("button", { name: "Codex", exact: true }).click();
+  await expect(review.locator(".ax-plan-step")).toContainText(["Codex 전용 항목"]);
   await expect(plan.locator(".ax-prompt")).toContainText("Codex 전용 항목");
 });
 
