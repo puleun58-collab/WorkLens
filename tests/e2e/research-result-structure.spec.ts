@@ -75,20 +75,22 @@ for (const width of [1440, 390]) {
     const top = output.locator(".research-overview");
     await expect(top.locator("details")).toHaveCount(0);
     await expect(top).not.toContainText(expression);
-    // The top summary keeps relation phrases only (no provision count) and
-    // no longer repeats the article list or its jump button; the detail
-    // section below is the single home for the provision and its delegation wording.
+    // The summary keeps the direct-link verdict; evidence wording appears on
+    // one source row, never inside the item-level verification disclosure.
     await expect(top.getByRole("button", { name: "근거 보기", exact: true })).toHaveCount(0);
     await expect(top).toContainText("직접 연결: 제7조(적용범위)");
     await expect(top).not.toContainText("고유 조문");
     const details = output.getByRole("region", { name: "법령 단계별 관계" });
     await expect(details.locator("details[open]")).toHaveCount(0);
     await details.locator("details summary").first().click();
-    await expect(details.getByText(expression, { exact: false })).toBeVisible();
+    await expect(details).toContainText("① 직접 연결 여부");
+    await expect(details).toContainText("② 다른 조항 참조");
+    await expect(details).toContainText("③ 추가 확인 사항");
+    const source = output.getByRole("region", { name: "상세 근거" });
+    await expect(source.getByText(expression, { exact: false })).toBeVisible();
     expect((await details.locator("#research-task-evidence-1").boundingBox())!.y).toBeGreaterThanOrEqual(64);
-    // The tier section is the single home: the raw 3단 비교 listing is not repeated below it.
     await expect(output.locator(".research-hierarchy")).toHaveCount(0);
-    await expect(details).toContainText("근로기준법 시행령 제7조");
+    await expect(source).toContainText("근로기준법 시행령 제7조");
     await expect(top.locator("h3")).toHaveAttribute("data-status", "partial");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   });
@@ -112,15 +114,13 @@ for (const width of [1440, 390]) {
     await form.getByLabel("질문 또는 검색어").fill("해고");
     await form.getByRole("button", { name: "실행", exact: true }).click();
     const output = page.locator(".legal-analysis-output[data-task='action_basis']");
-    const supplement = output.getByRole("region", { name: "추가 조회 자료" });
-    await expect(supplement).toContainText("제목에 질문 용어가 포함된 조문 4건");
-    await expect(supplement).toContainText("추가로 조회한 조문 1건");
-    await expect(supplement.getByRole("button", { name: "상세 근거에서 원문 보기" })).toHaveCount(1);
-    await expect(supplement.locator(".legal-analysis-lines")).toHaveCount(4);
-    // Additional-source excerpts fold by default (§8): titles stay visible, excerpts open on demand.
-    await expect(supplement.locator("details:not([open])")).toHaveCount(4);
-    await supplement.locator("details summary").first().click();
-    await expect(supplement.locator(".legal-analysis-lines").first()).toBeVisible();
+    const source = output.getByRole("region", { name: "상세 근거" });
+    await expect(source.locator(".research-hits > li")).toHaveCount(5);
+    await expect(source.getByRole("link", { name: "법제처 원문 보기" })).toHaveCount(5);
+    await expect(source).toContainText("다른 법률 제23조");
+    await expect(source).toContainText("근로기준법 제23조");
+    await expect(output.locator('[data-group="statutes"] [data-kind="law_articles"]')).toHaveCount(0);
+    await expect(source.locator(".research-hits > li").first()).toContainText("출처 시행일");
     await expect(output.locator(".research-overview h3")).toHaveAttribute("data-status", "viewed");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   });
