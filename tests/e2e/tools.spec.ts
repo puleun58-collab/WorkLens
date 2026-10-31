@@ -1955,7 +1955,8 @@ test("RESEARCH shows the server's per-kind verdict for law_system and dispute_pr
   await expect(items).toContainText("법률");
   await expect(items).toContainText("시행령");
   await expect(items).toContainText("시행규칙");
-  await expect(items.locator(".research-issue-status")).toHaveText(["근거 확인", "근거 확인", "근거 확인"]);
+  // Tier verdicts read as delegation links, apart from the law's own retrieval.
+  await expect(items.locator(".research-issue-status")).toHaveText(["원문 확인", "직접 연결 확인", "직접 연결 확인"]);
   await form.getByLabel("질문 또는 검색어").fill("부당해고 구제신청과 행정소송 판례");
   await chooseOption(page, form.getByLabel("리서치 유형"), researchTaskLabels.dispute_prep);
   await form.getByRole("button", { name: "실행" }).click();

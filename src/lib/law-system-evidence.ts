@@ -25,9 +25,13 @@ import { capForFailure, detailArticles, hasAvailableContent, hasFailedSection, h
  *   reported ("질문한 조항 인용 확인"), never silently treated as confirmed
  *   from both sides, and never as proof that no delegation exists.
  * A law with no evidenced sub-law tier is never "fully confirmed": law-only
- * is `viewed`, one confirmed tier is `partial`, both confirmed tiers are
- * `matched`. A failed section caps `matched` to `partial` and never erases
- * a confirmed tier.
+ * is `viewed`. Only the tiers the question asks about are required
+ * (askedTiers): a question about the decree alone is `matched` once the
+ * decree link is confirmed, and an unasked tier is neither required nor
+ * shown — unless its own body directly cites an asked article, in which
+ * case it is shown as an optional item that never sets the verdict. A
+ * question naming no tier keeps both tiers required. A failed section caps
+ * `matched` to `partial` and never erases a confirmed tier.
  */
 const DELEGATION_ANCHOR = /법\s*제(\d+)조(?:의(\d+))?[^\n]{0,60}(에 따라|에서|에 따른|으로 정하는|정하는)/u;
 /** Delegation wording without a `법 제N조` prefix (e.g. "대통령령으로 정하는 바에 따라"). */
@@ -49,6 +53,17 @@ function citingExpression(body: string, asked: readonly string[]): string | unde
   return undefined;
 }
 const ASKED_JO = /제\s*(\d+)\s*조(?:의\s*(\d+))?/gu;
+
+/** The sub-law tiers a question asks about. A question naming neither tier
+ * (or asking about the whole chain: 3단·하위 법령·위임 구조) requires both. */
+export function askedTiers(question: string | undefined): Array<"decree" | "rule"> {
+  const text = question ?? "";
+  if (/3단|하위\s*법령|위임\s*구조|법체계\s*전체/u.test(text)) return ["decree", "rule"];
+  const tiers: Array<"decree" | "rule"> = [];
+  if (/시행령|대통령령/u.test(text)) tiers.push("decree");
+  if (/시행규칙|총리령|부령/u.test(text)) tiers.push("rule");
+  return tiers.length ? tiers : ["decree", "rule"];
+}
 
 export function askedArticles(question: string | undefined, articles: readonly string[] | undefined): string[] {
   const fromInput = (articles ?? []).map((item) => {
@@ -116,6 +131,7 @@ export function assessLawSystem(text: string, question?: string, articles?: stri
   const coreBody = /▶\s*핵심 조문\n([\s\S]*?)(?:\n▶|\n═══|$)/u.exec(text)?.[1]?.trim() ?? "";
   const lawFound = Boolean(lawTitle) || coreBody.length > 0 || details.some((a) => a.tier === "law" && a.body);
   const asked = askedArticles(question, articles);
+  const requiredTiers = askedTiers(question);
   // Parent-law side text only: law-tier detail articles plus the core body.
   // Sub-law bodies are excluded so an anchor cannot confirm itself.
   const parentDelegates = (jo: string) => {
@@ -161,8 +177,11 @@ export function assessLawSystem(text: string, question?: string, articles?: stri
   const items: TaskEvidence["items"] = [
     { label: labels.law, status: lawFound ? "found" : hasAvailableContent(text) ? "viewed" : "none",
       ...(lawTitle ? { detail: lawTitle } : {}) },
-    ...tiers.map(({ tier, found, anchored, direct, anchorOnly, unprefixed, articles }) => {
+    ...tiers.flatMap(({ tier, found, anchored, direct, anchorOnly, unprefixed, articles }) => {
       const name = tier === "decree" ? "시행령" : "시행규칙";
+      const requested = requiredTiers.includes(tier);
+      // An unasked tier is out of scope: shown only when it directly cites an asked article.
+      if (!requested && !(asked.length && direct.length)) return [];
       // Counts are unique provisions, and the categories below are
       // subsets of the total — never added to it.
       const parts: string[] = [];
@@ -181,10 +200,10 @@ export function assessLawSystem(text: string, question?: string, articles?: stri
       }
       if (unprefixed.length) parts.push(`그 중 위임 대상 조항 확인 필요 ${unprefixed.length}건`);
       const status = (direct.length ? "found" : found.length ? "viewed" : "none") as TaskEvidence["items"][number]["status"];
-      return { label: labels[tier], status, ...(found.length ? { detail: parts.join(" · "), articles } : {}) };
+      return [{ label: labels[tier], status, ...(requested ? {} : { optional: true }), ...(found.length ? { detail: parts.join(" · "), articles } : {}) }];
     }),
   ];
-  const confirmedTiers = tiers.filter(({ direct }) => direct.length).length;
-  const base = confirmedTiers === 2 ? "matched" : confirmedTiers === 1 ? "partial" : "viewed";
+  const confirmedTiers = tiers.filter(({ tier, direct }) => requiredTiers.includes(tier) && direct.length).length;
+  const base = confirmedTiers === requiredTiers.length ? "matched" : confirmedTiers > 0 ? "partial" : "viewed";
   return { status: capForFailure(base, hasFailedSection(text)), items };
 }

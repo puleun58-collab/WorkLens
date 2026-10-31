@@ -113,7 +113,7 @@ describe("follow-up: law-system delegation blocks", () => {
   ].join("\n");
   it("counts the delegating article and reconstructs it once, never twice", () => {
     expect(directDelegationCount(text, ["제38조"])).toBe(1);
-    expect(assessLawSystem(text, "개인정보보호법 제38조와 시행령의 관계").status).toBe("partial");
+    expect(assessLawSystem(text, "개인정보보호법 제38조와 시행령의 관계").status).toBe("matched");
     const blocks = delegatingDetailBlocks(text, ["제38조"], "");
     expect(blocks).toContain("제45조");
     expect(blocks).toContain("대리인의 범위 등");

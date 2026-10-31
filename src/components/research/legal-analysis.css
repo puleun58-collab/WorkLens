@@ -358,6 +358,12 @@ p.research-meta { margin: 0; }
 .legal-research .research-comparison th:first-child { width: 16%; }
 .legal-research .research-comparison td > strong { display: block; margin-bottom: 6px; }
 .legal-research .research-comparison .legal-analysis-lines { margin: 0; white-space: pre-wrap; }
+/* 별표 원문 표: the original rows/columns (row/col spans kept) instead of
+   text runs, in the same table language; wide tables scroll inside the frame. */
+.legal-research .research-annex-original { display: grid; gap: 10px; min-width: 0; }
+.legal-research .research-annex-table { width: 100%; min-width: 640px; border-collapse: collapse; text-align: left; font-size: 12.5px; line-height: 1.5; }
+.legal-research .research-annex-table :is(th, td) { padding: 6px 8px; vertical-align: top; border: 1px solid var(--border-subtle); background: #fff; white-space: pre-line; overflow-wrap: anywhere; }
+.legal-research .research-annex-table th { background: var(--result-table-header); color: var(--navy-800); font-weight: var(--font-weight-semibold); }
 .legal-research .research-group[data-group="change"] > .legal-analysis-section { position: relative; padding-left: 18px; border-left: 2px solid var(--line-soft, var(--line)); }
 .legal-research .research-group[data-group="change"] > .legal-analysis-section::before { content: ""; position: absolute; left: -5px; top: 16px; width: 8px; height: 8px; border-radius: 50%; background: var(--blue); }
 .legal-research .research-hierarchy { display: grid; gap: 8px; max-width: 72ch; margin: 0; }
@@ -429,7 +435,8 @@ p.research-meta { margin: 0; }
 .legal-research .research-issue-refs > .source-toggle { padding-inline: 0; }
 /* 근거 보기 상세: summary box + list separation, scoped to the issue/task
    evidence detail areas only — no other card or panel is touched. The
-   summary box and the lists below share one 14px content start line. */
+   summary box, the core list's 근거 보기 rows and the 관련 법령·판례 상세 보기
+   toggle with its list share one 14px content start line. */
 .legal-research .research-selected > .research-issue-evidence .research-issue-findings {
   padding: 12px 14px;
   border: 1px solid var(--line-soft, var(--line));
@@ -438,21 +445,27 @@ p.research-meta { margin: 0; }
   margin-bottom: 12px;
 }
 .legal-research .research-selected > .research-issue-evidence .research-core-sources,
-.legal-research .research-selected > .research-issue-evidence .research-issue-refs > .research-hits {
+.legal-research .research-selected > .research-issue-evidence .research-issue-refs > .research-hits,
+.legal-research .research-selected > .research-issue-evidence .research-issue-refs > .source-toggle {
   padding-inline: 14px;
 }
 .legal-research .research-selected > .research-issue-evidence .research-core-sources > li {
   padding-block: 10px;
 }
+/* 상세 검증(처분·허가 근거·적용 요건·법령 단계별 관계): the toggle, its notes,
+   provision headings, excerpts and 법제처 links start on the item title's own
+   line — no inline inset on the disclosure (an inset here pushed every row
+   14px right of the title). Only the bottom spacing stays. */
 .legal-research .research-task-details .research-more {
-  padding-inline: 14px;
   padding-bottom: 12px;
 }
+.legal-research .research-task-details .research-extra { margin-top: 4px; padding-bottom: 0; }
 .legal-research .research-issue-evidence.is-focused { border-radius: var(--radius-panel); background: var(--blue-soft); box-shadow: inset 0 0 0 1px var(--blue-border); }
-/* Programmatic focus (a jump target's h3) does not match :focus-visible in
-   browsers, so the landed section's own heading carries the ring while the
-   section stays focused — the highlight alone is not the only signal. */
-.legal-research .research-issue-evidence.is-focused > h3:focus { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+/* The landed section's own highlight (background + outer line) marks a jump.
+   The heading ring is for keyboard navigation only: a mouse-initiated jump
+   does not draw a second box inside the highlighted section. */
+.legal-research .research-issue-evidence.is-focused > h3:focus { outline: none; }
+.legal-research .research-issue-evidence.is-focused > h3:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .legal-research .research-issue-evidence.is-focus-fresh { background: color-mix(in srgb, var(--blue) 11%, var(--paper)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--blue) 40%, var(--blue-border)); }
 .legal-research .research-issue-evidence.is-focus-leaving { background: transparent; box-shadow: inset 0 0 0 1px transparent; }
 @media (prefers-reduced-motion: reduce) {
