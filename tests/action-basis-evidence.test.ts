@@ -61,11 +61,14 @@ describe("assessActionBasis", () => {
     const result = assessActionBasis(QUERY, BODY, { supplement: SUPPLEMENT });
     const basis = result.items.find((item) => item.label === "처분·허가 근거")!;
     expect(basis.status).toBe("found");
-    expect(basis.detail).toContain("제5조");
-    expect(basis.detail).toContain("조문 본문 2건");
+    // Detail text no longer repeats the provision list or body counts; the
+    // structured refs below carry the articles.
+    expect(basis.detail).toBeUndefined();
+    expect(basis.basisRefs?.map((ref) => ref.jo)).toContain("제5조");
     const requirement = result.items.find((item) => item.label === "적용 요건")!;
     expect(requirement.status).toBe("found");
-    expect(requirement.detail).toBeDefined();
+    expect(requirement.detail).toBeUndefined();
+    expect(requirement.requirementRefs?.length).toBeGreaterThan(0);
   });
 
   it("counts annex entries only of the question's named law", () => {
@@ -98,7 +101,7 @@ it("returns independent structured basis and requirement references without chan
   const [basis, requirement] = result.items;
   expect(basis.basisRefs).toHaveLength(2);
   expect(requirement.requirementRefs).toHaveLength(2);
-  expect(basis.detail).toContain("조문 본문 2건");
+  expect(basis.detail).toBeUndefined();
   expect(basis.basisRefs?.[0]).toMatchObject({ law: "건강기능식품에 관한 법률 시행령", jo: "제5조", title: "영업정지 처분", excerpt: expect.stringContaining("법 제32조") });
   const basisOnly = BODY.replace("영업자가 기준을 위반하면 영업정지 처분을 할 수 있다. 처분의 요건과 기준은 해당 조문에 따른다.", "영업자가 위반하면 영업정지 처분을 할 수 있다.");
   const independent = assessActionBasis(QUERY, basisOnly);
@@ -111,7 +114,60 @@ it("keeps all structured sources beyond the three-reference legacy summary and d
   const articles = Array.from({ length: 5 }, (_, i) => ({ ...SUPPLEMENT.articles[0], jo: `제${i + 1}조` }));
   const result = assessActionBasis(QUERY, BODY, { supplement: { status: "found", articles: [...articles, articles[0], { ...articles[0], excerpt: `${articles[0].excerpt} 별도의 원문 발췌` }] } });
   expect(result.items[0].basisRefs).toHaveLength(7);
-  expect(result.items[0].detail).toContain("외 3건");
+  expect(result.items[0].detail).toBeUndefined();
   expect(new Set(result.items[0].basisRefs?.map((ref) => `${ref.law}:${ref.jo}`)).size).toBe(6);
   expect(result.items[0].basisRefs?.some((ref) => ref.excerpt.includes("별도의 원문 발췌"))).toBe(true);
+});
+
+describe("assessActionBasis accuracy hardening", () => {
+  it("does not confirm a requirement from a keyword mention alone", () => {
+    const mentionOnly = BODY.replace(
+      "법 제32조제1항에 따라 영업자가 기준을 위반하면 영업정지 처분을 할 수 있다. 처분의 요건과 기준은 해당 조문에 따른다.",
+      "법 제32조제1항에 따라 영업정지 처분의 요건에 관한 규정은 별표와 같다.");
+    const result = assessActionBasis(QUERY, mentionOnly);
+    expect(result.status).toBe("partial");
+    const requirement = result.items.find((item) => item.label === "적용 요건")!;
+    expect(requirement.status).toBe("viewed");
+    expect(requirement.detail).toContain("요건 관련 문언 확인");
+    expect(result.items.find((item) => item.label === "처분·허가 근거")?.status).toBe("found");
+  });
+
+  it("does not confirm a direct disposition basis from a substitute-fine provision alone", () => {
+    const fineOnly = `═══ 처분 근거 확인: 식품위생법 ═══
+
+▶ 법령 체계 (법률·시행령·시행규칙)
+법령명: 식품위생법
+
+---
+제82조
+---
+
+[시행령] 식품위생법 시행령 제53조 (과징금 처분)
+영업자가 영업정지 처분을 갈음하여 과징금을 부과할 수 있다.
+`;
+    const result = assessActionBasis(QUERY, fineOnly);
+    const basis = result.items.find((item) => item.label === "처분·허가 근거")!;
+    expect(basis.status).toBe("viewed");
+    expect(basis.detail).toContain("과징금 갈음 규정만 확인");
+    expect(basis.basisRefs?.[0].note).toContain("과징금 갈음 규정");
+  });
+
+  it("confirms a substitute-fine basis when the question itself asks about the fine", () => {
+    const fineOnly = `═══ 처분 근거 확인: 식품위생법 ═══
+
+▶ 법령 체계 (법률·시행령·시행규칙)
+법령명: 식품위생법
+
+---
+제82조
+---
+
+[시행령] 식품위생법 시행령 제53조 (과징금 처분)
+영업자가 영업정지 처분을 갈음하여 과징금을 부과할 수 있다.
+`;
+    const result = assessActionBasis("영업정지 갈음 과징금 부과 근거와 요건", fineOnly);
+    const basis = result.items.find((item) => item.label === "처분·허가 근거")!;
+    expect(basis.status).toBe("found");
+    expect(basis.basisRefs?.[0].note).toBeUndefined();
+  });
 });

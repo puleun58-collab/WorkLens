@@ -3,17 +3,19 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import {
   AMENDMENT_SCENARIOS, DISPUTE_DOMAINS, EMPTY_RESEARCH_DRAFT, LAW_RESEARCH_DOCUMENT_MAX_CHARS, LAW_RESEARCH_DOCUMENT_MIN_CHARS,
-  LAW_RESEARCH_ERROR, LAW_RESEARCH_NAME_MAX_CHARS, LAW_RESEARCH_QUERY_MAX_CHARS, LAW_RESEARCH_TASKS, lawResearchOutcome, lawResearchRequestFor,
+  LAW_RESEARCH_ERROR, LAW_RESEARCH_NAME_MAX_CHARS, LAW_RESEARCH_QUERY_MAX_CHARS, LAW_RESEARCH_TASKS, LAW_RESEARCH_USER_TASKS, isUserVisibleResearchTask, lawResearchOutcome, lawResearchRequestFor,
   type AmendmentScenario, type DisputeDomain, type LawResearchData, type LawResearchDraft, type LawResearchOutcome,
   type InterpretationFailure, type IssueEvidence, type LawCurrency, type LawResearchRequest, type LawResearchTask, type OrdinanceRegionResult, type ResearchInterpretation,
 } from "@/lib/law-research";
+import { groupLawSystemArticles, lawSystemTopSummary } from "@/lib/law-system-display";
+import { askedArticles } from "@/lib/law-system-evidence";
 import { isSupportingSection, mergeDuplicateAnnexSections, researchResult, type ResearchDecision, type ResearchSection } from "@/lib/law-research-parse";
 import { articleHeadingText, dedupeArticleHeadingLine, dedupeArticleHeadings } from "@/lib/law-article-target";
 import { lawDisplayText } from "@/lib/law-display";
 import { orderByRelevance, type ResearchEnrichment } from "@/lib/research-relevance";
 import { STATUS_TITLE, type ResearchStatus } from "@/lib/research-status";
 import { researchConfirmationGap } from "@/lib/research-result-status";
-import { taskEvidenceReferences } from "@/lib/task-evidence";
+import { taskEvidenceReferences, type TaskEvidenceArticle } from "@/lib/task-evidence";
 import { lawSourceUrl, sameLawFamily } from "@/lib/research-scope";
 import type { ProcedureRequirementStatus } from "@/lib/procedure-evidence";
 import { LawTextBlock } from "./LawTextBlock";
@@ -102,7 +104,11 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
   const [uploadErrors, setUploadErrors] = useState<string[]>([]);
   const [dropActive, setDropActive] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
-  const [task, setTask] = useState<LawResearchTask>(initialTask);
+  const [task, setTask] = useState<LawResearchTask>(isUserVisibleResearchTask(initialTask) ? initialTask : "full_research");
+  /** A hidden task arrived (e.g. a stored initial task): the menu cannot
+   * offer it, so the selection falls back without converting the question
+   * into another task's result. */
+  const [hiddenTaskNotice, setHiddenTaskNotice] = useState(!isUserVisibleResearchTask(initialTask));
   const [draft, setDraft] = useState<LawResearchDraft>(EMPTY_RESEARCH_DRAFT);
   const [results, setResults] = useState<Partial<Record<ResultKey, TaskResult>>>({});
   const liveFiles = useRef(files);
@@ -183,6 +189,12 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
 
   /** Leaving a task cancels its in-flight chains; finished results stay for when the user comes back. */
   function changeTask(next: LawResearchTask) {
+    if (!isUserVisibleResearchTask(next)) {
+      setHiddenTaskNotice(true);
+      next = "full_research";
+    } else {
+      setHiddenTaskNotice(false);
+    }
     const pending = [...requests.current.keys()].filter((key) => keyBelongsTo(key, task));
     if (pending.length) {
       pending.forEach((key) => { requests.current.get(key)?.abort(); requests.current.delete(key); });
@@ -206,7 +218,13 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
       pendingTasks.forEach((pendingTask) => { delete copy[pendingTask]; });
       return copy;
     });
-    setTask(initialTask);
+    if (!isUserVisibleResearchTask(initialTask)) {
+      setHiddenTaskNotice(true);
+      setTask("full_research");
+    } else {
+      setHiddenTaskNotice(false);
+      setTask(initialTask);
+    }
     setPreferenceOverride({});
   }, [initialTask]);
 
@@ -270,9 +288,9 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
     <form className={`legal-analysis-form${isDocument ? " research-document-workarea" : ""}`} onSubmit={submit} aria-label={isDocument ? "문서 검토 입력" : "종합 리서치 입력"}>
       <div className="legal-analysis-fields legal-research-options">
         <Field><FieldLabel htmlFor="research-task">리서치 유형</FieldLabel>
-          <Select items={LAW_RESEARCH_TASKS} value={task} onValueChange={(value) => { if (value) changeTask(value as LawResearchTask); }}>
+          <Select items={LAW_RESEARCH_USER_TASKS} value={task} onValueChange={(value) => { if (value) changeTask(value as LawResearchTask); }}>
             <SelectTrigger id="research-task"><SelectValue /></SelectTrigger>
-            <SelectPopup alignItemWithTrigger={false}>{LAW_RESEARCH_TASKS.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectPopup>
+            <SelectPopup alignItemWithTrigger={false}>{LAW_RESEARCH_USER_TASKS.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectPopup>
           </Select>
         </Field>
         {isDocument && settingsError && <p className="law-search-error" role="alert">{settingsError}</p>}
@@ -290,6 +308,7 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
         </Field>}
       </div>
       <p className="legal-research-description">{TASK_HELP[task].description}</p>
+      {hiddenTaskNotice && <p className="research-meta" role="status">절차·서식 유형은 현재 선택 목록에서 제외되어 있습니다. 다른 유형을 선택해 주세요.</p>}
 
       {isDocument ? <div className="research-document-input" role="group" aria-labelledby="research-document-label">
         <p id="research-document-label" className="research-document-label">검토할 문서</p>
@@ -1063,6 +1082,18 @@ export function ResearchResult({ data, request, expandSources = false, onExpandS
   const showSupplement = supplement && (supplement.articles.length > 0 || (!articleCount && supplement.status !== "not_searched"));
   const sourceJump = (id: string, label = "근거 보기") => <Button type="button" variant="link" size="xs"
     className="research-source-jump" aria-controls={id} onClick={() => showSource(id)}>{label}</Button>;
+  /** One provision row for the task-evidence toggle; the toggle's list is
+   * the single home for provisions (detail text never repeats it). */
+  const taskReferenceItem = (article: (typeof taskItems)[number]["references"][number], key: string | number) => (
+    <li key={key}>
+      <strong>{articleHeadingText(article.law, article.jo, article.title)}</strong>
+      <span className="research-meta">{"relation" in article ? LAW_SYSTEM_RELATION_LABEL[article.relation] : "조회 원문에서 이 항목의 근거 문언 확인"}{"expression" in article && article.expression ? ` · ${article.expression}` : ""}</span>
+      {"note" in article && article.note ? <span className="research-meta">{article.note}</span> : null}
+      {"excerpt" in article && <><LawTextBlock className="legal-analysis-lines" text={article.excerpt} /><a className="research-meta" href={lawSourceUrl(article.law, article.jo)} target="_blank" rel="noreferrer">법제처 원문 보기</a></>}
+    </li>
+  );
+  /** Asked articles for the law-system toggle header (structure A). */
+  const askedLawArticles = isLawSystem && request.task !== "document_review" ? askedArticles(request.query, undefined) : [];
 
   return <div ref={resultRef} className="legal-analysis-output" data-task={data.task}>
     <ResearchResultSummary label={LAW_RESEARCH_TASKS.find((item) => item.value === data.task)?.label} badge={confirmationGap ? { tone: "warning", label: confirmationGap.badge } : STATUS_BADGE[status]} status={status} title={confirmationGap?.title ?? STATUS_TITLE[status]}
@@ -1148,12 +1179,8 @@ export function ResearchResult({ data, request, expandSources = false, onExpandS
           // detail below; category counts are never summed into a total.
           if (isLawSystem) {
             const articles = item.references;
-            const direct = articles.some((article) => "relation" in article && (article.relation === "direct" || article.relation === "twoWay"));
-            const needsMore = articles.some((article) => "relation" in article && (article.relation === "other" || article.relation === "unidentified" || article.relation === "related"))
-              || (articles.length > 0 && !direct);
-            const summary = articles.length > 0
-              ? [`고유 조문 ${articles.length}건`, ...(direct ? ["직접 위임 확인됨"] : []), ...(needsMore ? ["추가 확인 필요"] : [])].join(" · ")
-              : undefined;
+            // Top shows relation phrases only, never a provision count.
+            const summary = lawSystemTopSummary(item);
             // Top shows label + status + the concise summary only. The
             // article-name list and its jump button duplicated the
             // 항목별 법적 근거 section below, which stays the single home
@@ -1329,15 +1356,16 @@ export function ResearchResult({ data, request, expandSources = false, onExpandS
         <details className="law-detail-source research-more">
           <SourceToggleSummary label="상세 검증 내용 보기" openLabel="상세 검증 내용 접기" />
           {item.detail && <p className="research-meta">{item.detail}</p>}
-          {data.task === "action_basis" && <p className="research-meta">확인 대상: {item.label} · 관련 쟁점: {request.task === "document_review" ? "" : request.query}<br />
-            {item.references.length > 0 ? `확인된 사실: 조회 원문에 ${item.label === "적용 요건" ? "요건 관련" : "권한·처분 관련"} 문언이 있습니다.` : "미확인 사항: 이 항목의 직접 근거 문언을 확인하지 못했습니다."} 구체적 대상·행위·세부 기준·예외·감경·가중 및 사실관계와의 적용 여부는 원문과 대조해야 합니다. 요건 충족 여부는 판단하지 않았습니다.
-            {item.basisRefs !== undefined && " 기존 설명의 조문 본문 건수는 조회 본문의 출현 수이며 고유 근거 조문 수와 범위가 다릅니다."}
-          </p>}
-          <ul className="research-hits">{item.references.map((article, articleIndex) => <li key={articleIndex}>
-            <strong>{articleHeadingText(article.law, article.jo, article.title)}</strong>
-            <span className="research-meta">{"relation" in article ? LAW_SYSTEM_RELATION_LABEL[article.relation] : "조회 원문에서 이 항목의 근거 문언 확인"}{"expression" in article && article.expression ? ` · ${article.expression}` : ""}</span>
-            {"excerpt" in article && <><LawTextBlock className="legal-analysis-lines" text={article.excerpt} /><a className="research-meta" href={lawSourceUrl(article.law, article.jo)} target="_blank" rel="noreferrer">법제처 원문 보기</a></>}
-          </li>)}</ul>
+          {data.task === "action_basis" && <p className="research-meta">{item.references.length === 0 && "이 항목의 직접 근거 문언을 확인하지 못했습니다. "}구체적인 사실관계의 적용 여부는 원문과 대조해야 합니다. 요건 충족 여부는 판단하지 않았습니다.</p>}
+          {isLawSystem ? <>
+            {askedLawArticles.length > 0 && <p className="research-meta">질문 대상 조항: {askedLawArticles.join(" · ")}</p>}
+            {groupLawSystemArticles(item.references.filter((article): article is TaskEvidenceArticle => "relation" in article)).map((group) => (
+              <div key={group.key}>
+                <p className="research-meta">{group.label}</p>
+                <ul className="research-hits">{group.articles.map((article, articleIndex) => taskReferenceItem(article, `${group.key}-${articleIndex}`))}</ul>
+              </div>
+            ))}
+          </> : <ul className="research-hits">{item.references.map((article, articleIndex) => taskReferenceItem(article, articleIndex))}</ul>}
         </details>
       </div>)}
     </section>}

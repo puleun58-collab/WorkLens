@@ -97,13 +97,19 @@ describe("research result source structure", () => {
     expect(html).toMatch(/research-summary-notice[^>]*data-tone="error"[^>]*>.*?추가 자료 조회 미완료/u);
   });
 
-  it.each(["law_system", "full_research"] as const)("keeps the final law-system count and every relation accessible in %s", (task) => {
+  it.each(["law_system", "full_research"] as const)("keeps the final law-system relations accessible in %s", (task) => {
     const initial = "═══ 법체계 확인: 개인정보 보호법 ═══\n▶ 3단 비교 (법률·시행령·시행규칙)\n[시행령] 개인정보 보호법 시행령 제40조 (청구 방법)\n법 제38조에 따라 청구한다.";
     const additional = "\n▶ 위임 대조 추가 조회\n[시행령] 개인정보 보호법 시행령 제41조 (청구 기준)\n법 제38조에 따른 기준이다.\n[시행령] 개인정보 보호법 시행령 제42조 (다른 조항)\n법 제39조에 따른 기준이다.\n[시행령] 개인정보 보호법 시행령 제41조 (청구 기준)\n법 제38조에 따른 기준이다.";
     const lawSystem = assessLawSystem(initial + additional, "개인정보 보호법 제38조 위임관계");
     expect(lawSystem.items.find((item) => item.label === "시행령")?.articles).toHaveLength(3);
     const html = render({ ...base, task, text: initial, lawSystem });
-    expect(html).toContain("고유 조문 3건 · 직접 위임 확인됨 · 추가 확인 필요");
+    // Top summary keeps relation phrases only (no provision count, per §6);
+    // the count-free summary and every relation stay accessible below.
+    // (The scope is the top area only: a lower hierarchy note legitimately
+    // refers to the top count concept in words.)
+    const top = html.slice(0, html.indexOf('aria-label="항목별 법적 근거"'));
+    expect(top).toContain("직접 위임 확인됨 · 추가 확인 필요");
+    expect(top).not.toContain("고유 조문");
     expect(html).toContain("위임관계 확인 필요");
     expect(html).toContain("최종 검증 근거 중 응답 목록에 없던 조문 2건을 보완했습니다.");
     expect(html.match(/추가 조회<\/span>/gu)).toHaveLength(2);
@@ -191,10 +197,12 @@ describe("research result source structure", () => {
     expect(html.slice(lower)).toContain(expression);
     expect(html.slice(lower)).toContain("고유 검증 설명");
     expect(html).not.toContain("상세 근거 ·");
-    expect(html).toContain("고유 조문 1건 · 직접 위임 확인됨");
-    // The top summary keeps the count line but no longer repeats the
-    // article list or its jump button; the detail section below is the
-    // single home for the provision and its delegation wording.
+    expect(html).toContain("직접 위임 확인됨");
+    const delegationTop = html.slice(0, lower);
+    expect(delegationTop).not.toContain("고유 조문");
+    // The top summary keeps relation phrases only (no provision count) and
+    // no longer repeats the article list or its jump button; the detail
+    // section below is the single home for the provision and its delegation wording.
     expect(html).not.toContain('aria-controls="research-task-evidence-');
   });
 

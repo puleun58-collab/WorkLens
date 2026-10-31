@@ -41,6 +41,9 @@ export interface TaskEvidenceBodyRef {
   title: string;
   /** Retrieved source text; never an inferred condition or a case-fact verdict. */
   excerpt: string;
+  /** Display-only role distinction (e.g. a substitute-fine provision shown
+   * apart from the direct disposition authority); never changes a verdict. */
+  note?: string;
 }
 
 export function taskEvidenceReferences(item: TaskEvidenceItem): (TaskEvidenceArticle | TaskEvidenceBodyRef)[] {

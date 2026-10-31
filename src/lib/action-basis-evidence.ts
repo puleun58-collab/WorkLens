@@ -11,10 +11,17 @@ import { capForFailure, detailArticles, hasAvailableContent, hasFailedSection, h
  * - 처분·허가 근거: a parsed article, a detailed-format article, or an
  *   enrichment supplement article whose body names a question subject term
  *   and carries an authority phrase for the disposition/permission.
- * - 적용 요건: a body naming a subject term and a requirement word
- *   (요건/기준/대상/예외/해당/경우). This confirms requirement-related text
- *   was retrieved; it does not judge whether a concrete case meets the
- *   requirement — the UI caution keeps that distinction.
+ *   When the question does not ask about a substitute fine (과징금), a
+ *   substitute-fine provision alone never confirms the direct disposition
+ *   basis: it is shown, marked as such, and the kind stays `viewed`.
+ * - 적용 요건 (two tiers): a body that merely mentions a requirement word
+ *   (요건/기준/대상/예외/해당/경우) is requirement-related text only
+ *   (`viewed`). Confirmation (`found`) additionally requires a
+ *   conditional, duty, or criterion construction in the same body — the
+ *   actual condition or standard, not the word alone. This confirms
+ *   requirement-related text was retrieved and identified; it does not
+ *   judge whether a concrete case meets the requirement — the UI caution
+ *   keeps that distinction.
  * - 세부 기준(별표): an annex section with entries (a list alone never
  *   settles a duty, so it verifies only the "detailed criteria" kind).
  *   When the question names a law, only that law family's entries count:
@@ -29,30 +36,31 @@ import { capForFailure, detailArticles, hasAvailableContent, hasFailedSection, h
  * retrieved but nothing verified → `viewed`.
  * Every found law kind carries its supporting articles (law + article) in
  * its detail, so the verdict links to the articles behind it instead of a
- * bare body count.
+ * bare body count. Detail text never carries body counts: counts stay in
+ * the internal aggregation, and the screen shows the provision list once.
  */
 const AUTHORITY = /처분|허가|인가|할 수 있다|하여야 한다|명령/u;
 const REQUIREMENT = /요건|기준|대상|예외|해당|경우/u;
+/** A requirement word plus a conditional, duty, or criterion construction
+ * in the same body: the actual condition or standard, not the word alone. */
+const REQUIREMENT_CONFIRMED = /하면|할 수 있다|하여야 한다|해야 한다|인 경우|경우에는|기준은|요건은|해당하는|필요하다|충족/u;
+/** A substitute-fine (과징금) provision: a fine in place of the disposition,
+ * never the disposition authority itself — unless the question asks about it. */
+const SUBSTITUTE_FINE = /과징금/u;
 
 interface BodyRef {
   law: string;
   jo: string;
   title: string;
   body: string;
+  note?: string;
 }
 
 /** Keep distinct retrieved excerpts; unique provision counts are separate. */
 function structuredRefs(refs: readonly BodyRef[]): TaskEvidenceBodyRef[] {
   return [...new Map(refs.map((ref) => [JSON.stringify([ref.law, ref.jo, ref.title, ref.body]),
-    { law: ref.law, jo: ref.jo, title: ref.title, excerpt: ref.body }] as const)).values()];
+    { law: ref.law, jo: ref.jo, title: ref.title, excerpt: ref.body, ...(ref.note ? { note: ref.note } : {}) }] as const)).values()];
 }
-
-const refsText = (refs: readonly BodyRef[]): string => {
-  const shown = [...new Map(refs.map((ref) => [`${ref.law}\0${ref.jo}`, ref] as const)).values()]
-    .slice(0, 3).map((ref) => `${ref.law} ${ref.jo}`);
-  const hidden = new Set(refs.map((ref) => `${ref.law}\0${ref.jo}`)).size - shown.length;
-  return [...shown, ...(hidden > 0 ? [`외 ${hidden}건`] : [])].join(" · ");
-};
 
 export function assessActionBasis(query: string, text: string, enrichment?: ResearchEnrichment, annexes?: readonly AnnexEvidence[]): TaskEvidence {
   if (hasNoUsableSection(text)) {
@@ -94,15 +102,24 @@ export function assessActionBasis(query: string, text: string, enrichment?: Rese
     .flatMap((section) => section.decisions?.entries ?? []);
   const verified = verifiedDecisionCaseNumbers(text);
   const appealVerified = decisions.some((entry) => entry.caseNumber && verified.has(entry.caseNumber));
-  const basisRefs = subjectBodies(AUTHORITY);
-  const requirementRefs = /요건|기준|조건|대상|예외/u.test(query) ? subjectBodies(REQUIREMENT) : undefined;
+  const asksFine = /과징금|갈음/u.test(query);
+  const basisRefs = subjectBodies(AUTHORITY).map((ref) => (!asksFine && SUBSTITUTE_FINE.test(`${ref.title}\n${ref.body}`)
+    ? { ...ref, note: "과징금 갈음 규정 — 직접 처분 근거와 구분" } : ref));
+  const authorityRefs = basisRefs.filter((ref) => !ref.note);
+  const requirementMentioned = /요건|기준|조건|대상|예외/u.test(query) ? subjectBodies(REQUIREMENT) : undefined;
+  const requirementRefs = requirementMentioned?.filter((ref) => REQUIREMENT_CONFIRMED.test(ref.body));
   const items: TaskEvidence["items"] = [
-    { label: "처분·허가 근거", status: basisRefs.length ? "found" : bodies.length ? "viewed" : "none", basisRefs: structuredRefs(basisRefs),
-      ...(bodies.length ? { detail: basisRefs.length ? `${refsText(basisRefs)} · 조문 본문 ${bodies.length}건` : `조문 본문 ${bodies.length}건` } : {}) },
+    { label: "처분·허가 근거",
+      status: authorityRefs.length ? "found" : basisRefs.length || bodies.length ? "viewed" : "none",
+      basisRefs: structuredRefs(basisRefs),
+      ...(authorityRefs.length === 0 && basisRefs.length ? { detail: "과징금 갈음 규정만 확인 — 직접 처분 근거 추가 확인 필요" }
+        : authorityRefs.length === 0 && bodies.length ? { detail: "직접 처분 근거 문언 미확인" } : {}) },
   ];
   if (requirementRefs !== undefined) {
-    items.push({ label: "적용 요건", status: requirementRefs.length ? "found" : bodies.length ? "viewed" : "none", requirementRefs: structuredRefs(requirementRefs),
-      ...(requirementRefs.length ? { detail: refsText(requirementRefs) } : {}) });
+    const mentionOnly = (requirementMentioned ?? []).length > 0 && requirementRefs.length === 0;
+    items.push({ label: "적용 요건", status: requirementRefs.length ? "found" : bodies.length ? "viewed" : "none",
+      requirementRefs: structuredRefs(requirementRefs),
+      ...(mentionOnly ? { detail: "요건 관련 문언 확인 — 실제 요건·기준은 원문에서 대조 필요" } : {}) });
   }
   if (/별표|기준표|과태료|벌칙/u.test(query)) {
     items.push({ label: "세부 기준(별표)", status: annexCount ? "found" : "none",
