@@ -49,17 +49,19 @@ for (const [name, size] of [["desktop", { width: 1440, height: 900 }], ["mobile"
     }
     await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
     const plan = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
-    const planReview = plan.getByRole("region", { name: "구현 계획 검토", exact: true });
-    const planHeader = await headerOf(planReview);
-    await expect(planHeader.trigger).toHaveAttribute("aria-expanded", "true");
-    headers.push(planHeader);
+    const planReview = plan.getByRole("region", { name: "구현 계획", exact: true });
+    const groups = planReview.locator(".ax-plan-group");
+    await expect(groups).toHaveCount(2);
+    await expect(groups.locator('[data-slot="accordion-trigger"]')).toHaveCount(2);
+    for (const trigger of await groups.locator('[data-slot="accordion-trigger"]').all()) await expect(trigger).toHaveAttribute("aria-expanded", "false");
+    await expect(planReview.locator(".ax-hitl-table-counts")).toHaveText(/전체 \d+·검토 완료 0·검토 필요 \d+/);
     const precheck = plan.getByRole("region", { name: "구현 전 확인", exact: true });
     const precheckHeader = await headerOf(precheck);
     // 구현 전 확인은 기본 접힘이고, 접혀 있어도 미해결 건수를 표시한다.
     await expect(precheckHeader.trigger).toHaveAttribute("aria-expanded", "false");
     await expect(precheck.locator(".ax-hitl-table-counts")).toHaveText(/미해결 \d+건/);
     headers.push(precheckHeader);
-    // 4개 영역의 헤더 높이·셰브론 오른쪽 여백이 같다 (특정 영역만 별도 버튼 형태가 아니다).
+    // 동일한 검토 헤더들만 높이·셰브론 여백을 공유한다.
     for (const header of headers) {
       expect(Math.abs(header.height - headers[0].height)).toBeLessThanOrEqual(1);
       expect(Math.abs(header.chevronInset - headers[0].chevronInset)).toBeLessThanOrEqual(1);
@@ -86,16 +88,55 @@ test("review accordions toggle by keyboard and keep the panel open while a revie
   await expect(trigger).toHaveAttribute("aria-expanded", "false");
   await expect(precheck.locator(".ax-hitl-table-counts")).toHaveText(`미해결 ${count}건`);
 
-  // 구현 계획 검토: 항목 검토 패널이 열려 있는 동안 접기를 막아 입력값을 보호한다.
-  const review = plan.getByRole("region", { name: "구현 계획 검토", exact: true });
-  const reviewTrigger = review.locator('[data-slot="accordion-trigger"]');
+  // 구현 계획 그룹은 기본 접힘이고 검토 중 입력을 보호하기 위해 열린 그룹을 유지한다.
+  const review = plan.getByRole("region", { name: "구현 계획", exact: true });
+  const group = review.locator(".ax-plan-group").first();
+  const reviewTrigger = group.locator('[data-slot="accordion-trigger"]');
+  await expect(reviewTrigger).toHaveAttribute("aria-expanded", "false");
+  await reviewTrigger.focus();
+  await page.keyboard.press("Enter");
   await expect(reviewTrigger).toHaveAttribute("aria-expanded", "true");
-  await review.locator(".col-action button").first().click();
-  await expect(review.locator(".col-action button").first()).toHaveText("닫기");
-  await expect(reviewTrigger).toBeDisabled();
-  await review.locator(".col-action button").first().click();
-  await expect(reviewTrigger).toBeEnabled();
+  const step = group.locator(".ax-plan-step").first();
+  await step.getByRole("button", { name: "검토" }).click();
+  await expect(step.getByRole("button", { name: "닫기" })).toBeVisible();
+  await reviewTrigger.click();
+  await expect(reviewTrigger).toHaveAttribute("aria-expanded", "true");
+  await expect(step.locator(".ax-hitl-panel-v2")).toBeVisible();
+  await step.getByRole("button", { name: "닫기" }).click();
   await reviewTrigger.click();
   await expect(reviewTrigger).toHaveAttribute("aria-expanded", "false");
-  await expect(review.locator(".ax-hitl-table")).toHaveCount(0);
+  await expect(group.locator(".ax-plan-step")).toHaveCount(0);
+});
+
+test("implementation steps and completion criteria save independently and persist after reload", async ({ page }) => {
+  await page.goto("/");
+  const task = taskFixture("plan-review-save", { ...diagnosisFixture, planCodex: planFixture });
+  await seed(page, { ...emptyAxState(), tasks: [task], selectedTaskId: task.id, step: 4 });
+  await navigateWorkspace(page, "업무 자동화 진단");
+  const plan = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
+  const review = plan.getByRole("region", { name: "구현 계획", exact: true });
+  await review.getByRole("button", { name: "전체 펼치기" }).click();
+  const step = review.locator(".ax-plan-step").first();
+  await step.getByRole("button", { name: "검토" }).click();
+  await step.locator(".ax-hitl-panel-v2").getByRole("radio", { name: /유지/ }).check();
+  await step.locator(".ax-hitl-panel-v2").getByRole("button", { name: "확정" }).click();
+  await expect(step.locator(".ax-hitl-status-dot")).toHaveAttribute("data-status", "confirmed");
+  const criterion = plan.locator(".ax-criteria-item").first();
+  await criterion.getByRole("button", { name: "검토" }).click();
+  await criterion.locator(".ax-hitl-panel-v2").getByRole("radio", { name: /유지/ }).check();
+  await criterion.locator(".ax-hitl-panel-v2").getByRole("button", { name: "확정" }).click();
+  await expect(criterion).toHaveAttribute("data-status", "confirmed");
+  await expect(review.locator(".ax-hitl-table-counts")).toContainText("검토 완료 2");
+  // IndexedDB 영구 저장은 UI 반영 뒤 비동기로 완료되므로 저장 결과를 기다린 뒤 재조회한다.
+  await expect.poll(() => page.evaluate(async taskId => {
+    const db = await new Promise<IDBDatabase>(resolve => { const request = indexedDB.open("worklens-ax", 1); request.onsuccess = () => resolve(request.result); });
+    const state = await new Promise<AxStateV2>(resolve => { const request = db.transaction("state").objectStore("state").get("current"); request.onsuccess = () => resolve(request.result); });
+    db.close();
+    return state.tasks.find(saved => saved.id === taskId)?.reviews?.filter(review => review.status === "confirmed").length;
+  }, task.id)).toBe(2);
+  await page.reload();
+  await navigateWorkspace(page, "업무 자동화 진단");
+  await plan.getByRole("region", { name: "구현 계획", exact: true }).getByRole("button", { name: "전체 펼치기" }).click();
+  await expect(plan.locator(".ax-plan-step").first().locator(".ax-hitl-status-dot")).toHaveAttribute("data-status", "confirmed");
+  await expect(plan.locator(".ax-criteria-item").first()).toHaveAttribute("data-status", "confirmed");
 });

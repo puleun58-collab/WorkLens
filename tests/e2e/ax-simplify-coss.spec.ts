@@ -59,7 +59,7 @@ test("AX 간소화·COSS 통일: 판단 하단 문구 제거·매트릭스 버�
   await expect(page.locator('section[aria-label$="매트릭스 상세"]')).toHaveCount(0);
   await expect(page.getByRole("button", { name: "업무 진단으로 이동" })).toHaveCount(0);
 
-  // C·D. 결과·로드맵: 다음 행동 형식, 로드맵 헤더 버튼 제거(§5.1), 계획 헤더 중복 제거.
+  // C·D. 결과·로드맵: 목록의 다음 행동 형식과 로드맵 헤더, 계획 헤더를 확인한다.
   await page.getByRole("button", { name: "다음 단계" }).click();
   const nextAction = page.locator(".ax-next-action").first();
   await expect(nextAction).toBeVisible();
@@ -96,12 +96,14 @@ test("AX 간소화·COSS 통일: 판단 하단 문구 제거·매트릭스 버�
   await expect(precheck.getByRole("button", { name: "계획 검토" })).toHaveCount(0);
   await expect(precheck.getByRole("button", { name: "업무 정보 수정" })).toHaveCount(0);
 
-  // E. 계획 검토 표는 결과·로드맵 화면 자체에 있다 (버튼 없이 직접 확인).
+  // E. 구현 계획은 업무 흐름 그룹 안의 단계별 검토에서 직접 확인한다.
   await page.getByRole("button", { name: "Codex용 구현 계획 생성" }).click();
-  await expect(page.getByRole("heading", { name: "구현 계획 검토" })).toBeVisible();
-  await expect(page.locator('section[aria-label="구현 계획 검토"]')).toContainText("검토 필요");
-  await page.locator("#ax-plan-review").scrollIntoViewIfNeeded();
-  await expect(page.locator("#ax-plan-review")).toBeInViewport();
+  await expect(page.getByRole("heading", { name: "구현 계획", exact: true })).toBeVisible();
+  const planReview = page.getByRole("region", { name: "구현 계획", exact: true });
+  await expect(planReview).toContainText("검토 필요");
+  await expect(planReview.locator(".ax-plan-group")).toHaveCount(2);
+  await planReview.scrollIntoViewIfNeeded();
+  await expect(planReview).toBeInViewport();
 
   // E. HITL 검토·결정 지점·예시는 업무 진단 단계에서 도달한다.
   await page.getByRole("tab", { name: "업무 진단", exact: true }).click();
