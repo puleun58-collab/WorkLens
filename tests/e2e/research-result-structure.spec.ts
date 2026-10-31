@@ -75,11 +75,12 @@ for (const width of [1440, 390]) {
     const top = output.locator(".research-overview");
     await expect(top.locator("details")).toHaveCount(0);
     await expect(top).not.toContainText(expression);
-    // The top summary keeps the count line but no longer repeats the
-    // article list or its jump button; the detail section below is the
-    // single home for the provision and its delegation wording.
+    // The top summary keeps relation phrases only (no provision count) and
+    // no longer repeats the article list or its jump button; the detail
+    // section below is the single home for the provision and its delegation wording.
     await expect(top.getByRole("button", { name: "근거 보기", exact: true })).toHaveCount(0);
-    await expect(top).toContainText("고유 조문 1건 · 직접 위임 확인됨");
+    await expect(top).toContainText("직접 위임 확인됨");
+    await expect(top).not.toContainText("고유 조문");
     const details = output.getByRole("region", { name: "항목별 법적 근거" });
     await expect(details.locator("details[open]")).toHaveCount(0);
     await details.locator("details summary").first().click();

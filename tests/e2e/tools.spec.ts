@@ -14,7 +14,7 @@ import { navigateWorkspace } from "./navigation";
 const researchTaskLabels: Record<string, string> = {
   full_research: "통합 조사", law_system: "법체계 확인", action_basis: "처분·허가 근거",
   dispute_prep: "분쟁·불복 자료", amendment_track: "개정 추적", ordinance_compare: "조례 비교",
-  procedure_detail: "절차·서식", document_review: "문서 검토",
+  document_review: "문서 검토",
 };
 
 async function chooseOption(page: Page, trigger: Locator, label: string) {
@@ -1164,7 +1164,7 @@ test("law article and precedent detail open analyses with their structured ident
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
-test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route with task-specific inputs", async ({ page }) => {
+test("RESEARCH 종합 리서치 runs all tasks through one fixed route: seven menu tasks plus procedure_detail via a direct API call", async ({ page }) => {
   const bodies: Array<Record<string, unknown>> = [];
   const outside: string[] = [];
   const errors: string[] = [];
@@ -1254,11 +1254,19 @@ test("RESEARCH 종합 리서치 runs all eight tasks through one fixed route wit
   await form.getByLabel("비교 지역 2").fill("서울특별시");
   await form.getByLabel("관련 상위 법령 (선택)").fill("주차장법");
   await form.getByRole("button", { name: "실행" }).click();
-  for (const value of ["action_basis", "procedure_detail"]) {
-    await chooseOption(page, task, researchTaskLabels[value]);
-    await form.getByRole("button", { name: "실행" }).click();
-    await expect(page.locator(`.legal-research .legal-analysis-output[data-task='${value}'] .research-overview h3`)).toBeVisible();
-  }
+  await chooseOption(page, task, researchTaskLabels.action_basis);
+  await form.getByRole("button", { name: "실행" }).click();
+  await expect(page.locator(".legal-research .legal-analysis-output[data-task='action_basis'] .research-overview h3")).toBeVisible();
+  // procedure_detail left the user menu, so its fixed-route request is
+  // covered by a direct in-page API call instead of a menu click (the menu
+  // option is hidden, the internal route is not). Its result rendering
+  // stays covered by the procedure_detail rendering tests below.
+  const procedureResponse = await page.evaluate(async () => {
+    const response = await fetch("/api/law/research", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ task: "procedure_detail", query: "직장 내 괴롭힘 판단 기준" }) });
+    const payload = await response.json().catch(() => null) as { data?: { found?: unknown; task?: unknown } } | null;
+    return { status: response.status, found: payload?.data?.found, task: payload?.data?.task };
+  });
+  expect(procedureResponse).toEqual({ status: 200, found: true, task: "procedure_detail" });
 
   await chooseOption(page, task, researchTaskLabels.document_review);
   await expect(form.getByLabel("질문 또는 검색어")).toHaveCount(0);
@@ -1781,17 +1789,22 @@ test("RESEARCH distinguishes empty, low-relevance and partial evidence without a
   await expect(groups.nth(2)).toContainText("조회를 마치지 못해 확인하지 못했습니다.");
 });
 
-test("RESEARCH every task applies the same result rules while keeping its own structure", async ({ page }) => {
+test("RESEARCH every task applies the same result rules while keeping its own structure (procedure_detail annex rendered from its response)", async ({ page }) => {
+  // procedure_detail left the user menu: its annex structure is rendered
+  // from a procedure_detail-shaped response below (rendering keys on the
+  // response task), while the form itself runs a visible task.
+  let procedureRender = false;
   await page.route("**/api/law/research", (route) => {
     const body = route.request().postDataJSON() as { task: string };
+    const task = procedureRender ? "procedure_detail" : body.task;
     const extra: Record<string, string> = {
       amendment_track: "\n\n▶ Time Travel — 근로기준법 (20211119 ↔ 20251023)\n변경 조문 3건",
       procedure_detail: "\n\n▶ 행정심판법 별표/서식\n별표/서식 목록 (총 2건)\n1. [별지 제30호서식] 행정심판 청구서\n2. [별지 제31호서식] 집행정지신청서",
       law_system: "\n\n▶ 3단 비교 (법률·시행령·시행규칙)\n[법률] 개인정보 보호법 제38조\n[시행령] 제41조\n[시행규칙] 제12조",
     };
     return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: {
-      found: true, task: body.task, text: fullResearchFixture() + (extra[body.task] ?? ""), markers: ["NOT_FOUND"],
-      ...(body.task === "ordinance_compare" ? { comparison: { topic: "q", topics: [], regions: [
+      found: true, task, text: fullResearchFixture() + (extra[task] ?? ""), markers: ["NOT_FOUND"],
+      ...(task === "ordinance_compare" ? { comparison: { topic: "q", topics: [], regions: [
         { region: "인천광역시", status: "none", candidates: 0, articles: [] }, { region: "서울특별시", status: "none", candidates: 0, articles: [] }] } } : {}),
     } }) });
   });
@@ -1803,9 +1816,9 @@ test("RESEARCH every task applies the same result rules while keeping its own st
   await chooseOption(page, form.getByLabel("리서치 유형"), researchTaskLabels.ordinance_compare);
   await form.getByLabel("비교 지역 1").fill("인천광역시");
   await form.getByLabel("비교 지역 2").fill("서울특별시");
-  const tasks = ["full_research", "law_system", "action_basis", "dispute_prep", "amendment_track", "ordinance_compare", "procedure_detail"];
+  const tasks = ["full_research", "law_system", "action_basis", "dispute_prep", "amendment_track", "ordinance_compare"];
   const labels: Record<string, string> = { full_research: "통합 조사", law_system: "법체계 확인", action_basis: "처분·허가 근거", dispute_prep: "분쟁·불복 자료",
-    amendment_track: "개정 추적", ordinance_compare: "조례 비교", procedure_detail: "절차·서식" };
+    amendment_track: "개정 추적", ordinance_compare: "조례 비교" };
   const statuses = new Set<string>();
   for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
     await page.setViewportSize(viewport);
@@ -1848,7 +1861,13 @@ test("RESEARCH every task applies the same result rules while keeping its own st
   await expect(page.locator(".research-hierarchy dt")).toHaveText(["법률", "시행령", "시행규칙"]);
   await chooseOption(page, form.getByLabel("리서치 유형"), researchTaskLabels.ordinance_compare);
   await expect(page.getByRole("region", { name: "조례 대조" })).toBeVisible();
-  await chooseOption(page, form.getByLabel("리서치 유형"), researchTaskLabels.procedure_detail);
+  // The menu no longer offers procedure_detail, so the form runs a visible
+  // task while the mock answers with procedure_detail data (see
+  // procedureRender above): the annex structure renders from the response
+  // task, exactly as a real procedure_detail result would render.
+  procedureRender = true;
+  await chooseOption(page, form.getByLabel("리서치 유형"), researchTaskLabels.full_research);
+  await form.getByRole("button", { name: "실행" }).click();
   await expect(page.locator("[data-kind='annex']")).toContainText("행정심판 청구서");
 });
 
@@ -1875,7 +1894,11 @@ test("RESEARCH procedure_detail shows the server's per-requirement verdict inste
   await page.getByRole("tab", { name: "종합 리서치", exact: true }).click();
   const form = page.getByRole("form", { name: /^(종합 리서치|문서 검토) 입력$/ });
   await form.getByLabel("질문 또는 검색어").fill("행정심판 청구절차와 제출서류");
-  await chooseOption(page, form.getByLabel("리서치 유형"), researchTaskLabels.procedure_detail);
+  // The menu no longer offers procedure_detail, so the form runs a visible
+  // task while the mock answers with a procedure_detail-shaped response:
+  // rendering keys on the response task, so every assertion below still
+  // exercises the procedure_detail rendering path, undiminished.
+  await chooseOption(page, form.getByLabel("리서치 유형"), researchTaskLabels.full_research);
   await form.getByRole("button", { name: "실행" }).click();
   const output = page.locator(".legal-research .legal-analysis-output");
   const overview = output.locator(".research-overview");
@@ -1979,7 +2002,11 @@ test("RESEARCH procedure_detail summary no longer repeats requirement refs", asy
   await page.getByRole("tab", { name: "종합 리서치", exact: true }).click();
   const form = page.getByRole("form", { name: /^(종합 리서치|문서 검토) 입력$/ });
   await form.getByLabel("질문 또는 검색어").fill("행정심판 청구절차와 제출서류");
-  await chooseOption(page, form.getByLabel("리서치 유형"), researchTaskLabels.procedure_detail);
+  // The menu no longer offers procedure_detail, so the form runs a visible
+  // task while the mock answers with a procedure_detail-shaped response:
+  // rendering keys on the response task, so every assertion below still
+  // exercises the procedure_detail rendering path, undiminished.
+  await chooseOption(page, form.getByLabel("리서치 유형"), researchTaskLabels.full_research);
   await form.getByRole("button", { name: "실행" }).click();
   const output = page.locator(".legal-research .legal-analysis-output");
   await expect(output.locator("[data-procedure-requirements]")).toHaveCount(0);

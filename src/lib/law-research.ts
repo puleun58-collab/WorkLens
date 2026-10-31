@@ -25,6 +25,19 @@ export const LAW_RESEARCH_TASKS = [
 
 export type LawResearchTask = (typeof LAW_RESEARCH_TASKS)[number]["value"];
 
+/**
+ * User-facing research menu: every task except procedure_detail, which is
+ * temporarily hidden from the selection list (its server handling, API
+ * contract, stored data and tests stay intact — only the menu hides it).
+ * Internal and test callers keep using LAW_RESEARCH_TASKS / LawResearchTask.
+ */
+export const LAW_RESEARCH_USER_TASKS = LAW_RESEARCH_TASKS.filter((task) => task.value !== "procedure_detail");
+
+/** True when the task may be selected in the user-facing research menu. */
+export function isUserVisibleResearchTask(value: unknown): value is LawResearchTask {
+  return LAW_RESEARCH_USER_TASKS.some((task) => task.value === value);
+}
+
 export const DISPUTE_DOMAINS = [
   { value: "", label: "자동/일반" },
   { value: "tax", label: "조세" },
