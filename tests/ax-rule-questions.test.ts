@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { DECISION_DISPLAY, decisionPanelLabel, deriveUnifiedRules, draftStateNames, hasDerivationSignals, isConfirmationQuestion, unifiedRuleProgress, unifiedSavePayloads, type UnifiedDecisionDraft, type UnifiedGenericDraft, type UnifiedRuleDraft } from "@/lib/ax/rule-questions";
-import { ruleProgress } from "@/lib/ax/generic-rules";
 import { resolveDecisionPoints } from "@/lib/ax/decision-points";
 import { diagnosisFixture } from "./fixtures/ax";
 import type { AxDiagnosis, GenericRule } from "@/lib/ax/types";
@@ -58,8 +57,8 @@ describe("AX 통합 규칙 도출 — 기본 진단(픽스처)", () => {
     expect(human.category).toBe("권한·검토 기준");
   });
 
-  it("픽스처 진단의 완료 현황은 0/4 + 적용 여부 확인 2건이다 (고정 7 분모 아님)", () => {
-    expect(unifiedRuleProgress(deriveUnifiedRules(diagnosis()))).toEqual({ done: 0, total: 4, applicabilityPending: 2 });
+  it("픽스처 진단의 검토 완료율 분모는 표시된 모든 규칙(D 4건 + 범용 후보 2건)이다", () => {
+    expect(unifiedRuleProgress(deriveUnifiedRules(diagnosis()))).toEqual({ done: 0, total: 6, applicabilityPending: 2 });
   });
 });
 
@@ -309,49 +308,40 @@ describe("AX 통합 완료 현황·저장 페이로드", () => {
     applicability: "적용", status: "확정", detail: "빈칸 확인", source: "", step: "",
     linkedDecisionId: "D3", origin: "stored",
   };
+  const d = (id: UnifiedDecisionDraft["id"], status: UnifiedDecisionDraft["status"]): UnifiedDecisionDraft => ({ kind: "decision", id, status, detail: "", origin: "stored" });
+  const g = (id: string, applicability: UnifiedGenericDraft["applicability"], status: UnifiedGenericDraft["status"]): UnifiedGenericDraft =>
+    ({ ...linkedRule, id, linkedDecisionId: undefined, applicability, status });
   it.each([
-    ["확정", 1, 1], ["미확정", 0, 1], ["해당 없음", 0, 0],
-  ] as const)("D3 %s + linked R1은 D 상태 기준 한 번만 집계한다", (status, done, total) => {
-    const decision: UnifiedDecisionDraft = { kind: "decision", id: "D3", status, detail: "", origin: "stored" };
-    expect(unifiedRuleProgress([decision, linkedRule])).toEqual({ done, total, applicabilityPending: 0 });
-    expect(unifiedRuleProgress([linkedRule, decision, { ...linkedRule, id: "R2" }]))
-      .toEqual({ done, total, applicabilityPending: 0 });
+    ["모두 미확정", [d("D1", "미확정"), d("D2", "미확정"), g("R1", "적용 여부 미확정", "미확정"), g("R2", "적용", "미확정")], 0, 4],
+    ["확정·미적용 결정은 완료", [d("D1", "확정"), d("D2", "해당 없음"), g("R1", "적용", "확정"), g("R2", "해당 없음", "미확정")], 4, 4],
+    ["적용 여부 선택 전·적용+미확정은 미완료", [d("D1", "확정"), g("R1", "적용 여부 미확정", "확정"), g("R2", "적용", "미확정")], 1, 3],
+  ] as const)("검토 완료율: %s", (_case, items, done, total) => {
+    expect(unifiedRuleProgress(items)).toMatchObject({ done, total });
   });
-  it.each(["적용", "적용 여부 미확정", "해당 없음"] as const)("연결된 범용 %s 상태가 D의 집계를 중복하거나 덮어쓰지 않는다", applicability => {
-    const decision: UnifiedDecisionDraft = { kind: "decision", id: "D3", status: "미확정", detail: "", origin: "stored" };
-    expect(unifiedRuleProgress([decision, { ...linkedRule, applicability }]))
-      .toEqual({ done: 0, total: 1, applicabilityPending: 0 });
+  it("11건 중 5건 확정 + 3건 미적용 → 8/11, 신규 1건 추가 → 8/12, 미적용을 적용으로 되돌리면 확정 여부에 따라 재계산", () => {
+    const items: UnifiedRuleDraft[] = [
+      ...(["D1", "D2", "D3", "D4", "D5"] as const).map(id => d(id, "확정")),
+      ...["R1", "R2", "R3"].map(id => g(id, "해당 없음", "미확정")),
+      ...["R4", "R5", "R6"].map(id => g(id, "적용 여부 미확정", "미확정")),
+    ];
+    expect(unifiedRuleProgress(items)).toMatchObject({ done: 8, total: 11 });
+    expect(unifiedRuleProgress([...items, g("R7", "적용 여부 미확정", "미확정")])).toMatchObject({ done: 8, total: 12 });
+    const reapplied = items.map(item => item.kind === "generic" && item.id === "R1" ? { ...item, applicability: "적용" as const } : item);
+    expect(unifiedRuleProgress(reapplied)).toMatchObject({ done: 7, total: 11 });
+    const done = items.map(item => item.kind === "generic" ? { ...item, applicability: "적용" as const, status: "확정" as const } : item);
+    expect(unifiedRuleProgress(done)).toMatchObject({ done: 11, total: 11 });
   });
-  it.each(["D3", undefined] as const)("고아 연결(%s) 또는 연결 없는 범용 규칙은 기존대로 집계한다", linkedDecisionId => {
-    expect(unifiedRuleProgress([
-      { ...linkedRule, linkedDecisionId },
-      { ...linkedRule, id: "R2", linkedDecisionId, status: "미확정" },
-      { ...linkedRule, id: "R3", linkedDecisionId, applicability: "적용 여부 미확정" },
-      { ...linkedRule, id: "R4", linkedDecisionId, applicability: "해당 없음" },
-    ])).toEqual({ done: 1, total: 2, applicabilityPending: 1 });
+  it("연결된 D와 범용 규칙은 별도 카드이므로 각각 집계한다", () => {
+    expect(unifiedRuleProgress([d("D3", "확정"), linkedRule])).toMatchObject({ done: 2, total: 2 });
+    expect(unifiedRuleProgress([d("D3", "미확정"), { ...linkedRule, applicability: "적용 여부 미확정" }])).toMatchObject({ done: 0, total: 2 });
   });
-
-  it("완료 현황은 저장 전용 값 기준 ruleProgress와 동일한 규칙을 따른다 (해당 없음 제외, 적용 여부 미확정 별도)", () => {
-    const items = deriveUnifiedRules(diagnosis({
-      decisionPoints: [
-        { id: "D3", status: "확정", detail: "빈칸은 확인 필요" },
-        { id: "D4", status: "해당 없음" },
-      ],
-    }), [{
-      id: "R1", name: "확정 규칙", category: "처리·판단 기준", applicability: "적용", status: "확정",
-    }]);
-    expect(unifiedRuleProgress(items)).toEqual({ done: 2, total: 4, applicabilityPending: 2 });
-    // 같은 행 집합을 ruleProgress에 넣으면 같은 결과가 나온다 (고정 7행 resolve와는 다르다 —
-    // 고정 7행은 도출되지 않은 D1·D2·D7까지 미확정 분모로 세기 때문이다).
-    const points = items.filter(item => item.kind === "decision").map(item => ({
-      id: item.id, title: "", question: "", status: item.status,
-      ...(item.detail ? { detail: item.detail } : {}),
-    }));
-    const rules = items.filter(item => item.kind === "generic").map(item => ({
-      id: item.id ?? "R?", name: item.name, category: item.category,
-      applicability: item.applicability, status: item.status,
-    }));
-    expect(ruleProgress(points, rules)).toEqual({ done: 2, total: 4, applicabilityPending: 2 });
+  it("저장 후 다시 도출해도 같은 완료율이다 (미터치 후보는 재도출되어 한 번만 집계)", () => {
+    const derived = deriveUnifiedRules(diagnosis({ decisionPoints: [{ id: "D3", status: "확정", detail: "빈칸은 확인 필요" }, { id: "D4", status: "해당 없음" }] }),
+      [{ id: "R1", name: "확정 규칙", category: "처리·판단 기준", applicability: "적용", status: "확정" }]);
+    const { points, rules } = unifiedSavePayloads(derived, []);
+    const restored = deriveUnifiedRules(diagnosis({ decisionPoints: points }), rules);
+    expect(unifiedRuleProgress(restored)).toEqual(unifiedRuleProgress(derived));
+    expect(unifiedRuleProgress(derived)).toMatchObject({ done: 3, total: derived.length });
   });
 
   it("저장 페이로드: 빈 미확정 D 후보는 빠지고, 미터치 범용 후보는 저장되지 않으며, 터치 후보는 id를 받는다", () => {
