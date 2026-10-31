@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { DECISION_DISPLAY, decisionPanelLabel } from "@/components/ax/AxDecisionExamples";
+import { DECISION_DISPLAY, decisionPanelLabel } from "@/lib/ax/rule-questions";
 import { DECISION_POINT_DEFS, confirmedStateNames, resolveDecisionPoints } from "@/lib/ax/decision-points";
 import { buildAllInOnePrompt } from "@/lib/ax/guide";
 import { diagnosisFixture, planFixture } from "./fixtures/ax";

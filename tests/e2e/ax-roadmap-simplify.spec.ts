@@ -57,8 +57,9 @@ test("AX roadmap simplify: KPI 2개 · 통합 목록 · 제거 영역 부재 · 
   // ① 요약 배지만 표시되고, ② 범위·기준 요약이 보인다.
   const pre = plan.getByRole("region", { name: "구현 전 확인", exact: true });
   await expect(pre).toBeVisible();
-  // 요약 전용: ① 영역에는 이동 버튼이 없다.
-  await expect(pre.getByRole("button")).toHaveCount(0);
+  // ① 헤더는 펼침 토글 버튼 1개만 있고, 항목별 이동 버튼은 없다.
+  await expect(pre.getByRole("button")).toHaveCount(1);
+  await expect(pre.getByRole("button", { name: /구현 전 확인/ })).toBeVisible();
   const summary = plan.getByRole("region", { name: "구현 범위·완료 기준", exact: true });
   await expect(summary).toBeVisible();
   await expect(summary.locator('[data-scope-group="criteria"]')).toBeVisible();
@@ -82,7 +83,7 @@ test("AX roadmap simplify: 필수 확인 0건이면 짧은 안내만 표시", as
   const task = taskFixture("simplify-empty", diagnosis);
   const plan = await openStep4(page, [task], task.id);
   const pre = plan.getByRole("region", { name: "구현 전 확인", exact: true });
-  await expect(pre).toContainText("현재 필수 확인 사항 없음");
+  await expect(pre).toContainText("필수 확인사항 없음");
   await expect(pre.getByText("시스템 접근", { exact: true })).toHaveCount(0);
 });
 
@@ -115,7 +116,8 @@ test("AX roadmap simplify: ①은 요약 배지만 표시하고 업무 전환 �
   await expect(pre).not.toContainText("B 전용 확인");
   await expect(pre).not.toContainText("A 전용 확인");
   await expect(pre.locator(".ax-precheck-head")).toContainText(/미해결 \d+건/);
-  await expect(pre.getByRole("button")).toHaveCount(0);
+  await expect(pre.getByRole("button")).toHaveCount(1);
+  await expect(pre.getByRole("button", { name: /구현 전 확인/ })).toBeVisible();
   // A→B→A 전환: 다시 A로 돌아가도 A의 요약만 표시되고 B 상태가 섞이지 않는다.
   await list.getByRole("listitem").filter({ hasText: taskA.name }).getByRole("button").click();
   await expect(page.locator(".ax-report-intro h2")).toHaveText(taskA.name);

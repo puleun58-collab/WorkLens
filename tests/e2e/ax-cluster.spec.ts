@@ -75,8 +75,8 @@ test("One diagnosed task renders a small gate dot with accessible priority and r
   await expect(marker).toHaveText("");
   await expect(marker.locator(".ax-bubble-dot")).toBeVisible();
   await expect(marker.locator(".ax-bubble-dot")).toHaveAttribute("data-gate", "conditional");
-  await expect(marker).toHaveAttribute("aria-label", new RegExp(`^${task.name} · 빠른 실행 후보 · 우선순위 1 · `));
-  await expect(marker).toHaveAttribute("title", new RegExp(`^${task.name} · 빠른 실행 후보 · 우선순위 1 · `));
+  await expect(marker).toHaveAttribute("aria-label", new RegExp(`^${task.name} · 가치·실현 높음 · 우선순위 1 · `));
+  await expect(marker).toHaveAttribute("title", new RegExp(`^${task.name} · 가치·실현 높음 · 우선순위 1 · `));
   await expect(marker).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator(".ax-matrix-detail")).toHaveCount(0);
   await page.reload();
@@ -144,11 +144,13 @@ test("Case B: two equal renderer coordinates form one cluster beside one single"
   await expect(groupRows(page)).toHaveCount(1);
   await expect(groupRows(page).locator(".ax-task-name")).toHaveText(second.name);
   // Raw factors, region and execution gate differ; final x/y still match.
-  // 우측 목록에서 각 업무의 Level·Gate 점은 개별 판정 그대로 표시된다.
+  // 우측 목록에서 각 업무의 가치·실현 점수와 Gate 점은 개별 판정 그대로 표시된다 (목록 Level 제거).
   const firstRow = taskList(page).getByRole("listitem").filter({ hasText: first.name });
   const secondRow = taskList(page).getByRole("listitem").filter({ hasText: second.name });
-  await expect(firstRow).toContainText("고도 자동화 (Level 3)");
-  await expect(secondRow).toContainText("부분 자동화 (Level 2)");
+  await expect(firstRow).toContainText("가치 4 · 실현 4");
+  await expect(secondRow).toContainText("가치 4 · 실현 4");
+  await expect(firstRow).not.toContainText("Level");
+  await expect(secondRow).not.toContainText("Level");
   for (const row of [firstRow, secondRow]) {
     await expect(row.locator(".ax-gate-dot")).toHaveAttribute("data-gate", "conditional");
   }

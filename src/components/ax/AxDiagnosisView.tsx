@@ -14,7 +14,7 @@ import { useAxState } from "@/client/use-ax-state";
 import { runInWorker } from "@/client/document-client";
 import { diagnoseAx, planAx, interruptServerAi, aiFailureDetail } from "@/client/server-ai-client";
 import { AX_LIMITS, FACTOR_LABELS, axTaskV2Schema, confirmedAxDiagnosis } from "@/lib/ax/schema";
-import { axes, automationLevel, diagnosisCounts, diagnosisStatusItems, executionGate, executionProfile, GATE_LABELS, levelDisplayLabel, planAllowed, factorEffectiveValue, factorHasAdjustment, factorScale, matrixPosition, nextAction, priority, taskStatus, taskDisplayStatus } from "@/lib/ax/policy";
+import { axes, automationLevel, diagnosisCounts, diagnosisStatusItems, executionGate, executionProfile, GATE_LABELS, planAllowed, factorEffectiveValue, factorHasAdjustment, factorScale, matrixPosition, nextAction, priority, taskStatus, taskDisplayStatus } from "@/lib/ax/policy";
 import { candidateTask, taskDetails, followUpDescription, legacyDetailValues, validateAttachmentPreflight, isRegistrationUnchanged } from "@/lib/ax/registration";
 import { MAX_TASK_ATTACHMENTS, attachmentPatch, buildAttachmentSummary, combineAttachmentSummaries, taskAttachments } from "@/lib/ax/attachments";
 import type { AxAttachmentMeta } from "@/lib/ax/types";
@@ -22,9 +22,8 @@ import type { AxToolId } from "@/lib/ax/guide";
 import { exportAxState, importAxState } from "@/lib/ax/transfer";
 import { emptyAxState, type AxStateV2, type AxTask, type AxDiagnosis, type AxDetails, type FactorKey } from "@/lib/ax/types";
 import { extractReviewableItems, extractPlanReviewableItems, reconcileReviews, validateReviewForConfirm } from "@/lib/ax/hitl";
-import { AxLevelBadge, AxProcess, AxPlanSection, AxScoreCards, AxCheckIcon, diagnosisSummaryParts, diagnosisCheckItems, visibleDiagnosisCheckItems, resolveActiveTool, concreteNextAction, formatUnifiedNextAction } from "./AxReport";
-import { DecisionPointsSection } from "./AxDecisionExamples";
-import { GenericRulesSection } from "./AxGenericRules";
+import { AxLevelBadge, AxProcess, AxPlanSection, AxCheckIcon, diagnosisSummaryParts, diagnosisCheckItems, visibleDiagnosisCheckItems, resolveActiveTool, concreteNextAction, formatUnifiedNextAction } from "./AxReport";
+import { UnifiedRulesSection } from "./AxUnifiedRules";
 import "./ax.css";
 
 const STEPS = ["업무 등록", "업무 진단", "자동화 매트릭스", "결과·로드맵"];
@@ -254,27 +253,21 @@ export function AxDiagnosisView() {
     // applied=true: 로컬 반영 완료 (IndexedDB 영구 저장은 비동기로 진행됨)
     return { saved: true };
   }
-  /** 1차 MVP 개선 — 결정 지점 저장: 진단 원문은 그대로 두고 decisionPoints만 갱신한다.
-   * 계획은 지시문 렌더링과 무관하게 유지된다 (결정 지점은 지시문 출력에만 반영). */
-  function saveDecisionPoints(taskId: string, points: import("@/lib/ax/types").DecisionPoint[]) {
+  /** 업무 규칙 확인 통합 저장: 진단 원문은 그대로 두고 decisionPoints와 genericRules를
+   * 한 번의 저장 동작으로 갱신한다 (두 반영이 같은 렌더링에 적용된다). */
+  function saveUnifiedRules(taskId: string, points: import("@/lib/ax/types").DecisionPoint[], rules: import("@/lib/ax/types").GenericRule[]) {
     const now = new Date().toISOString();
     update(current => ({
       ...current,
-      tasks: current.tasks.map(t => t.id === taskId && t.diagnosis
-        ? { ...t, diagnosis: { ...t.diagnosis, decisionPoints: points }, updatedAt: now } : t),
+      tasks: current.tasks.map(t => {
+        if (t.id !== taskId) return t;
+        const withDecision = t.diagnosis
+          ? { ...t, diagnosis: { ...t.diagnosis, decisionPoints: points }, updatedAt: now }
+          : t;
+        return { ...withDecision, genericRules: rules, updatedAt: now } as import("@/lib/ax/types").AxTaskV2;
+      }),
     }));
-    setMessage("결정 지점을 저장했습니다.");
-  }
-  /** 범용 업무 규칙 저장: reviews와 같은 IndexedDB 레코드·저장 경로로,
-   * 업무 단위 genericRules 필드에 사용자가 확정한 값만 저장한다. */
-  function saveGenericRules(taskId: string, rules: import("@/lib/ax/types").GenericRule[]) {
-    const now = new Date().toISOString();
-    update(current => ({
-      ...current,
-      tasks: current.tasks.map(t => t.id === taskId
-        ? { ...t, genericRules: rules, updatedAt: now } as import("@/lib/ax/types").AxTaskV2 : t),
-    }));
-    setMessage("범용 업무 규칙을 저장했습니다.");
+    setMessage("업무 규칙을 저장했습니다.");
   }
   /** 검증 결과 라운드 저장: reviews·genericRules와 같은 저장 경로로, 업무 단위
    * verificationResults 목록에 추가한다. 기존 라운드를 보존하고 스키마 상한
@@ -687,12 +680,13 @@ export function AxDiagnosisView() {
   const nextStepDisabled = state.step === 1 ? state.tasks.length === 0 : diagnosedCount === 0;
   function taskRows(showActions: boolean) {
     const rows = state.step === 3 ? ranked : state.tasks.map(task => ({ task, rank: undefined }));
-    return <ul className={`ax-task-rows${state.step === 3 ? " ax-matrix-list" : ""}${state.step === 2 ? " ax-task-cards" : ""}`}>{rows.map(({ task, rank }) => {
-      const l = task.diagnosis ? automationLevel(task.diagnosis) : null;
+    return <ul className={`ax-task-rows${state.step === 3 ? " ax-matrix-list" : ""}`}>{rows.map(({ task, rank }) => {
       const a = task.diagnosis ? axes(task.diagnosis) : null;
       const display = taskDisplayStatus(task);
       const statusText = `${STATUS[display.status]}${display.needsCheck ? " · 추가 질문 필요" : ""}`;
-      const meta = state.step === 3 && a ? `가치 ${a.value} · 실현 ${a.feasibility}` : l ? `${statusText} · ${levelDisplayLabel(l)}` : statusText;
+      // 업무 목록에는 Level 문구를 표시하지 않는다 (진단 상태만). Level·Gate 상세는
+      // 선택 업무 상세 헤더에서 확인한다. 매트릭스 단계(step 3) 행은 점수만 표시한다.
+      const meta = state.step === 3 && a ? `가치 ${a.value} · 실현 ${a.feasibility}` : statusText;
       return <li key={task.id} className={selected?.id === task.id ? "is-selected" : undefined}><Button type="button" variant="ghost" className="ax-task-row-btn" aria-pressed={selected?.id === task.id} onClick={() => select(task.id)} disabled={!!busy}>
         <span className={`ax-dot ax-dot-${task.status}`} aria-hidden="true" /><span className="ax-task-name">{rank ? `${rank}. ` : ""}{task.name}</span><span className="ax-task-meta">{meta}</span>
       </Button>{showActions && state.step === 1 ? <span className="ax-task-actions">
@@ -701,9 +695,10 @@ export function AxDiagnosisView() {
       </span> : null}</li>;
     })}</ul>;
   }
-  /** Step 3 우측 업무 목록(레퍼런스 규격): 순번·업무명·가치/실현 점수·Level·작은 Gate 상태 점·꺾쇠.
-   * 반복 Gate 배지·정보 확인 필요 배지·긴 근거는 표시하지 않는다. Gate 문구는 점의
-   * aria-label로, 정보 확인 필요 여부는 상단 집계 바로가기와 업무 진단 단계에서 확인한다.
+  /** Step 3 우측 업무 목록(레퍼런스 규격): 순번·업무명·가치/실현 점수·작은 Gate 상태 점·꺾쇠.
+   * Level 문구는 표시하지 않는다 (Gate 점·선택 상세 헤더와 구분). 반복 Gate 배지·정보 확인 필요
+   * 배지·긴 근거는 표시하지 않는다. Gate 문구는 점의 aria-label로, 정보 확인 필요 여부는
+   * 상단 집계 바로가기와 업무 진단 단계에서 확인한다.
    * 동일 좌표 그룹: 선택된 업무가 속한 그룹의 다른 업무 행은 is-group으로만 강조한다.
    * 그룹 전체를 한 Gate로 판정하지 않으며, 각 행의 Gate 점은 개별 판정 그대로 둔다. */
   function matrixTaskRows() {
@@ -711,13 +706,12 @@ export function AxDiagnosisView() {
     return <ul className="ax-task-rows ax-matrix-list">{matrixListed.map(({ task, rank }) => {
       const a = axes(task.diagnosis);
       const gate = executionGate(task.diagnosis);
-      const level = automationLevel(task.diagnosis);
       const active = selected?.id === task.id;
       const inSelectedGroup = !!selectedGroup && !active && selectedGroup.rows.some(({ task: member }) => member.id === task.id);
       return <li key={task.id} className={active ? "is-selected" : inSelectedGroup ? "is-group" : undefined} data-same-coord={inSelectedGroup || undefined}>
         <Button type="button" variant="ghost" className="ax-task-row-btn ax-matrix-row-btn" aria-pressed={active} title={inSelectedGroup ? "선택한 업무와 같은 좌표의 업무" : undefined} onClick={() => select(task.id)} disabled={!!busy}>
           <span className="ax-matrix-rank">{rank}</span>
-          <span className="ax-matrix-row-main"><span className="ax-task-name" title={task.name}>{task.name}</span><span className="ax-task-meta">{showScores ? `가치 ${a.value} · 실현 ${a.feasibility} · ` : ""}{levelDisplayLabel(level)}{level.provisional ? " · 잠정" : ""}</span></span>
+          <span className="ax-matrix-row-main"><span className="ax-task-name" title={task.name}>{task.name}</span>{showScores ? <span className="ax-task-meta">가치 {a.value} · 실현 {a.feasibility}</span> : null}</span>
           <span className="ax-gate-dot" data-gate={gate} role="img" aria-label={GATE_LABELS[gate]} />
           <ChevronRight size={16} aria-hidden="true" className="ax-matrix-row-chevron" />
         </Button>
@@ -726,14 +720,13 @@ export function AxDiagnosisView() {
   }
   /** 결과·로드맵 업무 목록: '확인 후 진행 업무'와 '전체 업무 보기'를 하나의 목록으로 통합한다.
    * 실행 상태별 정렬(displayed)과 우선순위 번호(rank)는 기존 그대로 유지하고, 각 행은
-   * 업무명·Level·다음 행동만 표시한다. 반복 Gate 배지는 제거하고, Gate는 선택 업무 상세에서
-   * 1회만 표시한다. 동일 업무가 두 목록에 중복 등장하지 않는다. */
+   * 업무명·다음 행동만 표시한다. Level 문구·배지와 반복 Gate 배지는 제거하고, Gate·Level은
+   * 선택 업무 상세에서 1회만 표시한다. 동일 업무가 두 목록에 중복 등장하지 않는다. */
   function unifiedTaskRows() {
     return <>{displayed.some((row, index) => row.rank !== index + 1) ? <p className="ax-muted ax-priority-order">번호는 우선순위 점수 기준이며, 실행 상태별로 표시합니다.</p> : null}<ol className="ax-priority-list" aria-label="업무 목록">{displayed.map(r => {
-      const l = automationLevel(r.task.diagnosis);
       return <li key={r.task.id}><Button type="button" variant="ghost" className="ax-priority-row" aria-pressed={selected?.id === r.task.id} onClick={() => select(r.task.id)} disabled={!!busy}>
         <strong className="ax-rank">#{r.rank}</strong><span className="ax-priority-content"><span className="ax-priority-head"><span className="ax-task-name">{r.task.name}</span></span>
-        <span>{levelDisplayLabel(l)}{l.provisional ? " · 잠정" : ""}</span><small className="ax-next-action"><span>다음 행동</span>{formatUnifiedNextAction(concreteNextAction(r.task.diagnosis))}</small></span>
+        <small className="ax-next-action"><span>다음 행동</span>{formatUnifiedNextAction(concreteNextAction(r.task.diagnosis))}</small></span>
       </Button></li>;
     })}</ol></>;
   }
@@ -815,18 +808,12 @@ export function AxDiagnosisView() {
                   onSaveReview: (r) => saveHitlReview(selected.id, r),
                 }}
               />
-              <DecisionPointsSection
-                key={`decision-${selected.id}`}
+              <UnifiedRulesSection
+                key={`unified-rules-${selected.id}`}
                 diagnosis={selected.diagnosis}
                 genericRules={(selected as import("@/lib/ax/types").AxTaskV2).genericRules}
                 disabled={!!busy}
-                onSave={points => saveDecisionPoints(selected.id, points)}
-              />
-              <GenericRulesSection
-                key={`generic-rules-${selected.id}`}
-                rules={(selected as import("@/lib/ax/types").AxTaskV2).genericRules}
-                disabled={!!busy}
-                onSave={rules => saveGenericRules(selected.id, rules)}
+                onSave={(points, rules) => saveUnifiedRules(selected.id, points, rules)}
               />
             </> : null}
           </> : null}</div>
@@ -950,16 +937,9 @@ function DiagnosisCard({ task, busy, onDiagnose, onEdit, attachment }: {
         <Button type="button" variant="outline" onClick={onEdit} disabled={!!busy}>등록 정보 수정</Button>
       </div>
     </div>
-    <p className="ax-diag-desc">{task.description}</p>
     {attachment}
     {d ? <>
-      {d.asIs.inputs.length || d.asIs.outputs.length || d.asIs.systems.length ? <dl className="ax-diag-overview">
-        {d.asIs.inputs.length ? <div className="ax-diag-overview-row"><dt>입력 데이터</dt><dd>{d.asIs.inputs.join(" · ")}</dd></div> : null}
-        {d.asIs.outputs.length ? <div className="ax-diag-overview-row"><dt>출력 결과</dt><dd>{d.asIs.outputs.join(" · ")}</dd></div> : null}
-        {d.asIs.systems.length ? <div className="ax-diag-overview-row"><dt>사용 시스템</dt><dd>{d.asIs.systems.join(" · ")}</dd></div> : null}
-      </dl> : null}
       <div className="ax-diag-summary">
-        <span className="ax-diag-summary-icon" aria-hidden="true"><FileText size={20} /></span>
         <div className="ax-diag-summary-body">
           <div className="ax-diag-summary-head"><h3>진단 결과 요약</h3>{d.informationSufficiency !== "needs-check" ? <Badge variant={d.informationSufficiency === "sufficient" ? "success" : "warning"}>{SUFFICIENCY[d.informationSufficiency]}</Badge> : null}</div>
           <dl className="ax-summary-rows">
@@ -970,10 +950,9 @@ function DiagnosisCard({ task, busy, onDiagnose, onEdit, attachment }: {
             <div className="ax-summary-row"><dt>확인 필요</dt><dd>{summary?.check ?? "없음"}</dd></div>
             <div className="ax-summary-row"><dt>다음 행동</dt><dd>{action?.target ? <Button type="button" variant="outline" size="sm" onClick={() => scrollToSummaryTarget(action.target!)}>{action.label}</Button> : <strong>{action?.label ?? nextAction(d).label}</strong>}</dd></div>
           </dl>
-          <p className="ax-muted ax-diag-source">{d.sourceNote}</p>
+          {d.sourceNote ? <p className="ax-muted ax-diag-source">{d.sourceNote}</p> : null}
         </div>
       </div>
-      <AxScoreCards diagnosis={d} />
       {visibleChecks.length || !checks.length ? <section className="ax-diag-checks" aria-label="확인할 사항">
         <h3>확인할 사항 {visibleChecks.length}개{(() => { const needCount = visibleChecks.filter(c => c.kind === "need").length; return needCount && needCount !== visibleChecks.length ? ` · 그중 확인 필요 ${needCount}개` : ""; })()}</h3>
         {visibleChecks.length ? <ul>{visibleChecks.map((c, i) => <li key={i}>
@@ -1027,12 +1006,16 @@ function AxKpiCards({ tasks, needsCheckTasks, onGoNeedsCheck, needsCheckDisabled
  * 같은 좌표의 나머지 업무는 우측 목록의 is-group 강조로 식별한다 (하단 표 없음).
  * 그룹 마커 자체에는 단일 Gate 색상을 쓰지 않는다 (혼합 그룹 오인 방지).
  * 좌표·지역·Gate 판정은 정책 함수 그대로이며, 표시만 바꾼다. */
+/** 사분면 화면 제목은 좌표 영역만 설명한다 (점수 중심 명칭). Level·Gate·정책상
+ * 지역 분류(region 키·policy.ts REGION_LABELS)는 별도 데이터로 유지하며, 이
+ * 표시 명칭이 정책 판정을 바꾸지 않는다. 마커 접근성 이름도 같은 명칭을 쓴다. */
+const QUADRANT_LABELS = { quick: "가치·실현 높음", strategic: "가치 높음·실현 낮음", maybe: "가치 낮음·실현 높음", hold: "가치·실현 낮음" } as const;
 function AxMatrix({ rows, selectedId, onSelect }: {
   rows: RankedTask[]; selectedId?: string; onSelect: (id: string) => void;
 }) {
   const groups = groupMatrixRows(rows);
   return <div className="ax-matrix-desktop"><div className="ax-matrix" aria-label="자동화 매트릭스 산점도">
-    <div className="ax-region ax-region-strategic" data-region="strategic">전략 과제<span className="ax-region-sub">가치 높음 · 실현 낮음</span><span className="ax-region-sub">(검토 후 추진)</span></div><div className="ax-region ax-region-quick" data-region="quick">빠른 실행 후보<span className="ax-region-sub">가치 높음 · 실현 높음</span><span className="ax-region-sub">(우선 추진)</span></div><div className="ax-region ax-region-hold" data-region="hold">수동 유지·보류<span className="ax-region-sub">가치 낮음 · 실현 낮음</span><span className="ax-region-sub">(보류 또는 제외)</span></div><div className="ax-region ax-region-maybe" data-region="maybe">검토 후보<span className="ax-region-sub">가치 낮음 · 실현 높음</span><span className="ax-region-sub">(부분 자동화 검토)</span></div>
+    <div className="ax-region ax-region-strategic" data-region="strategic">가치 높음·실현 낮음</div><div className="ax-region ax-region-quick" data-region="quick">가치·실현 높음</div><div className="ax-region ax-region-hold" data-region="hold">가치·실현 낮음</div><div className="ax-region ax-region-maybe" data-region="maybe">가치 낮음·실현 높음</div>
     {[1, 2, 3, 4, 5].map(v => <span key={v} className="ax-y-tick" style={{ bottom: `${(v - 1) / 4 * 100}%` }}>{v === 1 ? "" : v}</span>)}
     {[1, 2, 3, 4, 5].map(v => <span key={v} className={`ax-x-tick${v === 1 ? " is-origin" : ""}`} style={v === 1 ? undefined : { left: `${(v - 1) / 4 * 100}%` }}>{v}</span>)}
     {groups.map(group => {
@@ -1040,7 +1023,7 @@ function AxMatrix({ rows, selectedId, onSelect }: {
       if (group.rows.length === 1) {
         const { task, rank } = group.rows[0];
         const gate = executionGate(task.diagnosis);
-        return <button type="button" key={task.id} className="ax-bubble" style={{ left: `${m.x}%`, bottom: `${m.y}%`, zIndex: selectedId === task.id ? 3 : 2 }} data-gate={gate} aria-label={`${task.name} · ${m.label} · 우선순위 ${rank} · ${GATE_LABELS[gate]}`} aria-pressed={selectedId === task.id} title={`${task.name} · ${m.label} · 우선순위 ${rank} · ${GATE_LABELS[gate]}`} onClick={() => onSelect(task.id)}><span className="ax-bubble-dot" data-gate={gate} aria-hidden="true" /></button>;
+        return <button type="button" key={task.id} className="ax-bubble" style={{ left: `${m.x}%`, bottom: `${m.y}%`, zIndex: selectedId === task.id ? 3 : 2 }} data-gate={gate} aria-label={`${task.name} · ${QUADRANT_LABELS[m.region as keyof typeof QUADRANT_LABELS]} · 우선순위 ${rank} · ${GATE_LABELS[gate]}`} aria-pressed={selectedId === task.id} title={`${task.name} · ${QUADRANT_LABELS[m.region as keyof typeof QUADRANT_LABELS]} · 우선순위 ${rank} · ${GATE_LABELS[gate]}`} onClick={() => onSelect(task.id)}><span className="ax-bubble-dot" data-gate={gate} aria-hidden="true" /></button>;
       }
       const members = [...group.rows].sort((a, b) => a.rank - b.rank);
       const selected = members.some(({ task }) => task.id === selectedId);

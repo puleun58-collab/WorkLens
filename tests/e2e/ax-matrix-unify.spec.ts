@@ -51,16 +51,11 @@ test("Matrix header, legend and region subtitles match the reference", async ({ 
   const legend = header.locator(".ax-matrix-legend");
   await expect(legend.locator(".ax-legend-item")).toHaveText(["진행 가능", "확인 후 진행", "진행 보류"]);
   await expect(header.locator(".ax-matrix-counts")).toContainText("진단 완료 2/2");
-  // 4분면 지역명 + 부제.
-  await expect(page.locator('.ax-region[data-region="strategic"]')).toContainText("전략 과제");
-  await expect(page.locator('.ax-region[data-region="strategic"]')).toContainText("가치 높음 · 실현 낮음");
-  await expect(page.locator('.ax-region[data-region="strategic"]')).toContainText("(검토 후 추진)");
-  await expect(page.locator('.ax-region[data-region="quick"]')).toContainText("빠른 실행 후보");
-  await expect(page.locator('.ax-region[data-region="quick"]')).toContainText("(우선 추진)");
-  await expect(page.locator('.ax-region[data-region="hold"]')).toContainText("수동 유지·보류");
-  await expect(page.locator('.ax-region[data-region="hold"]')).toContainText("(보류 또는 제외)");
-  await expect(page.locator('.ax-region[data-region="maybe"]')).toContainText("검토 후보");
-  await expect(page.locator('.ax-region[data-region="maybe"]')).toContainText("(부분 자동화 검토)");
+  // 4분면 지역명: 점수 중심 명칭 (판정·추진 문구 제거).
+  await expect(page.locator('.ax-region[data-region="strategic"]')).toHaveText("가치 높음·실현 낮음");
+  await expect(page.locator('.ax-region[data-region="quick"]')).toHaveText("가치·실현 높음");
+  await expect(page.locator('.ax-region[data-region="hold"]')).toHaveText("가치·실현 낮음");
+  await expect(page.locator('.ax-region[data-region="maybe"]')).toHaveText("가치 낮음·실현 높음");
 });
 
 test("Desktop layout puts the graph left of the list; mobile stacks graph above list", async ({ page }) => {
@@ -105,7 +100,7 @@ test("Single markers are uniform gate-coloured dots with legend colours", async 
   await expect(markers.nth(0)).toHaveAttribute("aria-pressed", "false");
 });
 
-test("Diagnosis left list cards share one box spec and keep size on selection", async ({ page }) => {
+test("Diagnosis left list rows share one divider spec and keep size on selection", async ({ page }) => {
   const tasks = [
     taskFixture("c-reg"),
     make("c-need", "업무 B", { repetition: 3, regularity: 3, dataStructure: 3, systemAccess: 1, humanJudgment: 2, operationalRisk: 2 }, "conditional", true),
@@ -115,8 +110,10 @@ test("Diagnosis left list cards share one box spec and keep size on selection", 
   const list = page.getByLabel("등록 업무 목록", { exact: true });
   const rows = list.getByRole("listitem");
   await expect(rows).toHaveCount(3);
-  // 2줄 구조: 1줄 상태 점+업무명, 2줄 진단 상태·Level (지시문 §7 예시 문구).
-  await expect(rows.filter({ hasText: "업무 B" })).toContainText("정보 확인 필요 · AI 보조 (Level 1)");
+  // 구분선형 행: 상태 점+업무명+진단 상태만 표시하고 Level은 표시하지 않는다 (진단 간소화).
+  const rowB = rows.filter({ hasText: "업무 B" });
+  await expect(rowB).toContainText("정보 확인 필요");
+  await expect(rowB).not.toContainText("Level");
   const boxOf = (index: number) => rows.nth(index).evaluate(element => {
     const style = getComputedStyle(element);
     const box = element.getBoundingClientRect();
@@ -134,7 +131,7 @@ test("Diagnosis left list cards share one box spec and keep size on selection", 
   expect(new Set(before.map(box => box.dotX)).size).toBe(1);
   expect(new Set(before.map(box => box.nameX)).size).toBe(1);
   for (const box of before) expect(Math.abs(box.dotMid - box.nameMid)).toBeLessThanOrEqual(4);
-  // 선택해도 크기가 변하지 않고 배경·테두리 색으로만 구분된다.
+  // 선택해도 크기가 변하지 않고 배경 색으로만 구분된다 (구분선형 행: 테두리 색은 변하지 않는다).
   await rows.filter({ hasText: "업무 B" }).getByRole("button").click();
   const after = [await boxOf(0), await boxOf(1), await boxOf(2)];
   expect(after.map(box => box.h)).toEqual(before.map(box => box.h));
@@ -144,10 +141,10 @@ test("Diagnosis left list cards share one box spec and keep size on selection", 
     return { bg: style.backgroundColor, border: style.borderTopColor };
   }));
   expect(styles[1].bg).not.toBe(styles[0].bg);
-  expect(styles[1].border).not.toBe(styles[0].border);
+  expect(styles[1].border).toBe(styles[0].border);
 });
 
-test("Result and roadmap list shows name, Level and next action without gate badges", async ({ page }) => {
+test("Result and roadmap list shows name and next action without Level or gate badges", async ({ page }) => {
   const tasks = [make("r-a", "업무 A", {}), make("r-b", "업무 B", { systemAccess: 1 })];
   await openStep(page, tasks, 4);
   const overview = page.locator(".ax-step4-overview");
@@ -156,7 +153,7 @@ test("Result and roadmap list shows name, Level and next action without gate bad
   await expect(rows.first().locator(".ax-rank")).toHaveText("#1");
   for (const row of await rows.all()) {
     await expect(row.locator(".ax-task-name")).not.toBeEmpty();
-    await expect(row).toContainText("Level");
+    await expect(row).not.toContainText("Level");
     await expect(row.locator(".ax-next-action")).not.toBeEmpty();
   }
 });

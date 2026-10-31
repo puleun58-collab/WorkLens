@@ -1,14 +1,14 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { decisionPanelLabel } from "@/components/ax/AxDecisionExamples";
+import { decisionPanelLabel } from "@/lib/ax/rule-questions";
 import { buildAllInOnePrompt } from "@/lib/ax/guide";
 import { diagnosisFixture, planFixture } from "./fixtures/ax";
 import type { AxDiagnosis, GenericRule } from "@/lib/ax/types";
 
 const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8");
-const component = () => read("../src/components/ax/AxDecisionExamples.tsx");
-const genericComponent = () => read("../src/components/ax/AxGenericRules.tsx");
+// 통합 섹션: 기존 D 섹션과 범용 섹션이 AxUnifiedRules.tsx 하나로 합쳐졌다.
+const component = () => read("../src/components/ax/AxUnifiedRules.tsx");
 const css = () => read("../src/components/ax/ax.css");
 const sha = (s: string) => createHash("sha256").update(s, "utf8").digest("hex");
 
@@ -32,18 +32,22 @@ const genericRules = (): GenericRule[] => [
 ];
 
 describe("AX 레퍼런스 동일화 — 업무 규칙 확인 표시", () => {
-  it("진행률 문구는 적용 대상 분모 기준 'N/M 확인 완료' 형식이고 적용 여부 건수를 별도로 표시한다", () => {
-    expect(component()).toContain("{progress.done}/{progress.total} 확인 완료");
+  it("진행률 문구는 실제 확인 대상 분모 기준이고 적용 여부 건수를 별도로 표시한다 (고정 7 분모 아님)", () => {
+    expect(component()).toContain("unifiedRuleProgress(drafts)");
+    expect(component()).toContain("`${progress.done}/${progress.total} 확인 완료`");
     expect(component()).toContain("적용 여부 확인 ${progress.applicabilityPending}건");
-    expect(component()).not.toContain("{confirmedCount}/7 확인 완료");
+    // 0건은 분수가 아니라 완료 아님으로 표시한다 (0건 ≠ 전부 확정).
+    expect(component()).toContain("확인할 규칙 없음");
     expect(component()).not.toContain("/7 확인 완료");
   });
 
-  it("저장 버튼은 각 섹션 우측 하단 단일 '저장'이다", () => {
+  it("저장 버튼은 통합 영역 우측 하단 단일 '저장'이다", () => {
     expect(component()).not.toContain("변경사항 저장");
     expect(component()).not.toContain("업무 처리 예시 저장");
     expect(component().match(/>저장<\/Button>/g)).toHaveLength(1);
-    expect(genericComponent().match(/>저장<\/Button>/g)).toHaveLength(1);
+    expect(component()).toContain("업무 규칙을 저장했습니다.");
+    expect(component()).not.toContain("결정 지점을 저장했습니다.");
+    expect(component()).not.toContain("범용 업무 규칙을 저장했습니다.");
   });
 
   it("업무 규칙 카드의 좌측 굵은 파란 강조선이 없고 그림자가 없다", () => {
@@ -52,8 +56,8 @@ describe("AX 레퍼런스 동일화 — 업무 규칙 확인 표시", () => {
   });
 
   it("아코디언은 기본 모두 접힘이고 한 번에 한 항목만 펼치며 펼친 행은 레퍼런스 톤(중립 테두리)으로 표시된다", () => {
-    expect(component()).toContain("const [openId, setOpenId] = useState<string | null>(null);");
-    expect(component()).toContain("onClick={() => setOpenId(isOpen ? null : point.id)}");
+    expect(component()).toContain("const [openKey, setOpenKey] = useState<string | null>(null);");
+    expect(component()).toContain("setOpenKey(isOpen ? null :");
     expect(component()).toContain('className={`ax-decision-row${isOpen ? " is-open" : ""}`}');
     expect(css()).toContain(".ax-decision-row.is-open { background: var(--card); border-color: var(--border); }");
   });
@@ -67,10 +71,9 @@ describe("AX 레퍼런스 동일화 — 업무 규칙 확인 표시", () => {
     expect(css()).toContain(".ax-decision-counter { margin-left: auto;");
   });
 
-  it("범용 규칙 편집 UI는 2열 그리드·모바일 1열이며 예시 UI 잔재가 없다", () => {
-    expect(genericComponent()).toContain("+ 규칙 추가");
-    expect(genericComponent()).toContain("등록된 범용 규칙이 없습니다.");
-    expect(genericComponent()).toContain("ax-generic-panel");
+  it("범용 규칙 편집 UI는 2열 그리드·모바일 1열이며 예시 UI 잔재가 없다 (별도 범용 섹션은 통합 섹션으로 대체됨)", () => {
+    expect(component()).toContain("+ 규칙 추가");
+    expect(component()).toContain("ax-generic-panel");
     expect(css()).toContain(".ax-generic-panel { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);");
     expect(css()).toContain(".ax-generic-panel { grid-template-columns: minmax(0, 1fr); }");
     expect(component()).not.toContain("ax-example-");

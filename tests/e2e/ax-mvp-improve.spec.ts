@@ -20,7 +20,7 @@ test("AX 1차 MVP 개선: 업무 등록 → 결정 지점 답변 → 범용 규�
   await page.getByRole("button", { name: "업무 진단 실행", exact: true }).click();
   await expect(page.getByRole("heading", { name: "업무 규칙 확인" })).toBeVisible();
 
-  // 2. 결정 지점 답변: D4·D5 확정 (나머지는 미확정 기본값 유지)
+  // 2. 결정 지점 답변: D4·D5 확정 (나머지는 도출 후보 미확정 유지)
   // 아코디언 행을 펼쳐야 내부 입력이 보인다.
   await page.getByRole("button", { name: /D4 결과 상태/ }).click();
   await page.locator("#ax-decision-D4").getByLabel("상태").selectOption("확정");
@@ -31,21 +31,24 @@ test("AX 1차 MVP 개선: 업무 등록 → 결정 지점 답변 → 범용 규�
   await page.locator("#ax-decision-D5").getByLabel("대조 기준").selectOption("확인 필요");
   await page.locator('section[aria-label="업무 규칙 확인"]').getByRole("button", { name: "저장", exact: true }).click();
   // 저장 확인 문구는 상단 메시지와 섹션 내 문구 2곳에 나타나므로 섹션으로 한정한다.
-  await expect(page.locator('section[aria-label="업무 규칙 확인"]').getByText("결정 지점을 저장했습니다.", { exact: true })).toBeVisible();
-  await expect(page.locator('section[aria-label="업무 규칙 확인"]').getByText("2/7 확인 완료", { exact: true })).toBeVisible();
+  await expect(page.locator('section[aria-label="업무 규칙 확인"]').getByText("업무 규칙을 저장했습니다.", { exact: true })).toBeVisible();
+  // 도출 후보 분모: D4·D5 확정 2건 / D3·D4·D5·D6 4건 + 범용 후보 적용 여부 확인 2건.
+  await expect(page.locator('section[aria-label="업무 규칙 확인"]').getByText("2/4 확인 완료 · 적용 여부 확인 2건", { exact: true })).toBeVisible();
 
-  // 3. 범용 규칙 1건 추가: 적용·확정으로 저장한다 (Base UI Select는 버튼·옵션 클릭으로 조작).
-  const generic = page.locator('section[aria-label="범용 업무 규칙"]');
-  await generic.getByRole("button", { name: "+ 규칙 추가", exact: true }).click();
-  await generic.getByLabel("규칙명").fill("월말 마감 이후 주문 이월");
-  await generic.getByLabel("상세 내용").fill("마감일 이후 접수 주문은 다음 달 집계 대상에 포함하지 않는다.");
-  await generic.getByLabel("적용 여부").click();
-  await page.getByRole("option", { name: "적용", exact: true }).and(page.locator(":visible")).click();
-  await generic.getByLabel("확정 상태").click();
-  await page.getByRole("option", { name: "확정", exact: true }).and(page.locator(":visible")).click();
-  await generic.getByRole("button", { name: "저장", exact: true }).click();
-  await expect(generic.getByText("범용 업무 규칙을 저장했습니다.", { exact: true })).toBeVisible();
-  await expect(page.locator('section[aria-label="업무 규칙 확인"]').getByText("3/8 확인 완료", { exact: true })).toBeVisible();
+  // 3. 범용 규칙 1건 추가: 모달에서 적용·확정으로 저장한다 (모달 Select는 네이티브 select).
+  const unified = page.locator('section[aria-label="업무 규칙 확인"]');
+  const dialog = page.locator('[data-slot="dialog-popup"]');
+  await unified.getByRole("button", { name: "+ 규칙 추가", exact: true }).click();
+  await expect(dialog.getByRole("heading", { name: "규칙 추가" })).toBeVisible();
+  await dialog.getByLabel(/규칙명/).fill("월말 마감 이후 주문 이월");
+  await dialog.getByLabel("상세 내용").fill("마감일 이후 접수 주문은 다음 달 집계 대상에 포함하지 않는다.");
+  await dialog.getByLabel("분류 *").selectOption("처리·판단 기준");
+  await dialog.getByLabel("적용 여부 *").selectOption("적용");
+  await dialog.getByLabel("확정 상태 *").selectOption("확정");
+  await dialog.getByRole("button", { name: "추가", exact: true }).click();
+  await unified.getByRole("button", { name: "저장", exact: true }).click();
+  await expect(unified.getByText("업무 규칙을 저장했습니다.", { exact: true })).toBeVisible();
+  await expect(page.locator('section[aria-label="업무 규칙 확인"]').getByText("3/5 확인 완료 · 적용 여부 확인 2건", { exact: true })).toBeVisible();
 
   // D4 변경 후에도 범용 규칙은 그대로 유지된다.
   await page.getByRole("button", { name: /D4 결과 상태/ }).click();
