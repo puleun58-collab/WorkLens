@@ -400,11 +400,15 @@
 }
 .ax-gate-line { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: inherit; color: var(--foreground); }
 /* Gate 3종: 진행 가능(초록)·확인 후 진행(앰버)·진행 보류(빨강). 배지·범례·차트 점·목록 점이
- * 같은 토큰을 쓴다. conditional #b45309는 앰버-700 계열로, 갈색이 아니라 앰버이다. */
-.ax-view { --ax-gate-ready: #15803d; --ax-gate-ready-bg: #dcfce7; --ax-gate-conditional: #b45309; --ax-gate-conditional-bg: #fef3c7; --ax-gate-blocked: #b91c1c; --ax-gate-blocked-bg: #fee2e2; }
-.ax-gate-badge[data-gate=ready] { background: var(--ax-gate-ready-bg); color: var(--ax-gate-ready); border-color: color-mix(in srgb, var(--ax-gate-ready) 28%, transparent); }
-.ax-gate-badge[data-gate=conditional] { background: var(--ax-gate-conditional-bg); color: var(--ax-gate-conditional); border-color: color-mix(in srgb, var(--ax-gate-conditional) 28%, transparent); }
-.ax-gate-badge[data-gate=blocked] { background: var(--ax-gate-blocked-bg); color: var(--ax-gate-blocked); border-color: color-mix(in srgb, var(--ax-gate-blocked) 28%, transparent); }
+ * 같은 토큰을 쓴다. 점은 작은 크기에서도 구분되는 선명한 색(ready #16a34a·
+ * conditional #d97706·blocked #dc2626)을 쓰고, 배지 글자는 가독성을 위해 같은 계열의
+ * 더 진한 색(-text 토큰)을 쓴다. #372에서 유지했던 기존 토큰(#15803d·#b45309·
+ * #b91c1c)을 본 변경에서 의도적으로 뒤집는다: conditional은 짙은 앰버에서 더 노란
+ * 앰버 계열로, ready는 더 밝고 부드러운 초록으로, blocked는 더 선명한 빨강으로 바꾼다. */
+.ax-view { --ax-gate-ready: #16a34a; --ax-gate-ready-bg: #dcfce7; --ax-gate-ready-text: #15803d; --ax-gate-conditional: #d97706; --ax-gate-conditional-bg: #fef3c7; --ax-gate-conditional-text: #b45309; --ax-gate-blocked: #dc2626; --ax-gate-blocked-bg: #fee2e2; --ax-gate-blocked-text: #b91c1c; }
+.ax-gate-badge[data-gate=ready] { background: var(--ax-gate-ready-bg); color: var(--ax-gate-ready-text); border-color: color-mix(in srgb, var(--ax-gate-ready) 28%, transparent); }
+.ax-gate-badge[data-gate=conditional] { background: var(--ax-gate-conditional-bg); color: var(--ax-gate-conditional-text); border-color: color-mix(in srgb, var(--ax-gate-conditional) 28%, transparent); }
+.ax-gate-badge[data-gate=blocked] { background: var(--ax-gate-blocked-bg); color: var(--ax-gate-blocked-text); border-color: color-mix(in srgb, var(--ax-gate-blocked) 28%, transparent); }
 
 /* 매트릭스 전용 점수 근거 아코디언(AxScoreEvidence)은 §9 중복 상세 제거로 삭제됐다.
  * Factor 근거는 업무 진단 단계의 진단 항목 상세에서 확인한다. */
