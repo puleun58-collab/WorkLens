@@ -271,7 +271,7 @@ export function HitlReviewPanel({ item, review, onSave, onCancel, onEdit }: Hitl
           </p>
           {onEdit ? (
             <div className="ax-hitl-buttons">
-              <Button type="button" variant="outline" onClick={onEdit}>검토 수정</Button>
+              <Button type="button" variant="outline" onClick={onEdit}>수정</Button>
             </div>
           ) : null}
         </div>
