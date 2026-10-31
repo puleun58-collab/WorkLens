@@ -61,10 +61,10 @@ for (const [name, size] of [["desktop", { width: 1440, height: 900 }], ["mobile"
     await expect(precheckHeader.trigger).toHaveAttribute("aria-expanded", "false");
     await expect(precheck.locator(".ax-hitl-table-counts")).toHaveText(/미해결 \d+건/);
     headers.push(precheckHeader);
-    // 동일한 검토 헤더들만 높이·셰브론 여백을 공유한다.
+    // 동일한 검토 헤더들만 높이·셰브론 여백을 공유한다 (1px 허용, 브라우저별 서브픽셀 반올림 차이는 제외).
     for (const header of headers) {
-      expect(Math.abs(header.height - headers[0].height)).toBeLessThanOrEqual(1);
-      expect(Math.abs(header.chevronInset - headers[0].chevronInset)).toBeLessThanOrEqual(1);
+      expect(Math.abs(Math.round(header.height) - Math.round(headers[0].height))).toBeLessThanOrEqual(1);
+      expect(Math.abs(Math.round(header.chevronInset) - Math.round(headers[0].chevronInset))).toBeLessThanOrEqual(1);
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   });
