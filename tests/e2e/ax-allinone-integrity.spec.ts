@@ -96,7 +96,9 @@ test("allinone: linked plan renders composite processing and step-linked scope",
   await expect(prompt).toContainText("현재 자동화 제외");
   const scope = packageSection.getByRole("region", { name: "구현 범위·완료 기준", exact: true });
   await expect(scope).not.toContainText("정산 승인 — 자동 승인 로직");
-  await expect(packageSection.getByRole("region", { name: "구현 범위·완료 기준", exact: true })).toContainText("복합 처리 (확인된 순서)");
+  // 범위 행은 건수만 표시한다 (합본 간소화): 항목 본문은 01~04 지시문에 유지된다.
+  await expect(scope.locator('[data-scope-group="scope"]')).toContainText(/구현 대상 \d+개 · 담당자 수행 \d+개 · 보류·제외 \d+개/);
+  await expect(scope.locator('[data-scope-group="scope"]')).not.toContainText("복합 처리 (확인된 순서)");
   const noOverflow = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
   expect(noOverflow).toBe(true);
   await page.screenshot({ path: `artifacts/ax/allinone-${process.env.MOBILE_EMU === "1" ? "mobile" : test.info().project.name}.png`, fullPage: true });
