@@ -460,6 +460,12 @@ p.research-meta { margin: 0; }
   padding-bottom: 12px;
 }
 .legal-research .research-task-details .research-extra { margin-top: 4px; padding-bottom: 0; }
+/* The two assessed law tasks use one left edge for tier headings, the
+   disclosure control and its three short findings, and the source rows. */
+.legal-research .research-task-details > .legal-analysis-section,
+.legal-research .research-task-details .research-more,
+.legal-research .research-task-sources > .research-hits { margin-inline: 0; padding-inline: 0; }
+.legal-research .research-task-details .research-more > .research-meta { margin: 4px 0; }
 .legal-research .research-issue-evidence.is-focused { border-radius: var(--radius-panel); background: var(--blue-soft); box-shadow: inset 0 0 0 1px var(--blue-border); }
 /* The landed section's own highlight (background + outer line) marks a jump.
    The heading ring is for keyboard navigation only: a mouse-initiated jump

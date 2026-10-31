@@ -40,8 +40,41 @@ describe("research result source structure", () => {
     expect(lower).toContain('id="research-task-evidence-2"');
     expect(lower).toContain("영업정지 처분을 할 수 있다.");
     expect(lower).toContain("법제처 원문 보기");
-    expect(lower).toContain("이 항목의 직접 근거 문언을 확인하지 못했습니다.");
-    expect(lower).toContain("요건 충족 여부는 판단하지 않았습니다.");
+    expect(lower).toContain("적용 대상·처분 대상 위반행위의 요건 문언을 확인하지 못했습니다.");
+    expect(lower).toContain("관련 검토 항목: 처분 근거");
+  });
+
+  it("separates an identified disposition table from confirmed law and conditions", () => {
+    const body = "① 영업자는 위반행위가 있는 경우 영업정지 처분을 받을 수 있다.";
+    const source = { law: "식품위생법", jo: "제75조", title: "허가취소 등", excerpt: body };
+    const html = render({ ...base, task: "action_basis", actionBasis: { status: "matched", items: [
+      { label: "처분·허가 근거", title: "처분 근거", status: "found", basisRefs: [source] },
+      { label: "적용 요건", status: "found", requirementRefs: [source] },
+      { label: "세부 기준(별표)", title: "세부 처분 기준", optional: true, status: "found", detail: "식품위생법 시행규칙 별표 23" },
+    ] }, annexes: [{ law: "식품위생법 시행규칙", label: "별표 23", sourceArticle: "제89조",
+      citation: "법 제75조의 행정처분 기준은 별표 23과 같다.", status: "identified", relevance: "direct",
+      url: "https://www.law.go.kr/법령별표서식/(식품위생법시행규칙,별표23)" }] });
+    const sources = html.slice(html.indexOf('aria-label="상세 근거"'), html.indexOf('class="law-detail-source research-source"'));
+    const top = html.slice(0, html.indexOf('aria-label="항목별 법적 근거"'));
+    expect(top).not.toContain("식품위생법 시행규칙 별표 23");
+    expect(top).toContain("기준 목록 확인 · 원문 미확보");
+    expect(sources.match(/식품위생법 제75조/gu)).toHaveLength(1);
+    expect(sources).toContain("처분 근거 (법적 근거 · 근거 확인)");
+    expect(sources).toContain("적용 요건 (요건 문언 · 근거 확인)");
+    expect(sources).toContain("별표 23");
+    expect(sources).toContain("원문 일부 확인");
+    expect(html).toContain("세부 처분 기준");
+    expect(html).toContain("세부 기준 원문을 확인하지 못했습니다");
+    expect(sources).not.toContain("별표 원문 보기");
+  });
+
+  it("does not present an unrelated annex as a confirmed disposition criterion", () => {
+    const html = render({ ...base, task: "action_basis", actionBasis: { status: "viewed", items: [
+      { label: "처분·허가 근거", title: "처분 근거", status: "viewed", basisRefs: [] },
+    ] }, annexes: [{ law: "식품위생법 시행령", label: "별표 1", sourceArticle: "제53조",
+      citation: "과징금 산정은 별표 1과 같다.", status: "verified", text: "과징금 기준", relevance: "related" }] });
+    expect(html).not.toContain("세부 처분 기준");
+    expect(html).toContain("직접 관련성 미확인");
   });
 
   it("keeps separate missing action results even when neither has a structured source", () => {
@@ -168,16 +201,11 @@ describe("research result source structure", () => {
         article, { ...article, effectiveDate: "2026.01.01" }, { ...article, law: "다른 법률" },
         { ...article, excerpt: "별도 발췌" }, { ...article, jo: "제24조", explicit: true, matched: [] },
       ] } } });
-    expect(html.match(/상세 근거에서 원문 보기/gu)).toHaveLength(1);
+    expect(html.match(/class="research-group research-task-sources"/gu)).toHaveLength(1);
     expect(html).toContain("2026.01.01");
     expect(html).toContain("다른 법률 제23조");
     expect(html).toContain("별도 발췌");
-    // Additional-source excerpts fold by default: the title stays visible, the excerpt opens on demand.
-    expect(html).toContain("조문 발췌 보기");
-    expect(html).not.toMatch(/class="law-detail-source research-more"[^>]*\bopen=/u);
-    expect(html).toContain("제목에 질문 용어가 포함된 조문");
-    expect(html).toContain('class="research-meta">4건');
-    expect(html).toContain("추가로 조회한 조문");
+    expect(html.match(/법제처 원문 보기/gu)).toHaveLength(5);
     expect(html).toContain('data-status="viewed"');
   });
 
@@ -202,7 +230,7 @@ describe("research result source structure", () => {
     expect(html.slice(0, lower)).not.toContain(expression);
     expect(html.slice(0, lower)).not.toContain("고유 검증 설명");
     expect(html.slice(lower)).toContain(expression);
-    expect(html.slice(lower)).toContain("고유 검증 설명");
+    expect(html.slice(lower)).not.toContain("고유 검증 설명");
     expect(html).not.toContain("상세 근거 ·");
     expect(html.slice(0, lower)).toContain("직접 연결: 제7조(적용범위)");
     const delegationTop = html.slice(0, lower);
@@ -243,13 +271,14 @@ describe("research result source structure", () => {
   });
 
   for (const task of ["full_research", "law_system", "action_basis", "dispute_prep", "amendment_track", "ordinance_compare", "procedure_detail"] as const) {
-    it(`uses the same additional-source wording and collapsed raw source in ${task}`, () => {
+    it(`keeps supplemental source and collapsed raw response in ${task}`, () => {
       const html = render({ ...base, task, enrichment: { supplement: { status: "found", articles: [article] } } });
-      expect(html).toContain("제목에 질문 용어가 포함된 조문");
-      expect(html).toContain("조문 제목에 질문 용어가 포함된 자료를 추가로 조회했습니다.");
-      expect(html).not.toContain("질문 용어가 제목에 있는 조문");
+      expect(html).toContain("근로기준법 제23조");
       expect(html).not.toMatch(/class="law-detail-source research-source"[^>]*\bopen=/u);
-      expect(html.indexOf('class="law-detail-source research-source"')).toBeLessThan(html.indexOf('aria-label="추가 조회 자료"'));
+      if (task === "law_system" || task === "action_basis") {
+        expect(html).toContain('class="research-group research-task-sources"');
+        expect(html).not.toContain('aria-label="추가 조회 자료"');
+      } else expect(html).toContain('aria-label="추가 조회 자료"');
     });
   }
 
@@ -294,23 +323,26 @@ describe("research result source structure", () => {
     expect(own.match(/제40조/gu)?.length).toBeGreaterThan(0);
   });
 
-  it("lists supplement articles already shown in the task-evidence toggle only once", () => {
+  it("lists a source linked to an assessed item once while retaining the unassessed supplement", () => {
     const html = render({ ...base, task: "action_basis", actionBasis: { status: "matched", items: [
       { label: "처분·허가 근거", status: "found", basisRefs: [{ law: article.law, jo: article.jo, title: article.title, excerpt: "① 해고의 기준을 확인한다." }] },
       { label: "적용 요건", status: "found", requirementRefs: [] },
     ] }, enrichment: { supplement: { status: "found", articles: [
       article, { ...article, jo: "제24조" },
     ] } } });
-    expect(html).toContain("위 근거 영역에서 이미 확인한 조문 1건은 별도로 표시하지 않았습니다.");
-    expect(html).toContain("근로기준법 제24조");
+    const sources = html.slice(html.indexOf('aria-label="상세 근거"'), html.indexOf('class="law-detail-source research-source"'));
+    expect(sources.match(/근로기준법 제23조/gu)).toHaveLength(1);
+    expect(sources).toContain("근로기준법 제24조");
+    expect(sources).toContain("관련 검토 항목: 처분·허가 근거");
   });
 
-  it("marks an ellipsis-cut excerpt in the task-evidence toggle and notes that excerpts may be partial", () => {
+  it("preserves an ellipsis-cut excerpt as unconfirmed source text", () => {
     const html = render({ ...base, task: "action_basis", actionBasis: { status: "viewed", items: [
       { label: "처분·허가 근거", status: "viewed", basisRefs: [{ law: article.law, jo: article.jo, title: article.title, excerpt: "① 일부 발췌 …" }] },
     ] } });
-    const lower = html.slice(html.indexOf('aria-label="항목별 법적 근거"'));
-    expect(lower).toContain("중략된 발췌입니다");
-    expect(lower).toContain("표시되는 발췌는 원문의 일부일 수 있습니다");
+    const lower = html.slice(html.indexOf('aria-label="상세 근거"'));
+    expect(lower).toContain("① 일부 발췌 …");
+    expect(lower).toContain("자료 조회");
+    expect(lower).not.toContain("원문 확보");
   });
 });
