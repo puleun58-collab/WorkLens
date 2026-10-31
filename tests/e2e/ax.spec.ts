@@ -1414,10 +1414,11 @@ for (const level of [0, 1, 2, 3]) {
         await expect(section.getByRole("button", { name: "Codex용 구현 계획 생성", exact: true })).toBeEnabled();
         if (gate === "ready") {
           // 확인됨 항목은 ①에서 반복하지 않는다. 예시 체계 제거(#371) 후 이 픽스처에는
-          // 미해결 항목이 없어 배지가 없고 "필수 확인사항 없음"이 표시된다
+          // 미해결 항목이 없어 헤더에 "미해결 0건"이 표시되고, 펼치면 "필수 확인사항 없음"이 표시된다
           // (#373의 "미해결 1건"은 예시 항목이 만든 건수였다).
           await expect(precheck.getByText("시스템 접근", { exact: true })).toHaveCount(0);
-          await expect(precheck.locator(".ax-precheck-head")).not.toContainText(/미해결 \d+건/);
+          await expect(precheck.locator(".ax-precheck-head")).toContainText("미해결 0건");
+          await precheck.getByRole("button", { name: /구현 전 확인/ }).click();
           await expect(precheck).toContainText("필수 확인사항 없음");
         } else {
           // 조건부: 미완료 건수는 ① 요약 배지로만 표시되고, 상세 문구는 반복하지 않는다.

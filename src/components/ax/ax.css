@@ -855,8 +855,10 @@
 .ax-hitl-type-badge { font-size: 11px; padding: 2px 8px; border-radius: 4px; background: var(--muted-surface, #f1f5f9); color: var(--foreground, #1e293b); white-space: nowrap; flex-shrink: 0; }
 /* HITL 테이블형 UI (레퍼런스 기준) */
 .ax-hitl-table-card { background: var(--card); border: 1.5px solid var(--line-soft); border-radius: 12px; overflow: hidden; }
-/* 검토 테이블 접기 트리거: 기존 테이블 헤더와 같은 모양을 유지하고, 항목 패널이 열려
-   입력 중일 때 비활성화돼도 흐려 보이지 않게 한다. */
+/* 검토 영역 공통 아코디언 트리거(단계별 자동화 판단·위험·확인사항 검토·구현 계획 검토·
+   구현 전 확인): 헤더 전체가 트리거이고 셰브론은 COSS 기본 지시자다. 항목 패널이 열려
+   입력 중일 때 비활성화돼도 흐려 보이지 않게 하고, 헤더 하단 구분선은 펼침 상태에서만
+   카드 전체 너비로 표시한다(접힘 상태에 남는 선·여백 없음). */
 /* 제목줄 셰브론의 오른쪽 끝을 하단 표 검토 버튼의 오른쪽 테두리선에 맞춘다.
    검토 버튼의 오른쪽 여백 = 작업 열 너비 76px − 셀 오른쪽 여백 8px − 버튼 너비 46px
    = 22px. 버튼 너비 근거: sm outline 버튼의 글자 크기 var(--text-sm)은 프로젝트
@@ -867,23 +869,31 @@
    이 여백을 트리거 오른쪽에 둔다. 모바일(700px 이하)에서는 표가 카드형으로
    바뀌므로 이 값은 정확한 버튼 정렬이 아니라 적절한 오른쪽 여백으로 기능한다. */
 .ax-hitl-table-trigger { font-size: inherit; font-weight: inherit; color: inherit; padding-right: 22px; }
+.ax-hitl-table-trigger[data-panel-open] { border-bottom: 1px solid var(--line-soft); }
 .ax-hitl-table-trigger .ax-hitl-table-header { flex: 1; min-width: 0; }
+/* COSS AccordionTrigger를 감싸는 Base UI Header(h3)의 전역 제목 여백이 접힌 카드 아래·펼친
+   구분선 아래에 빈 공간을 만들지 않게 한다. */
+.ax-hitl-table-card > h3 { margin: 0; }
 .ax-hitl-table-trigger:disabled { opacity: 1; cursor: default; }
 /* 아코디언 패널의 기본 글자색·크기가 테이블 본문에 번지지 않게 한다. */
 .ax-hitl-table-panel, .ax-factors-panel { color: inherit; font-size: inherit; }
 /* Factor 상세 평가 접기 트리거: 진단 항목 섹션 제목과 같은 위계로 표시한다. */
 .ax-factors-trigger { padding-top: 2px; padding-bottom: 10px; font-size: 15px; font-weight: 700; color: var(--foreground); }
 .ax-factors-title .ax-muted { font-weight: 400; }
-.ax-hitl-table-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px 16px 16px; border-bottom: 1px solid var(--line-soft); }
-.ax-hitl-table-toggle { flex: none; }
+.ax-hitl-table-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 0 16px 16px; }
 .ax-hitl-table-title { display: flex; align-items: center; gap: 8px; }
 .ax-hitl-table-icon { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; color: var(--primary); }
 .ax-hitl-table-icon[data-tone="warning"] { color: #d97706; }
 .ax-hitl-table-icon svg { display: block; }
-.ax-hitl-table-title h3 { margin: 0; font-size: 16px; font-weight: 700; }
+.ax-hitl-table-heading { margin: 0; font-size: 16px; font-weight: 700; color: var(--foreground); }
 /* 테이블 첫 컬럼 헤더와 섹션 헤더 아이콘의 좌측 시작선 통일 */
 .ax-hitl-table thead th:first-child { padding-left: 16px; }
-.ax-hitl-table-counts { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted-foreground); }
+.ax-hitl-table-counts { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; font-size: 13px; color: var(--muted-foreground); }
+.ax-hitl-table-counts > span { white-space: nowrap; }
+@media (max-width: 700px) {
+  /* 모바일: 제목 아래 줄에 건수를 표시해 제목·건수·셰브론이 겹치거나 단어 중간에서 줄바꿈되지 않게 한다. */
+  .ax-hitl-table-header { flex-direction: column; align-items: flex-start; gap: 4px; }
+}
 .ax-hitl-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .ax-hitl-table thead th { background: color-mix(in srgb, var(--primary) 4%, var(--card)); padding: 10px 16px; text-align: left; font-size: 13px; font-weight: 600; color: var(--muted-foreground); border-bottom: 1px solid var(--line-soft); }
 .ax-hitl-table tbody td { padding: 12px 16px; font-size: 14px; border-bottom: 1px solid var(--line-soft); vertical-align: middle; }
@@ -1090,19 +1100,17 @@
   .ax-rule-modal-foot { padding: 0 16px 16px; }
 }
 
-/* 결과·로드맵 간소화: ① 구현 전 확인 요약 · ② 구현 범위·완료 기준 2열 요약 카드 */
-.ax-precheck, .ax-scope-summary { padding: 20px 0; border-top: 1px solid var(--border); text-align: left; }
-.ax-precheck-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-button.ax-precheck-head { background: none; border: 0; padding: 0; width: 100%; cursor: pointer; text-align: left; }
-.ax-precheck-head h3 { flex: 1; }
-.ax-precheck-chevron { flex: none; color: var(--muted-foreground); font-size: 12px; }
-.ax-precheck-items { margin: 12px 0 0; padding: 0; list-style: none; display: grid; gap: 0; }
-.ax-precheck-row { display: flex; flex-direction: column; gap: 2px; padding: 10px 0; border-top: 1px solid var(--border); }
+/* 결과·로드맵 간소화: ① 구현 전 확인(검토 영역 공통 아코디언 카드) · ② 구현 범위·완료 기준 요약 */
+.ax-precheck { padding: 0 0 20px; text-align: left; }
+.ax-scope-summary { padding: 20px 0; border-top: 1px solid var(--border); text-align: left; }
+.ax-precheck-items { margin: 0; padding: 0 16px; list-style: none; display: grid; gap: 0; }
+.ax-precheck-row { display: flex; flex-direction: column; gap: 2px; padding: 12px 0; border-top: 1px solid var(--line-soft); }
+.ax-precheck-row:first-child { border-top: 0; }
 .ax-precheck-row strong { font-size: 14px; }
 .ax-precheck-row > span { font-size: 13px; color: var(--muted-foreground); line-height: 1.55; }
 .ax-precheck-row small { font-size: 12px; color: var(--muted-foreground); }
-.ax-precheck-head h3, .ax-scope-summary h3 { margin: 0; font-size: 18px; font-weight: var(--font-weight-bold, 700); }
-.ax-precheck > .ax-muted { margin: 12px 0 0; }
+.ax-scope-summary h3 { margin: 0; font-size: 18px; font-weight: var(--font-weight-bold, 700); }
+.ax-precheck-empty { margin: 0; padding: 12px 16px; }
 .ax-precheck-blocked { margin-top: 14px; }
 .ax-precheck-blocked h4 { margin: 0 0 8px; font-size: 14px; }
 .ax-precheck-blocked ul, .ax-precheck-list, .ax-scope-summary ul { margin: 0; padding: 0; list-style: none; }
@@ -1126,8 +1134,6 @@ button.ax-precheck-head { background: none; border: 0; padding: 0; width: 100%; 
 .ax-scope-summary-criteria dd { margin: 0; font-size: 14px; line-height: 1.6; }
 .ax-scope-summary-criteria dd ul { display: grid; gap: 4px; }
 
-/* 결과·로드맵 레퍼런스 동일화: ① 요약 행(아이콘 + 제목·부제 + 배지 1개), ② 2열 요약 카드. */
-.ax-precheck-head .ax-check-badge { flex: none; margin-top: 2px; }
 /* 구현 범위·완료 기준: 2열 카드 대신 한 줄 요약 행. */
 .ax-scope-row { padding: 12px 0; border-top: 1px solid var(--border); }
 .ax-scope-row:first-child { border-top: 0; padding-top: 0; }

@@ -86,7 +86,7 @@ test("AX 간소화·COSS 통일: 판단 하단 문구 제거·매트릭스 버�
   await expect(precheck.getByRole("button", { name: "예시 확인" })).toHaveCount(0);
   // 펼치면 실제 미해결 항목이 보이고, 항목별 이동 버튼은 생기지 않는다.
   // 표시 건수는 배지 건수와 같다 (같은 집계 기준).
-  await precheck.getByRole("button", { name: /구현 전 확인.*펼치기/ }).click();
+  await precheck.getByRole("button", { name: /구현 전 확인/ }).click();
   await expect(precheck.locator(".ax-precheck-items")).toBeVisible();
   const badgeText = await precheck.locator(".ax-precheck-head").textContent();
   const badgeCount = Number(/미해결 (\d+)건/.exec(badgeText ?? "")?.[1]);

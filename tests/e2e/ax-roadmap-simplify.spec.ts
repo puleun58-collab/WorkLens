@@ -83,6 +83,8 @@ test("AX roadmap simplify: 필수 확인 0건이면 짧은 안내만 표시", as
   const task = taskFixture("simplify-empty", diagnosis);
   const plan = await openStep4(page, [task], task.id);
   const pre = plan.getByRole("region", { name: "구현 전 확인", exact: true });
+  await expect(pre.locator(".ax-precheck-head")).toContainText("미해결 0건");
+  await pre.getByRole("button", { name: /구현 전 확인/ }).click();
   await expect(pre).toContainText("필수 확인사항 없음");
   await expect(pre.getByText("시스템 접근", { exact: true })).toHaveCount(0);
 });
