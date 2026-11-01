@@ -23,9 +23,10 @@ import { uiText } from "@/lib/ax/display-text";
 import type { AxToolId } from "@/lib/ax/guide";
 import { exportAxState, importAxState } from "@/lib/ax/transfer";
 import { emptyAxState, type AxStateV2, type AxTask, type AxDiagnosis, type AxDetails, type FactorKey } from "@/lib/ax/types";
-import { extractReviewableItems, extractPlanReviewableItems, reconcileReviews, validateReviewForConfirm } from "@/lib/ax/hitl";
+import { extractPlanReviewableItems, reconcileReviews, validateReviewForConfirm } from "@/lib/ax/hitl";
 import { AxLevelBadge, AxProcess, AxPlanSection, AxCheckIcon, AxStatCards, diagnosisSummaryParts, diagnosisCheckItems, visibleDiagnosisCheckItems, resolveActiveTool, concreteNextAction, formatUnifiedNextAction, type AxCheckItem, type PrecheckTarget } from "./AxReport";
 import { applyCheckConfirmations, checkConfirmationState, checkKey, upsertCheckConfirmation } from "@/lib/ax/check-confirmations";
+import { applyRediagnosis } from "@/lib/ax/diagnosis-preservation";
 import { RuleSelect, UnifiedRulesSection } from "./AxUnifiedRules";
 import "./ax.css";
 
@@ -543,9 +544,7 @@ export function AxDiagnosisView() {
         setMessage("최신 상태가 변경되어 이전 진단 결과를 반영하지 않았습니다");
         return;
       }
-      // 1차 MVP 개선: D1~D7은 사용자가 직접 확인하는 항목이므로 AI 응답에
-      // decisionPoints가 들어 있어도 저장하지 않는다 (UI 저장 경로로만 들어간다).
-      const aiDiagnosis: AxDiagnosis = { ...output, decisionPoints: undefined, sourceNote: attachmentSummary ? "첨부 파일 요약 기반 진단 · 첨부 파일이 사용됨 — 재분석 시 재첨부 필요" : "사용자 등록 정보 기반 진단" };
+      const aiDiagnosis: AxDiagnosis = { ...output, sourceNote: attachmentSummary ? "첨부 파일 요약 기반 진단 · 첨부 파일이 사용됨 — 재분석 시 재첨부 필요" : "사용자 등록 정보 기반 진단" };
       // HITL: 재진단 시 기존 검토와 새 진단 비교 → 변경된 항목 stale 처리
       // 원자적 갱신: 진단과 검토 상태를 단일 update()로 처리, 최신 state 기준
       let keptDecisionPoints = false;
@@ -572,31 +571,12 @@ export function AxDiagnosisView() {
           setMessage("업무 정보가 변경되어 이전 진단 결과를 반영하지 않았습니다");
           return current;
         }
-        // 1차 MVP 개선: 사용자가 저장한 D1~D7은 AI 진단 항목이 아니라 업무 규칙 기록이므로
-        // 재진단으로 지우지 않고 보존한다 (검토 기록 보존과 같은 원칙). 보존 사실은 완료 메시지로 안내한다.
-        const savedPoints = latestTask.diagnosis?.decisionPoints;
-        keptDecisionPoints = !!savedPoints?.length;
-        const diagnosis: AxDiagnosis = keptDecisionPoints ? { ...aiDiagnosis, decisionPoints: savedPoints } : aiDiagnosis;
-        const prevReviews = latestTask?.reviews ?? [];
-        let nextReviews = prevReviews;
-        if (prevReviews.length > 0 && latestTask?.diagnosis) {
-          const newItems = extractReviewableItems(diagnosis);
-          const reconciled = reconcileReviews(prevReviews, newItems);
-          const now = new Date().toISOString();
-          nextReviews = prevReviews.map(r => {
-            const rec = reconciled.get(r.id);
-            // changed(stale) 또는 ambiguous → confirmed를 stale로 전환, 기록 보존
-            if ((rec?.status === "changed" || rec?.status === "ambiguous") && r.status === "confirmed") {
-              return { ...r, status: "stale" as const, updatedAt: now };
-            }
-            return r;
-          });
-        }
+        // 사용자 규칙은 새 진단의 도출 여부와 무관하게 최신 저장값을 보존한다.
+        keptDecisionPoints = !!latestTask.diagnosis?.decisionPoints?.length;
+        const diagnosedTask = applyRediagnosis(latestTask, aiDiagnosis, new Date().toISOString());
         return {
           ...current,
-          tasks: current.tasks.map(t => t.id === task.id
-            ? { ...t, diagnosis, status: taskStatus(diagnosis), reviews: nextReviews, updatedAt: new Date().toISOString() }
-            : t),
+          tasks: current.tasks.map(t => t.id === task.id ? diagnosedTask : t),
         };
       });
       setAnswers(current => ({ ...current, [task.id]: [] }));

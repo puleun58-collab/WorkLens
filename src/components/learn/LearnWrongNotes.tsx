@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { levelContent } from "@/lib/learn/content";
 import { findQuestion, linkedUnitForQuestion, orderedChoicesForAttempt } from "@/lib/learn/questions";
 import type { LearnLevelNo, LearnProgress, QuizAttempt } from "@/lib/learn/types";
+import { LearnSeparatedText } from "./LearnSeparatedText";
 
 interface LearnWrongNotesProps {
   progress: LearnProgress;
@@ -101,10 +102,10 @@ export function LearnWrongNotes({ progress, onMarkReviewed, onBack, onOpenLesson
             <section key={`${w.questionId}-${w.attemptId}-${i}`} className="learn-note-item">
               <p className="learn-question-meta">
                 LEVEL {w.level} · {w.category || q?.category || ""} · 복습 {w.reviewCount}회
-                {unit ? <> · 관련 학습: {unit.title}</> : null}
+                {unit ? <> · <strong>관련 학습:</strong> {unit.title}</> : null}
               </p>
               <p className="learn-note-prompt">
-                <strong>{prompt}</strong>
+                <strong>오답:</strong> <LearnSeparatedText text={prompt} />
               </p>
               {choices ? (
                 <ul className="learn-note-choices">
@@ -114,7 +115,7 @@ export function LearnWrongNotes({ progress, onMarkReviewed, onBack, onOpenLesson
                     return (
                       <li key={c.id} className={isCorrect ? "is-correct" : isMine ? "is-mine" : undefined}>
                         <span className="learn-choice-id">{String.fromCharCode(65 + choiceIdx)}</span>
-                        <span className="learn-note-choice-text">{c.text}</span>
+                        <span className="learn-note-choice-text"><LearnSeparatedText text={c.text} /></span>
                         {isCorrect ? <span className="learn-tag is-correct">정답</span> : null}
                         {isMine ? <span className="learn-tag is-mine">내 답</span> : null}
                       </li>
@@ -124,17 +125,17 @@ export function LearnWrongNotes({ progress, onMarkReviewed, onBack, onOpenLesson
               ) : null}
               {questionType === "ox" && oxAnswer !== undefined ? (
                 <p>
-                  정답: <strong>{oxAnswer ? "O" : "X"}</strong>
+                  <strong>정답:</strong> {oxAnswer ? "O" : "X"}
                   {answer?.kind === "ox" ? (
                     <>
-                      {" · "}내 답: <strong>{answer.answer ? "O" : "X"}</strong>
+                      {" · "}<strong>내 답:</strong> {answer.answer ? "O" : "X"}
                     </>
                   ) : null}
                 </p>
               ) : null}
               {explanation ? (
                 <div className="learn-explanation">
-                  <strong>해설:</strong> {explanation}
+                  <strong>해설:</strong> <LearnSeparatedText text={explanation} />
                 </div>
               ) : null}
               <div className="learn-actions">

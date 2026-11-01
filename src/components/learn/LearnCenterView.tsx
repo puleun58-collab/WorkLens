@@ -809,7 +809,7 @@ export function LearnCenterView() {
     <div className="learn-view">
       {saveError ? (
         <div className="learn-save-error" role="alert">
-          <span>{saveError.message}</span>
+          <span><strong>저장 안내:</strong> {saveError.message}</span>
           <span className="learn-save-error-actions">
             {saveError.retryable ? (
               <Button type="button" variant="outline" size="sm" onClick={retrySave}>
@@ -824,7 +824,7 @@ export function LearnCenterView() {
       ) : null}
       {notice ? (
         <div className="learn-save-error" role="status">
-          <span>{notice}</span>
+          <span><strong>학습 안내:</strong> {notice}</span>
           <span className="learn-save-error-actions">
             <Button type="button" variant="ghost" size="sm" onClick={() => setNotice(null)}>
               닫기
@@ -1117,7 +1117,7 @@ function LearnDashboard(props: {
         </div>
         {progress.diagnostic && progress.diagnostic.weakAreas.length > 0 ? (
           <div className="learn-dash-note">
-            <small>사전 진단 결과 보완 권장:</small>
+            <small><strong>사전 진단 결과 보완 권장:</strong></small>
             <div className="learn-diagnostic-areas">
               {progress.diagnostic.weakAreas.map((id) => {
                 const areaId = id as DiagnosticAreaId;
@@ -1132,7 +1132,7 @@ function LearnDashboard(props: {
                       <div className="learn-diagnostic-area-label">{label}</div>
                       {target && unit ? (
                         <div className="learn-muted">
-                          <small>연결 학습: LEVEL {target.level} · {unit.title}</small>
+                          <small><strong>연결 학습:</strong> LEVEL {target.level} · {unit.title}</small>
                         </div>
                       ) : null}
                     </div>
@@ -1173,7 +1173,7 @@ function LearnDashboard(props: {
           {inProgressRestorable ? (
             <>
               <p className="learn-muted">
-                <small>이전에 풀던 퀴즈가 저장되어 있습니다. 문제 구성과 답변은 그대로 유지됩니다.</small>
+                <small><strong>응시 안내:</strong> 이전에 풀던 퀴즈가 저장되어 있습니다. 문제 구성과 답변은 그대로 유지됩니다.</small>
               </p>
               <div className="learn-actions learn-dash-actions">
                 <Button type="button" variant="default" onClick={props.onResumeInProgress}>
@@ -1184,13 +1184,13 @@ function LearnDashboard(props: {
                 </Button>
               </div>
               <p className="learn-dash-note">
-                <small>새로 시작하면 진행 중이던 응시는 종료되고 새 문제가 출제됩니다.</small>
+                <small><strong>주의:</strong> 새로 시작하면 진행 중이던 응시는 종료되고 새 문제가 출제됩니다.</small>
               </p>
             </>
           ) : (
             <>
               <p className="learn-muted">
-                <small>문제은행이 변경되어 이전 응시를 복원할 수 없습니다. 진행 중 응시를 종료하고 새로 시작할 수 있습니다.</small>
+                <small><strong>복원 안내:</strong> 문제은행이 변경되어 이전 응시를 복원할 수 없습니다. 진행 중 응시를 종료하고 새로 시작할 수 있습니다.</small>
               </p>
               <div className="learn-actions learn-dash-actions">
                 <Button type="button" variant="default" onClick={props.onRestartInProgress}>

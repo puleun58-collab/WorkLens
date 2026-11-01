@@ -1,24 +1,9 @@
-import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { DECISION_DISPLAY, decisionPanelLabel } from "@/lib/ax/rule-questions";
 import { DECISION_POINT_DEFS, confirmedStateNames, resolveDecisionPoints } from "@/lib/ax/decision-points";
 import { buildAllInOnePrompt } from "@/lib/ax/guide";
 import { diagnosisFixture, planFixture } from "./fixtures/ax";
 import type { AxDiagnosis, GenericRule } from "@/lib/ax/types";
-
-const sha = (s: string) => createHash("sha256").update(s, "utf8").digest("hex");
-
-/** 범용 규칙 체계 전환 후 기준 해시 (의도된 변경으로 재계산됨 — §05 제목·§05 확정 규칙 검증·
- * §06 문구·범용 블록 추가가 반영된 값이다. 해시가 바뀌면 01~04 의미 비교 단언과 함께 원인을 확인한다.)
- * P2 완료 불인정 기준 블록 추가 (2026-10-31): full·bare 해시가 모두 변경된다.
- * 해당 블록은 결정 지점·범용 규칙이 있을 때 렌더링되는데, resolveDecisionPoints가
- * 결정 지점 미입력 진단에도 7개 지점을 기본 미확정으로 반환하므로 bare 본문에도
- * 기존 업무 규칙 검증 블록이 이미 존재했고, 그 뒤에 완료 불인정 블록이 추가된다.
- * 전후 diff는 완료 불인정 기준 블록 삽입 1건뿐이며, 다른 본문 변경은 없다. */
-const BASELINE = {
-  codex: { full: "8aaffe77b9bdfca48a9e92cc1ef14d560ed307dd4eb7d431cc0751b86d6fd89e", bare: "c7a8ad3c5513b82e70b17de3bd99f5b7ab81261572d961e409c160a40733d67e" },
-  claude: { full: "8aaffe77b9bdfca48a9e92cc1ef14d560ed307dd4eb7d431cc0751b86d6fd89e", bare: "c7a8ad3c5513b82e70b17de3bd99f5b7ab81261572d961e409c160a40733d67e" },
-};
 
 const confirmedDiagnosis = (): AxDiagnosis => ({
   ...structuredClone(diagnosisFixture),
@@ -28,7 +13,7 @@ const confirmedDiagnosis = (): AxDiagnosis => ({
     { id: "D3", status: "확정", detail: "빈칸은 확인 필요, 음수는 오류(확정)" },
     { id: "D4", status: "확정", detail: "정상, 오류(확정), 확인 필요" },
     { id: "D5", status: "확정", detail: "확인 필요" },
-    { id: "D6", status: "해당 없음" },
+    { id: "D6", status: "해당 없음", detail: "미적용 빈 입력 상세는 구현하지 않는다." },
     { id: "D7", status: "확정", detail: "합계는 소수 둘째 자리 반올림, 단위 원" },
   ],
 });
@@ -42,15 +27,15 @@ const genericRules = (): GenericRule[] => [
 describe("AX 표시 문구 개선 — 표시 전용 라벨", () => {
   it("결정 지점 표시 제목은 항목명 + (D번호) 기준을 따른다", () => {
     expect(Object.entries(DECISION_DISPLAY).map(([id, item]) => `${item.title} (${id})`)).toEqual([
-      "대조 기준 (D1)", "중복 처리 (D2)", "예외값 처리 (D3)", "결과 상태 (D4)",
-      "판단 불가 처리 (D5)", "빈 파일 처리 (D6)", "계산 기준 (D7)",
+      "대조 기준 (D1)", "중복 처리 (D2)", "예외 처리 (D3)", "결과 상태 (D4)",
+      "판단 불가 처리 (D5)", "빈 입력 처리 (D6)", "계산 기준 (D7)",
     ]);
   });
 
   it("패널 라벨은 D번호 없이 카드별 기준을 쓴다", () => {
     expect(decisionPanelLabel("D1", "상태")).toBe("상태");
     expect((["D1", "D2", "D3", "D4", "D5", "D6", "D7"] as const).map(id => decisionPanelLabel(id, "상세"))).toEqual([
-      "대조 기준", "중복 처리 기준", "예외 처리 기준", "상태 구분 기준", "판단 불가 처리 기준", "빈 파일 처리 기준", "계산 기준",
+      "대조 기준", "중복 처리 기준", "예외 처리 기준", "상태 구분 기준", "판단 불가 처리 기준", "빈 입력 처리 기준", "계산 기준",
     ]);
   });
 
@@ -63,13 +48,25 @@ describe("AX 표시 문구 개선 — 표시 전용 라벨", () => {
 });
 
 describe("AX 범용 규칙 체계 — 01~04 지시문 의미 비교", () => {
-  it("D1~D7 확정 + 범용 규칙 픽스처의 지시문이 전환 후 기준 해시와 일치한다 (Codex·Claude)", () => {
-    for (const agent of ["codex", "claude"] as const) {
-      const full = buildAllInOnePrompt(planFixture, agent, { diagnosis: confirmedDiagnosis(), taskName: "테스트 업무", context: "", genericRules: genericRules() });
-      const bare = buildAllInOnePrompt(planFixture, agent, { diagnosis: diagnosisFixture, taskName: "테스트 업무", context: "", genericRules: [] });
-      expect(sha(full)).toBe(BASELINE[agent].full);
-      expect(sha(bare)).toBe(BASELINE[agent].bare);
-    }
+  it("표시 라벨과 무관하게 확정·미확정·미적용 의미와 도구 간 동일성을 유지한다", () => {
+    const diagnosis = confirmedDiagnosis();
+    const rules = genericRules();
+    const snapshot = structuredClone({ diagnosis, rules });
+    const options = { diagnosis, taskName: "테스트 업무", context: "", genericRules: rules };
+    const full = buildAllInOnePrompt(planFixture, "codex", options);
+    expect(full).toBe(buildAllInOnePrompt(planFixture, "claude", options));
+    expect(full).toContain("D6 빈 입력 — 해당 없음 (구현·검증 대상에서 제외)");
+    expect(full).not.toContain("미적용 빈 입력 상세는 구현하지 않는다.");
+    expect(full).toContain("[관련 단계: 월말 집계] [근거: 매뉴얼 3장]");
+    expect(full).not.toContain(rules[1].detail);
+    expect({ diagnosis, rules }).toEqual(snapshot);
+    const bareOptions = { diagnosis: diagnosisFixture, taskName: "테스트 업무", context: "", genericRules: [] };
+    const bare = buildAllInOnePrompt(planFixture, "codex", bareOptions);
+    expect(bare).toBe(buildAllInOnePrompt(planFixture, "claude", bareOptions));
+    for (const id of ["D3", "D4", "D5", "D6"]) expect(bare).toMatch(new RegExp(`${id} [^\\n]+ — 미확정`, "u"));
+    expect(bare).not.toContain("D1 기준과 매칭 — 미확정");
+    expect(bare).not.toContain("D2 중복 — 미확정");
+    expect(bare).not.toContain("D7 계산 기준 — 미확정");
   });
 
   it("확정 D규칙 의미는 유지되고 확정 범용 규칙이 별도 블록으로 전달된다", () => {

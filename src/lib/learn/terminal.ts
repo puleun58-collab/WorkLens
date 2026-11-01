@@ -79,7 +79,7 @@ function newGitState(): VirtualGitState {
 }
 
 /** 명령어 토큰화 — 따옴표 안 공백 유지 */
-function tokenize(input: string): string[] {
+function tokenize(input: string): string[] | null {
   const tokens: string[] = [];
   let cur = "";
   let quote: string | null = null;
@@ -95,6 +95,7 @@ function tokenize(input: string): string[] {
       cur += ch;
     }
   }
+  if (quote) return null;
   if (cur) tokens.push(cur);
   return tokens;
 }
@@ -171,6 +172,10 @@ export function executeCommand(prev: VirtualTerminalState, input: string): ExecR
   const push = (...lines: string[]) => out.push(...lines);
 
   const tokens = tokenize(input);
+  if (tokens === null) {
+    push("따옴표가 닫히지 않았습니다. 이름이나 메시지의 앞뒤에 따옴표를 모두 붙여 다시 입력하세요.");
+    return { state, output: out };
+  }
   if (tokens.length === 0) return { state, output: [] };
   const [cmd, ...args] = tokens;
   const lower = cmd.toLowerCase();
@@ -194,6 +199,7 @@ export function executeCommand(prev: VirtualTerminalState, input: string): ExecR
     return { state, output: out };
   }
   if (lower === "cd") {
+    if (args.length > 1) { push('cd: 경로를 하나만 입력하세요. 공백이 있는 이름은 따옴표로 감싸세요. 예) cd "내 문서"'); return { state, output: out }; }
     // 실제 PowerShell의 cd는 경로를 생략하면 홈 디렉터리로 이동한다
     if (!args[0]) { state.cwd = ROOT; return { state, output: out }; }
     const target = normalizePath(state.cwd, args[0]);
@@ -210,7 +216,7 @@ export function executeCommand(prev: VirtualTerminalState, input: string): ExecR
       if (parentDir(d) === state.cwd && d !== state.cwd) entries.push(`d-----  ${baseName(d)}`);
     }
     for (const [f] of state.files) {
-      if (parentDir(f) === state.cwd) entries.push(`       ${baseName(f)}`);
+      if (parentDir(f) === state.cwd) entries.push(`-a----  ${baseName(f)}`);
     }
     if (entries.length === 0) push("(비어 있음)");
     else push(...entries.sort());
@@ -256,9 +262,12 @@ function execGit(state: VirtualTerminalState, args: string[], out: string[]): Ex
     if (!url) { push("git clone: 저장소 주소를 입력하세요. 예) git clone https://github.com/example/repo.git"); return { state, output: out }; }
     const name = baseName(url).replace(/\.git$/, "") || "repo";
     const target = normalizePath(state.cwd, name);
+    if (state.dirs.has(target) || state.files.has(target)) {
+      push(`git clone: '${name}' 경로가 이미 있습니다. 이미 받은 저장소는 cd로 이동한 뒤 git pull을 실행하세요.`);
+      return { state, output: out };
+    }
     state.dirs.add(target);
     state.files.set(`${target}\\README.md`, "# " + name);
-    state.cwd = target;
     state.git = { ...newGitState(), repoRoot: target, remote: { name: "origin", url }, commits: [{ id: "a1b2c3d", message: "초기 커밋" }] };
     push(`'${url}'을(를) '${name}' 폴더에 복제했습니다.`);
     return { state, output: out };
@@ -279,22 +288,28 @@ function execGit(state: VirtualTerminalState, args: string[], out: string[]): Ex
     if (g.staged.length === 0 && g.modified.length === 0 && g.untracked.length === 0) push("작업 트리가 깨끗합니다.");
     if (g.ahead > 0) push(`원격 저장소보다 ${g.ahead}개 커밋 앞서 있습니다. (git push 필요)`);
     if (g.behind > 0) push(`원격 저장소보다 ${g.behind}개 커밋 뒤처져 있습니다. (git pull 필요)`);
+    if (g.remote && g.ahead === 0 && g.behind === 0 && !g.conflicted) push("원격 저장소와 동기화되어 최신 상태입니다.");
     return { state, output: out };
   }
   if (sub === "add") {
     const target = args[1];
     if (!target) { push("git add: 파일 이름을 입력하세요. 예) git add report.txt  또는  git add ."); return { state, output: out }; }
-    if (target === ".") {
-      g.staged.push(...g.modified, ...g.untracked);
-      g.modified = []; g.untracked = [];
-      push("모든 변경 사항을 스테이징했습니다.");
+    const path = normalizePath(state.cwd, target);
+    const rel = path.slice(g.repoRoot!.length + 1);
+    const inRepo = path === g.repoRoot || path.startsWith(`${g.repoRoot}\\`);
+    const matches = (name: string) =>
+      inRepo && (normalizePath(g.repoRoot!, name) === path ||
+        (target === "." && normalizePath(g.repoRoot!, name).startsWith(`${path}\\`)));
+    const selected = [...g.modified, ...g.untracked].filter(matches);
+    if (selected.length > 0) {
+      for (const name of selected) if (!g.staged.includes(name)) g.staged.push(name);
+      g.modified = g.modified.filter((name) => !matches(name));
+      g.untracked = g.untracked.filter((name) => !matches(name));
+      push(target === "." ? "모든 변경 사항을 스테이징했습니다." : `'${target}'을(를) 스테이징했습니다.`);
+    } else if (inRepo && g.staged.some((name) => normalizePath(g.repoRoot!, name) === path)) {
+      push(`'${rel}'은(는) 이미 스테이징되어 있습니다.`);
     } else {
-      const name = target.replace(/\\/g, "/");
-      const idx = g.modified.findIndex((m) => m.replace(/\\/g, "/") === name || baseName(m) === baseName(name));
-      const uidx = g.untracked.findIndex((m) => m.replace(/\\/g, "/") === name || baseName(m) === baseName(name));
-      if (idx >= 0) { g.staged.push(g.modified[idx]); g.modified.splice(idx, 1); push(`'${target}'을(를) 스테이징했습니다.`); }
-      else if (uidx >= 0) { g.staged.push(g.untracked[uidx]); g.untracked.splice(uidx, 1); push(`'${target}'을(를) 스테이징했습니다.`); }
-      else push(`git add: '${target}'에 해당하는 변경 사항이 없습니다. git status로 확인하세요.`);
+      push(`git add: '${target}'에 해당하는 변경 사항이 없습니다. git status로 확인하세요.`);
     }
     return { state, output: out };
   }
@@ -312,6 +327,7 @@ function execGit(state: VirtualTerminalState, args: string[], out: string[]): Ex
   }
   if (sub === "push") {
     if (!g.remote) { push("git push: 원격 저장소가 설정되어 있지 않습니다. (fatal: No configured push destination)"); return { state, output: out }; }
+    if (g.conflicted) { push("git push: 충돌이 있습니다. 충돌 파일을 먼저 확인하고 해결하세요."); return { state, output: out }; }
     if (g.behind > 0) { push("git push: 거부되었습니다. 원격 저장소에 새 변경 사항이 있습니다. 먼저 git pull을 실행하세요."); return { state, output: out }; }
     if (g.ahead === 0) { push("git push: 푸시할 내용이 없습니다. (Everything up-to-date)"); return { state, output: out }; }
     g.ahead = 0;
@@ -374,15 +390,15 @@ function evalCheck(state: VirtualTerminalState, check: TerminalSuccessCheck): bo
     case "file-exists":
       return state.files.has(check.path);
     case "file-contains":
-      return (state.files.get(check.path) ?? "").includes(check.text);
+      return state.files.has(check.path) && state.files.get(check.path)!.includes(check.text);
     case "staged-includes":
-      return g.staged.some((s) => s === check.path || baseName(s) === baseName(check.path));
+      return g.repoRoot !== null && g.staged.some((s) => normalizePath(g.repoRoot!, s) === normalizePath(g.repoRoot!, check.path));
     case "commit-exists":
       return g.commits.some((c) => c.message.includes(check.messageContains));
     case "branch-is":
       return g.branch === check.name;
     case "remote-in-sync":
-      return g.remote !== null && g.ahead === 0 && g.behind === 0;
+      return g.remote !== null && !g.conflicted && g.ahead === 0 && g.behind === 0;
   }
 }
 
@@ -392,7 +408,7 @@ function evalCheck(state: VirtualTerminalState, check: TerminalSuccessCheck): bo
  */
 export function serializeTerminalState(
   state: VirtualTerminalState,
-  transcript: { cmd: string; out: string[] }[],
+  transcript: TerminalStateSnapshot["transcript"],
 ): TerminalStateSnapshot {
   return {
     cwd: state.cwd,
@@ -412,7 +428,7 @@ export function serializeTerminalState(
       conflicted: state.git.conflicted,
     },
     lines: [...state.lines],
-    transcript: transcript.map((t) => ({ cmd: t.cmd, out: [...t.out] })),
+    transcript: transcript.map((t) => ({ cmd: t.cmd, out: [...t.out], ...(t.cwd !== undefined ? { cwd: t.cwd } : {}) })),
   };
 }
 
@@ -439,7 +455,7 @@ export function isValidTerminalSnapshot(value: unknown): value is TerminalStateS
 /** 스냅샷에서 터미널 상태를 복원한다. 구조가 손상되었으면 null을 반환한다. */
 export function deserializeTerminalState(
   snapshot: TerminalStateSnapshot,
-): { state: VirtualTerminalState; transcript: { cmd: string; out: string[] }[] } | null {
+): { state: VirtualTerminalState; transcript: TerminalStateSnapshot["transcript"] } | null {
   if (!isValidTerminalSnapshot(snapshot)) return null;
   const g = snapshot.git;
   const state: VirtualTerminalState = {
@@ -463,7 +479,7 @@ export function deserializeTerminalState(
   };
   const transcript = snapshot.transcript
     .filter((t) => typeof t === "object" && t !== null && typeof t.cmd === "string" && Array.isArray(t.out))
-    .map((t) => ({ cmd: t.cmd, out: t.out.filter((l) => typeof l === "string") }));
+    .map((t) => ({ cmd: t.cmd, out: t.out.filter((l) => typeof l === "string"), ...(typeof t.cwd === "string" ? { cwd: t.cwd } : {}) }));
   return { state, transcript };
 }
 

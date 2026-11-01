@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+import type { Page } from "@playwright/test";
 import { navigateWorkspace } from "./navigation";
 import { outputFixture, planFixture } from "../fixtures/ax";
 import { addInlineRule, chooseOption } from "./ax-rules";
@@ -44,13 +45,14 @@ test("AX 간소화·COSS 통일: 판단 하단 문구 제거·매트릭스 버�
 
   // D3·D4·D5·D6 확정 → step 4에 예시 미확정 항목이 생기지 않는다 (예시 체계 제거).
   // (고정 7개가 아니라 진단에서 도출된 후보 행만 표시되므로, 신호가 없는 D1·D2·D7 행은 없다.)
-  await confirmDecision(page, /D3 예외값 처리/, "D3");
+  await confirmDecision(page, /D3 예외 처리/, "D3");
   await confirmDecision(page, /D4 결과 상태/, "D4");
   await confirmDecision(page, /D5 판단 불가 처리/, "D5");
-  await confirmDecision(page, /D6 빈 파일 처리/, "D6");
+  await confirmDecision(page, /D6 빈 데이터 처리/, "D6");
   await page.locator('section[aria-label="업무 규칙 확인"]').getByRole("button", { name: "저장", exact: true }).click();
-  // D 4건 확정 / 표시된 규칙 9건(D 4건 + 범용 후보 5건: 기술적 확인 4건 + 사람 판단 1건).
-  await expect(page.locator('section[aria-label="업무 규칙 확인"]').getByText("4/9 완료", { exact: true })).toBeVisible();
+  // D 4건 확정 / 표시된 규칙 6건(D 4건 + 최종 승인 + 외부 전송 전 HITL 검토).
+  // API·계획 선행 확인은 제외하되 전송 전 사용자 검토라는 실제 처리 조건은 분모에 남긴다.
+  await expect(page.locator('section[aria-label="업무 규칙 확인"]').getByText("4/6 완료", { exact: true })).toBeVisible();
 
   // B. 매트릭스 상세 카드 자체가 §9로 제거됐다 (이동 버튼 제거를 넘어 카드 자체가 없음).
   // 이동은 상단 단계 내비게이션으로 한다.
@@ -108,7 +110,9 @@ test("AX 간소화·COSS 통일: 판단 하단 문구 제거·매트릭스 버�
 
   // E. HITL 검토·결정 지점·예시는 업무 진단 단계에서 도달한다.
   await page.getByRole("tab", { name: "업무 진단", exact: true }).click();
-  await page.locator("#ax-step-review").scrollIntoViewIfNeeded();
+  // 단계 전환의 RAF·150ms 최상단 복원과 수동 스크롤을 경쟁시키지 않는다.
+  // 실제 검토 버튼의 자동 대기·스크롤로 도달한 뒤 동일한 뷰포트 계약을 확인한다.
+  await page.locator("#ax-step-review").getByRole("button", { name: "검토", exact: true }).first().click();
   await expect(page.locator("#ax-step-review")).toBeInViewport();
   await page.locator("#ax-decision-D4 .ax-decision-row-head").click();
   await expect(page.locator("#ax-decision-D4 .ax-decision-row-head")).toHaveAttribute("aria-expanded", "true");

@@ -7,7 +7,7 @@ export const CONTENT_L02: LearnContent = {
   units: [
     {
       id: "l2-u1",
-      title: "반복성과 업무량 — 자동화의 첫 번째 단서",
+      title: "반복성과 업무량: 자동화의 첫 번째 단서",
       shortTitle: "반복성과 업무량",
       estimatedMinutes: 10,
       goal: "반복성과 업무량이 왜 자동화 판단의 출발점인지 설명할 수 있다.",
@@ -80,7 +80,7 @@ export const CONTENT_L02: LearnContent = {
     },
     {
       id: "l2-u2",
-      title: "규칙이 명확한가 — 자동화의 핵심 조건",
+      title: "규칙이 명확한가: 자동화의 핵심 조건",
       shortTitle: "명확한 규칙",
       estimatedMinutes: 10,
       goal: "규칙 명확성이 자동화 가능 여부를 가르는 기준임을 설명하고, 판단이 필요한 업무를 구분할 수 있다.",
@@ -270,7 +270,7 @@ export const CONTENT_L02: LearnContent = {
     },
     {
       id: "l2-u5",
-      title: "자동화 가능성 판단하기 — 종합 체크",
+      title: "자동화 가능성 판단하기: 종합 체크",
       shortTitle: "자동화 가능성 종합 체크",
       estimatedMinutes: 10,
       goal: "다섯 가지 판단 기준을 업무에 적용해 자동화 가능성을 종합적으로 판단할 수 있다.",

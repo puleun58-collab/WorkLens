@@ -7,7 +7,6 @@ import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@/components/
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { DECISION_POINT_DEFS } from "@/lib/ax/decision-points";
 import { GENERIC_RULE_CATEGORIES, GENERIC_RULE_STATUSES } from "@/lib/ax/schema";
 import { resolveGenericRules } from "@/lib/ax/generic-rules";
 import { uiText } from "@/lib/ax/display-text";
@@ -20,10 +19,8 @@ import {
   hasDerivationSignals,
   unifiedRuleProgress,
   unifiedSavePayloads,
-  type UnifiedDecisionDraft,
-  type UnifiedGenericDraft,
-  type UnifiedRuleDraft,
 } from "@/lib/ax/rule-questions";
+import type { UnifiedDecisionDraft, UnifiedGenericDraft, UnifiedRuleDraft } from "@/lib/ax/rule-questions";
 import type { AxDiagnosis, DecisionPoint, DecisionPointId, DecisionPointStatus, GenericRule, GenericRuleApplicability, GenericRuleCategory, GenericRuleStatus } from "@/lib/ax/types";
 
 /**
@@ -82,7 +79,31 @@ const genericBadgeStatus = (rule: UnifiedGenericDraft): DecisionPointStatus =>
 
 /** 범용 행의 안정 키. 저장·사용자 행은 id, 후보는 도출 근거(개명해도 유지된다). */
 const genericKey = (rule: UnifiedGenericDraft): string =>
-  rule.id ?? `candidate:${rule.provenance ?? rule.name}`;
+  rule.id ?? `candidate:${rule.candidateKey ?? rule.provenance ?? rule.name}`;
+
+const draftKey = (rule: UnifiedRuleDraft): string =>
+  rule.kind === "decision" ? `decision:${rule.id}` : `generic:${genericKey(rule)}`;
+
+/** Refresh untouched suggestions while retaining local edits, additions and deletions. */
+function refreshDrafts(current: UnifiedRuleDraft[], previous: UnifiedRuleDraft[], next: UnifiedRuleDraft[]): UnifiedRuleDraft[] {
+  const previousByKey = new Map(previous.map(rule => [draftKey(rule), rule]));
+  const currentByKey = new Map(current.map(rule => [draftKey(rule), rule]));
+  const editedKeys = new Set(current.filter(rule =>
+    rule.origin === "user" || (rule.kind === "generic" && rule.touched)
+    || JSON.stringify(rule) !== JSON.stringify(previousByKey.get(draftKey(rule)))).map(draftKey));
+  const nextKeys = new Set(next.map(draftKey));
+  const refreshed = next.flatMap(rule => {
+    const key = draftKey(rule);
+    const local = currentByKey.get(key);
+    // A locally deleted saved rule must not reappear on re-diagnosis.
+    if (!local && previousByKey.has(key)) return [];
+    if (!local || !editedKeys.has(key)) return [rule];
+    return [local.kind === "decision" && rule.kind === "decision"
+      ? { ...local, displayTitle: rule.displayTitle, displayQuestion: rule.displayQuestion }
+      : local];
+  });
+  return [...refreshed, ...current.filter(rule => !nextKeys.has(draftKey(rule)) && editedKeys.has(draftKey(rule)))];
+}
 
 /** 범용 규칙 입력값. 신규 항목은 분류·적용 여부·확정 상태를 사용자가 고르기 전까지 빈 값이다. */
 interface GenericRuleFieldValues {
@@ -209,18 +230,30 @@ export function UnifiedRulesSection({ diagnosis, genericRules, disabled: externa
   /** 구현 전 확인 '확인하러 가기'로 펼칠 결정 지점 (D1~D7). */
   focus?: { id: string; nonce: number } | null;
 }) {
-  // 저장 후 부모가 새 값을 내려주면 초안을 동기화한다 (effect가 아닌 렌더 중 조정 패턴).
-  const draftsKey = JSON.stringify({ d: diagnosis.decisionPoints ?? [], g: resolveGenericRules(genericRules) });
+  // Include diagnosis sources: re-diagnosis can change candidates without changing saved rules.
+  const decisionPointsKey = JSON.stringify(diagnosis.decisionPoints ?? []);
+  const genericRulesKey = JSON.stringify(resolveGenericRules(genericRules));
+  const draftsKey = JSON.stringify({ diagnosis, g: resolveGenericRules(genericRules) });
   const [drafts, setDrafts] = useState<UnifiedRuleDraft[]>(() => deriveUnifiedRules(diagnosis, genericRules));
-  const [prevDraftsKey, setPrevDraftsKey] = useState(draftsKey);
+  const [previousInputs, setPreviousInputs] = useState(() => ({
+    key: draftsKey, diagnosis, genericRules, derived: drafts,
+  }));
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "failed">("idle");
-  const [submittedDraftsKey, setSubmittedDraftsKey] = useState<string | null>(null);
-  // Parent state updates precede persistence. Keep the exact draft until saving succeeds.
-  if (prevDraftsKey !== draftsKey && saveState !== "saving") {
-    setPrevDraftsKey(draftsKey);
-    if (saveState !== "failed" || draftsKey !== submittedDraftsKey) {
-      setDrafts(deriveUnifiedRules(diagnosis, genericRules));
-    }
+  const [submittedDraftsKeys, setSubmittedDraftsKeys] = useState<{ decisions: string; generic: string } | null>(null);
+  // Parent state updates precede persistence. A failed optimistic echo is not saved data.
+  if (previousInputs.key !== draftsKey && saveState !== "saving") {
+    // D and generic parent lists can update independently; recognize each optimistic echo.
+    const failedDecisionEcho = saveState !== "saved" && decisionPointsKey === submittedDraftsKeys?.decisions;
+    const failedGenericEcho = saveState !== "saved" && genericRulesKey === submittedDraftsKeys?.generic;
+    const nextDiagnosis = failedDecisionEcho
+      ? { ...diagnosis, decisionPoints: previousInputs.diagnosis.decisionPoints }
+      : diagnosis;
+    const nextGenericRules = failedGenericEcho ? previousInputs.genericRules : genericRules;
+    const derived = deriveUnifiedRules(nextDiagnosis, nextGenericRules);
+    setPreviousInputs({ key: draftsKey, diagnosis: nextDiagnosis, genericRules: nextGenericRules, derived });
+    setDrafts(saveState === "saved" && decisionPointsKey === submittedDraftsKeys?.decisions && genericRulesKey === submittedDraftsKeys?.generic
+      ? derived
+      : refreshDrafts(drafts, previousInputs.derived, derived));
   }
   const disabled = externallyDisabled || saveState === "saving";
   // 펼침 상태는 초안과 별개로 유지한다: 접었다 펴도 미저장 입력값이 사라지지 않는다.
@@ -236,10 +269,11 @@ export function UnifiedRulesSection({ diagnosis, genericRules, disabled: externa
   const savingRef = useRef(false);
 
   // 업무 규칙 검토 완료율: 화면의 모든 검토 항목이 분모, 확정·미적용 결정이 완료.
+  const derivationReady = hasDerivationSignals(diagnosis);
   const progress = unifiedRuleProgress(drafts);
   const progressText = progress.total
     ? `${progress.done}/${progress.total} 완료`
-    : "확인할 규칙 없음";
+    : derivationReady ? "확인할 규칙 없음" : "진단 정보 부족";
 
   const setDetailsOpenFor = (key: string, open: boolean) =>
     setDetailsOpen(current => {
@@ -263,7 +297,7 @@ export function UnifiedRulesSection({ diagnosis, genericRules, disabled: externa
     try {
       // 저장된 미확정 D와 작성한 메모는 보존하고, 미터치 빈 후보는 저장하지 않는다.
       const { points, rules } = unifiedSavePayloads(drafts, resolveGenericRules(genericRules));
-      setSubmittedDraftsKey(JSON.stringify({ d: points, g: resolveGenericRules(rules) }));
+      setSubmittedDraftsKeys({ decisions: JSON.stringify(points), generic: JSON.stringify(resolveGenericRules(rules)) });
       setSaveState(await onSave(points, rules) ? "saved" : "failed");
     } catch {
       setSaveState("failed");
@@ -335,9 +369,9 @@ export function UnifiedRulesSection({ diagnosis, genericRules, disabled: externa
 
   // D5 선택형 UI용 D4 확정 상태 목록 (초안 기준). D4 미확정 시에는 기존 자유 입력 유지한다.
   const d4States = draftStateNames(drafts);
-  const emptyText = hasDerivationSignals(diagnosis)
-    ? "확인 대상 규칙이 없습니다"
-    : "진단 정보가 부족해 규칙을 도출하지 못했습니다. 업무에 실제로 필요한 규칙이 있으면 '+ 규칙 추가'로 근거와 함께 추가하세요";
+  const emptyText = derivationReady
+    ? "현재 진단에서 추가로 확인할 업무 규칙이 도출되지 않았습니다. 규칙 검토 여부와 구현 가능 여부는 별도로 확인하세요"
+    : "진단 정보가 부족해 규칙 필요 여부를 판단하지 못했습니다. 업무 단계와 입출력·처리 조건을 보완하세요. 필요한 규칙은 '+ 규칙 추가'로 근거와 함께 추가할 수 있습니다";
   const newRuleOpen = openKey === NEW_RULE_KEY;
 
   return <section className="ax-surface ax-decision" id="ax-decision-points" aria-label="업무 규칙 확인">
@@ -355,7 +389,6 @@ export function UnifiedRulesSection({ diagnosis, genericRules, disabled: externa
     {drafts.length || newRule ? <div className="ax-decision-list">
       {drafts.map(item => {
         if (item.kind === "decision") {
-          const def = DECISION_POINT_DEFS.find(entry => entry.id === item.id)!;
           const display = DECISION_DISPLAY[item.id];
           const isOpen = openKey === item.id;
           // D5: D4 확정 목록이 있으면 선택형으로 표시한다. 목록 외 기존값은
@@ -365,7 +398,7 @@ export function UnifiedRulesSection({ diagnosis, genericRules, disabled: externa
             <button type="button" className="ax-decision-row-head" aria-expanded={isOpen} disabled={disabled}
               onClick={() => setOpenKey(isOpen ? null : item.id)}>
               <span className="ax-decision-no">{item.id}</span>
-              <span className="ax-decision-title"><strong>{display.title}</strong><small>{uiText(display.question)}</small></span>
+              <span className="ax-decision-title"><strong>{item.displayTitle ?? display.title}{item.origin === "candidate" ? <span className="ax-decision-badge" data-origin="candidate">제안</span> : null}</strong><small>{uiText(item.displayQuestion ?? display.question)}</small></span>
               <span className="ax-decision-badge" data-status={item.status}>{STATUS_BADGE[item.status]}</span>
               <ChevronDown size={18} aria-hidden="true" className={isOpen ? "is-open" : ""} />
             </button>
@@ -396,7 +429,7 @@ export function UnifiedRulesSection({ diagnosis, genericRules, disabled: externa
             onClick={() => setOpenKey(isOpen ? null : key)}>
             {item.id
               ? <span className="ax-decision-no">{item.id}</span>
-              : <span className="ax-decision-no ax-decision-no-new">신규</span>}
+              : <span className="ax-decision-no ax-decision-no-new">{item.origin === "candidate" ? "제안" : "신규"}</span>}
             <span className="ax-decision-title"><strong>{item.origin === "candidate" ? uiText(item.name.trim()) || "새 규칙" : item.name.trim() || "새 규칙"}</strong><small>{item.category}</small></span>
             <span className="ax-decision-badge" data-status={genericBadgeStatus(item)}>{STATUS_BADGE[genericBadgeStatus(item)]}</span>
             <ChevronDown size={18} aria-hidden="true" className={isOpen ? "is-open" : ""} />

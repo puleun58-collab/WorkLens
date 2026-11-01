@@ -1,8 +1,13 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { LearnResult } from "@/components/learn/LearnResult";
+import { LearnWrongNotes } from "@/components/learn/LearnWrongNotes";
+import { LearnCompletion } from "@/components/learn/LearnCompletion";
 import { describe, expect, test } from "vitest";
 import { ALL_LEVELS, levelMeta } from "@/lib/learn/curriculum";
 import { allQuestions, diagnosticQuestions, linkedUnitForQuestion, questionBank } from "@/lib/learn/questions";
 import { allContents } from "@/lib/learn/content";
-import type { LearnQuestion } from "@/lib/learn/types";
+import type { LearnProgress, LearnQuestion, QuizAttempt } from "@/lib/learn/types";
 
 describe("문제은행 무결성", () => {
   test("단계별 검증 문제 수 (출제 문항의 2배 이상)", () => {
@@ -144,3 +149,57 @@ describe("사전 진단", () => {
 
 export function __typecheck(q: LearnQuestion): LearnQuestion { return q; }
 void __typecheck;
+
+describe("학습 피드백 인라인 라벨", () => {
+  const noop = () => {};
+
+  test.each([true, false])("문항 결과는 상태 라벨과 질문을 같은 문단에 표시한다 (%s)", (correct) => {
+    const q = allQuestions().find((question) => question.type === "ox")!;
+    const attempt: QuizAttempt = {
+      attemptId: "inline-label", level: q.level, questionIds: [q.id],
+      answers: { [q.id]: { kind: "ox", answer: !q.oxAnswer } },
+      graded: [{ questionId: q.id, correct, points: correct ? 1 : 0 }],
+      score: correct ? 100 : 0, passed: correct, startedAt: 1, finishedAt: 2,
+    };
+    const html = renderToStaticMarkup(createElement(LearnResult, {
+      attempt, onRetry: noop, onNext: noop, onDashboard: noop,
+      onReviewWrong: noop, onOpenLessonUnit: noop,
+    }));
+    expect(html).toContain(`<p class="learn-note-prompt"><strong>1번. ${correct ? "정답" : "오답"}:</strong> `);
+    expect(html).toMatch(/<strong>정답:<\/strong> [OX]/);
+    expect(html).toMatch(/<strong>내 답:<\/strong> [OX]/);
+    expect(html).toContain("<strong>해설:</strong> ");
+    expect(html).not.toMatch(/<strong>[OX]<\/strong>/);
+  });
+
+  test("문제은행에서 제거된 OX 오답도 스냅샷을 인라인으로 표시한다", () => {
+    const progress: LearnProgress = {
+      version: 1, levels: {}, updatedAt: 1,
+      wrongAnswers: [{
+        questionId: "removed-inline-question", level: 1, category: "개념",
+        attemptId: "old-attempt", answeredAt: 1, reviewCount: 0,
+        prompt: "기록된 질문", questionType: "ox", oxAnswer: false,
+        myAnswer: { kind: "ox", answer: true }, explanation: "기록된 해설",
+      }],
+    };
+    const html = renderToStaticMarkup(createElement(LearnWrongNotes, {
+      progress, onMarkReviewed: noop, onBack: noop, onOpenLesson: noop, onOpenLessonUnit: noop,
+    }));
+    expect(html).toContain("<strong>오답:</strong> 기록된 질문");
+    expect(html).toContain("<strong>정답:</strong> X");
+    expect(html).toContain("<strong>내 답:</strong> O");
+    expect(html).toContain("<strong>해설:</strong> 기록된 해설");
+  });
+
+  test("완료 통계와 미완료 안내는 라벨만 강조한다", () => {
+    const progress: LearnProgress = { version: 1, levels: {}, wrongAnswers: [], updatedAt: 1 };
+    const incomplete = renderToStaticMarkup(createElement(LearnCompletion, { progress, onBack: noop }));
+    expect(incomplete).toContain("<strong>통과한 단계:</strong> 0 / 10");
+    for (const level of ALL_LEVELS) {
+      progress.levels[level] = { passed: true, bestScore: 100, attempts: [] };
+    }
+    const complete = renderToStaticMarkup(createElement(LearnCompletion, { progress, onBack: noop }));
+    expect(complete).toContain("<strong>완료 단계:</strong> <span>10 / 10</span>");
+    expect(complete).toContain("<strong>최초 완료일:</strong> <span>최초 완료일 확인 불가</span>");
+  });
+});
