@@ -259,7 +259,7 @@ describe("residual §1/§3: followup tiers, ranges and limited chain expansion",
     const annexes = await retrieveAnnexes("식품위생법 영업정지 요건", followup.articles, (async (law, number) => ({
       isError: false,
       text: law === "식품위생법 시행규칙" && number === "23"
-        ? "식품위생법 시행규칙 - 행정처분의 기준\n[별표23] 행정처분의 기준\n파일 형식: 표\n"
+        ? "식품위생법 시행규칙 - 행정처분의 기준\n[별표23] 행정처분의 기준\n파일 형식: 표\nⅠ. 일반기준\n영업정지 7일\nⅡ. 개별기준\n위반행위 1차 영업정지 7일\n"
         : "[NOT_FOUND] 없음",
     })) as AnnexReader);
     expect(annexes.filter((a) => a.label === "별표 23" && a.status === "verified")).toHaveLength(1);
@@ -391,8 +391,8 @@ describe("residual §1: annexes stay annex-scoped", () => {
     const read: AnnexReader = async (law, number) => ({
       isError: false,
       text: number === "23"
-        ? "식품위생법 시행규칙 - 행정처분의 기준\n[별표23] 행정처분의 기준\n파일 형식: 표\n"
-        : "식품위생법 시행령 - 과징금\n[별표1] 과징금\n파일 형식: 표\n",
+        ? "식품위생법 시행규칙 - 행정처분의 기준\n[별표23] 행정처분의 기준\n파일 형식: 표\nⅠ. 일반기준\n영업정지 7일\n"
+        : "식품위생법 시행령 - 과징금\n[별표1] 과징금\n파일 형식: 표\nⅠ. 일반기준\n과징금 100만원\n",
     });
     const result = await retrieveAnnexes("식품위생법 영업정지 요건", [
       { law: "식품위생법 시행규칙", jo: "제89조", title: "행정처분의 기준", excerpt: "별표 23과 같다.", matched: [], body: "법 제74조부터 법 제76조까지의 규정에 따른 행정처분의 기준은 별표 23과 같다." },

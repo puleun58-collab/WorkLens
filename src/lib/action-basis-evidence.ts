@@ -28,10 +28,9 @@ import { capForFailure, detailArticles, hasAvailableContent, hasFailedSection, h
  *   requirement-related text only (`viewed`); confirmation (`found`) also
  *   requires a conditional, duty, or criterion construction in the same body.
  *   Concrete case facts are never judged — the UI caution keeps that.
- * - 세부 기준(별표): asked → an annex section with entries (list ≠ original:
- *   an all-found result demotes to `partial` without a verified original of a
- *   counted law). Not asked → an optional "세부 처분 기준" item when the server
- *   verified an annex the act's own provision cites; it never sets the verdict.
+ * - 세부 기준(별표): asked → a matching annex original, not a list or a
+ *   different numbered annex. Core criteria/duration questions require it.
+ *   Otherwise a relevant disposition annex is supporting context only.
  * - 불복 자료: a listed decision whose substance was fetched.
  * Required kinds all verified → `matched`, some → `partial`, material
  * retrieved but nothing verified → `viewed`. Optional kinds are shown only.
@@ -164,6 +163,17 @@ function authoritySummary(ref: BodyRef, acts: readonly ActionTerm[]): string {
     limit ? `법정 상한 ${limit}` : "", /다만[,，]?/u.test(paragraph) ? "예외 단서 있음" : ""].filter(Boolean).join(" · ");
 }
 
+/** Judge the selected operative paragraph's proviso independently of later
+ * omitted numbered items and independently of the person's case facts. */
+function exceptionOriginal(paragraph: string): { status: "verified" | "partial" | "missing"; text?: string } {
+  const start = paragraph.search(/다만[,，]?/u);
+  if (start < 0) return { status: "missing" };
+  const tail = paragraph.slice(start).split(/(?:\n\s*\d+(?:의\d+)?\.\s)|<개정/u)[0].trim();
+  const sentence = /^[\s\S]*?다[.。](?=\s|$|<)/u.exec(tail)?.[0];
+  if (sentence && !/…|\.{3}|생략|중략|일부만 표시/u.test(sentence)) return { status: "verified", text: sentence };
+  return { status: "partial", text: tail };
+}
+
 function requirementSummary(ref: BodyRef, query: string, permission: boolean): string {
   const { paragraph, clause } = overviewClause(ref, actionTerms(query));
   const paragraphNo = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳".indexOf(paragraph.trim()[0]) + 1;
@@ -175,7 +185,12 @@ function requirementSummary(ref: BodyRef, query: string, permission: boolean): s
   const matched = [...ref.body.matchAll(/(?:^|\n)\s*(\d+(?:의\d+)?)\.\s*([^\n]+)/gu)]
     .find((entry) => questionSubjectTerms(query).some((term) => term.length >= 3 && !isLawName(term)
       && !/영업|정지|처분|위반|기준|요건|허가|등록/u.test(term) && entry[2].includes(term)));
-  return `${matched ? `${ref.jo} 제${matched[1]}호: ${matched[2].trim().slice(0, 65)}` : condition} · 개별 적용 미확정${/다만[,，]?/u.test(paragraph) ? " · 예외 단서 원문 확인 필요" : ""}`;
+  const exception = exceptionOriginal(paragraph);
+  const exceptionSummary = exception.status === "verified" ? "예외 규정 확인"
+    : exception.status === "partial" ? "예외 단서 원문 일부만 확인"
+      : /예외|단서/u.test(query) ? "예외 단서 원문 미확보" : "";
+  return [matched ? `${ref.jo} 제${matched[1]}호: ${matched[2].trim().slice(0, 65)}` : condition,
+    exceptionSummary, "개별 적용 미확정"].filter(Boolean).join(" · ");
 }
 
 /** The requirements and the authority may share a provision, but never the
@@ -201,9 +216,10 @@ function requirementAnswer(ref: BodyRef, query: string): string {
   if (violations.length) {
     parts.push(`${paragraph.trim().startsWith("①") ? "제1항 " : ""}원문에서 확인한 위반행위 ${violations.length}개 호(삭제 호 제외): ${examples.map((entry) => `${entry[1]}. ${entry[2].trim()}`).join(" · ")}${scoped.length !== 1 && violations.length > examples.length ? " · 나머지 호는 하단 조문 원문에서 확인" : ""}.`);
   }
-  const exception = /다만,?[^\n]{10,400}?(?:할 수 있다|하여야 한다|해야 한다|된다)\./u.exec(paragraph);
-  if (exception) parts.push(`예외 단서: ${exception[0]}`);
-  else if (paragraph.includes("다만")) parts.push("예외 단서는 발췌가 중략되어 세부 요건 미확인.");
+  const exception = exceptionOriginal(paragraph);
+  if (exception.status === "verified") parts.push(`예외 단서: ${exception.text}`);
+  else if (exception.status === "partial") parts.push(`예외 단서 원문 일부만 확인: ${exception.text} 세부 요건은 원문 추가 확인 필요.`);
+  else if (/예외|단서/u.test(query)) parts.push("예외 단서 원문 미확보. 조회한 원문에 단서가 보이지 않는다는 이유만으로 예외가 없다고 단정할 수 없습니다.");
   return parts.join(" ");
 }
 
@@ -260,6 +276,23 @@ export function annexCriteriaForQuestion(query: string, original: string, author
   const applicable = count ? row[Number(count) + 1] : undefined;
   if (count && !applicable) return undefined;
   return `${chosen[0].name} · ${rowParent ? `${rowParent} · ` : ""}${row[0]} · ${rowBasis ? `근거 법령: ${rowBasis} · ` : ""}${count ? `${count}차 위반: ${applicable}` : `차수별 기준: 1차 ${row[2] || "미기재"} / 2차 ${row[3] || "미기재"} / 3차 ${row[4] || "미기재"}`}`;
+}
+
+/** Exact numbered identities, so 별표 2 never names 별표 23. */
+export function requestedAnnexLabels(query: string): string[] {
+  return [...new Set([...query.matchAll(/(별표|별지)\s*(?:제\s*)?(\d+)(?:\s*호)?(?:\s*의\s*(\d+))?(?:\s*서식)?/gu)]
+    .map((match) => match[1] === "별지" ? `별지 제${match[2]}호${match[3] ? `의${match[3]}` : ""}서식`
+      : `별표 ${match[2]}${match[3] ? `의${match[3]}` : ""}`))];
+}
+
+function annexOriginal(annex: AnnexEvidence): "verified" | "partial" | "missing" {
+  if (!annex.text?.trim()) return "missing";
+  return annex.status === "verified" && !annex.truncated ? "verified" : "partial";
+}
+
+function annexCitation(annex: AnnexEvidence): string {
+  const tier = annex.law.endsWith("시행규칙") ? "시행규칙" : annex.law.endsWith("시행령") ? "시행령" : annex.law;
+  return `${tier} ${annex.sourceArticle}·${annex.label}`;
 }
 
 export function assessActionBasis(query: string, text: string, enrichment?: ResearchEnrichment, annexes?: readonly AnnexEvidence[]): TaskEvidence {
@@ -358,34 +391,92 @@ export function assessActionBasis(query: string, text: string, enrichment?: Rese
     let requirementSource: BodyRef | undefined;
     for (const ref of directRequirementRefs) {
       if (authorityRefs[0] && (ref.law !== authorityRefs[0].law || ref.jo !== authorityRefs[0].jo)) continue;
-      if (!requirementSource || ref.body.length > requirementSource.body.length) requirementSource = ref;
+      const verifiedException = exceptionOriginal(overviewClause(ref, acts).paragraph).status === "verified";
+      const priorVerified = requirementSource && exceptionOriginal(overviewClause(requirementSource, acts).paragraph).status === "verified";
+      if (!requirementSource || (verifiedException && !priorVerified)
+        || (verifiedException === Boolean(priorVerified) && ref.body.length > requirementSource.body.length)) requirementSource = ref;
     }
     requirementSource ??= directRequirementRefs[0];
-    items.push({ label: "적용 요건", status: directRequirementRefs.length ? "found" : bodies.length ? "viewed" : "none",
+    const exception = requirementSource ? exceptionOriginal(overviewClause(requirementSource, acts).paragraph) : undefined;
+    const exceptionRequired = /예외|단서/u.test(query);
+    items.push({ label: "적용 요건", status: directRequirementRefs.length && (!exceptionRequired || exception?.status === "verified")
+      ? "found" : bodies.length ? "viewed" : "none",
       ...(requirementSource ? { answer: requirementAnswer(requirementSource, query) } : {}),
-      ...(requirementSource ? { summary: requirementSummary(requirementSource, query, asksPermission) } : {}),
-      uncertainty: asksPermission
-        ? "신청 대상 업종·자격·시설 등 필요한 사실과 예외를 대조해야 하며, 원문 확인만으로 허가·등록 가능 여부를 확정할 수 없습니다."
-        : "위반행위와 영업 종류가 특정되지 않으면 개별 적용 여부를 판단할 수 없습니다. 업종·위반행위·예외 사실을 대조해야 합니다.",
+      ...(requirementSource ? { summary: requirementSummary(requirementSource, query, asksPermission) }
+        : exceptionRequired ? { summary: "예외 단서 원문 미확보 · 개별 적용 미확정" } : {}),
+      uncertainty: [exceptionRequired && exception?.status !== "verified"
+        ? exception?.status === "partial" ? "예외 단서 원문 일부만 확인 — 단서의 나머지 조건을 추가 대조해야 합니다."
+          : "예외 단서 원문 미확보 — 예외가 없다는 뜻은 아닙니다." : "",
+        asksPermission
+          ? "신청 대상 업종·자격·시설 등 필요한 사실과 예외를 대조해야 하며, 원문 확인만으로 허가·등록 가능 여부를 확정할 수 없습니다."
+          : "위반행위와 영업 종류가 특정되지 않으면 개별 적용 여부를 판단할 수 없습니다. 업종·위반행위·예외 사실을 대조해야 합니다."].filter(Boolean).join(" "),
       requirementRefs: structuredRefs(ordered(requirementRefs)),
       ...(mentionOnly ? { detail: "요건 관련 문언 확인 — 실제 요건·기준은 원문에서 대조 필요" }
         : directRequirementRefs.length === 0 && bodies.length ? { detail: "질문한 법적 행위의 요건 문언 미확인" } : {}) });
   }
-  const asksAnnex = /별표|기준표|과태료|벌칙/u.test(query);
-  const criteria = (annexes ?? []).filter((annex) => annex.relevance === "direct" && inScope(annex.law)
-    && (!authorityRefs.length || authorityRefs.some((ref) => sameLawFamily(ref.law, annex.law))));
-  const original = criteria.filter((annex) => annex.status === "verified" && Boolean(annex.text?.trim()));
-  const listed = annexEntries.filter((entry) => criteria.some((annex) => sameLawFamily(annex.law, entry.law ?? "") && entry.title.includes(annex.label))
+  const requested = requestedAnnexLabels(query);
+  const asksAnnex = /별표|별지|기준표|과태료|벌칙/u.test(query);
+  const requiresCriteria = asksAnnex || (disposition && /기준|기간|며칠|몇\s*(?:일|개월)|차수|\d+\s*차/u.test(query));
+  const criteria = (annexes ?? []).filter((annex) => inScope(annex.law)
+    && (!authorityRefs.length || authorityRefs.some((ref) => sameLawFamily(ref.law, annex.law)))
+    && (annex.relevance === "direct" || (requested.length > 0 && annex.relevance === "related"
+      && (concernsAction(annex.citation, acts) || (disposition && /행정처분/u.test(annex.citation))))));
+  // A retrieved rule can prove the citation even when annex retrieval did
+  // not return an original. It cannot prove the table's contents.
+  for (const ref of bodies) {
+    if (!inScope(ref.law) || (authorityRefs.length > 0 && !authorityRefs.some((authority) => sameLawFamily(authority.law, ref.law)))
+      || (!concernsAction(ref.body, acts) && !(disposition && /행정처분/u.test(ref.body) && /기준/u.test(ref.body)))) continue;
+    for (const line of ref.body.split("\n")) {
+      if (!concernsAction(line, acts) && !(disposition && /행정처분/u.test(line) && /기준/u.test(line))) continue;
+      if ((!asksFine && /과징금/u.test(line)) || (!/과태료/u.test(query) && /과태료/u.test(line))) continue;
+      for (const label of requestedAnnexLabels(line)) {
+        const before = line.slice(0, line.indexOf(label.split(" ")[0]));
+        if (/「[^」]+」|시행령|시행규칙/u.test(before)) continue;
+        if (!criteria.some((annex) => compactLaw(annex.law) === compactLaw(ref.law)
+          && compactLaw(annex.label) === compactLaw(label))) {
+          criteria.push({ law: ref.law, label, sourceArticle: ref.jo, citation: line.trim(),
+            status: "identified", relevance: "direct" });
+        }
+      }
+    }
+  }
+  const matchesRequest = (label: string) => !requested.length || requested.some((wanted) => compactLaw(wanted) === compactLaw(label));
+  const matching = criteria.filter((annex) => matchesRequest(annex.label));
+  const original = matching.filter((annex) => annexOriginal(annex) === "verified");
+  const listed = annexEntries.filter((entry) => criteria.some((annex) => sameLawFamily(annex.law, entry.law ?? "")
+    && requestedAnnexLabels(entry.title).some((label) => compactLaw(label) === compactLaw(annex.label)))
     || (asksAnnex && (acts.length === 0 || concernsAction(entry.title, acts) || compactLaw(query).includes(compactLaw(entry.title)))));
-  if (asksAnnex || (disposition && (criteria.length > 0 || listed.length > 0))) {
-    const selected = original[0] ?? criteria[0];
-    const row = original[0]?.text ? annexCriteriaForQuestion(query, original[0].text, authorityRefs.map((ref) => ref.jo)) : undefined;
-    items.push({ label: "세부 기준(별표)", title: disposition ? "세부 처분 기준" : "세부 기준", ...(asksAnnex ? {} : { optional: true }),
-      status: original.length ? "found" : criteria.length || listed.length ? "viewed" : "none",
-      ...(selected ? { answer: `${selected.law} ${selected.sourceArticle}가 인용한 ${selected.label}${selected.title ? `(${selected.title})` : ""} — ${selected.citation.trim()}${row ? ` 해당 표의 확인 행: ${row}` : ""}` } : {}),
-      ...(selected ? { summary: `${selected.law} ${selected.sourceArticle}·${selected.label}${original.length ? row ? ` · ${row.slice(0, 85)} · 개별 적용 미확정` : " · 개별 처분기간 미확정" : " · 별표 원문 미확보"}` } : {}),
-      uncertainty: original.length ? row ? "표의 행·차수 원문 확인. 위반행위 성립·감경·가중 및 개별 사안 적용 여부는 확인되지 않았습니다." : "별표 원문 확보. 위반 유형·업종·차수 또는 유일한 해당 행을 특정하지 못해 개별 기준은 미확인입니다." : "별표 원문 미확보 — 존재·목록 확인만으로 세부 처분 기준을 확인할 수 없습니다.",
-      ...(listed.length ? { detail: `별표 목록 ${listed.length}건 · 원문 ${original.length ? "확보" : "미확보"}` } : {}) });
+  if (requiresCriteria || (disposition && (criteria.length > 0 || listed.length > 0))) {
+    const selected = original[0] ?? matching.find((annex) => annexOriginal(annex) === "partial")
+      ?? criteria.find((annex) => annexOriginal(annex) === "verified") ?? matching[0] ?? criteria[0];
+    const missingIds = requested.filter((wanted) => !matching.some((annex) => compactLaw(annex.label) === compactLaw(wanted)));
+    const differentId = selected ? !matchesRequest(selected.label)
+      : listed.some((entry) => requestedAnnexLabels(entry.title).some((label) => !matchesRequest(label)));
+    const mismatch = requested.length > 0 && (differentId || (missingIds.length > 0 && original.length > 0));
+    const mismatchIds = missingIds.length ? missingIds : requested;
+    const state = selected ? annexOriginal(selected) : "missing";
+    const allOriginals = original.length > 0 && requested.every((wanted) =>
+      original.some((annex) => compactLaw(annex.label) === compactLaw(wanted)));
+    const row = selected?.text && state === "verified" && matchesRequest(selected.label)
+      ? annexCriteriaForQuestion(query, selected.text, authorityRefs.map((ref) => ref.jo)) : undefined;
+    const count = /(\d+)\s*차\s*위반/u.exec(query)?.[1];
+    const originalSummary = state === "verified" ? "원문 확인" : state === "partial" ? "원문 일부만 확인" : "확인";
+    const summary = selected ? `${annexCitation(selected)} ${originalSummary} · ${state !== "verified"
+      ? "세부 기준 원문 확인 필요" : row
+        ? `해당 행 확인 · ${count ? `${count}차 위반 기준 확인` : "위반 차수 미특정"} · 개별 처분기간 미확정`
+        : "개별 처분기간 미확정"}` : requested.length ? `요청한 ${requested.join("·")} 원문 미확보` : undefined;
+    items.push({ label: "세부 기준(별표)", title: disposition ? "세부 처분 기준" : "세부 기준", ...(requiresCriteria ? {} : { optional: true }),
+      status: allOriginals ? "found" : criteria.length || listed.length ? "viewed" : "none",
+      ...(selected ? { answer: `${mismatch ? `요청한 ${mismatchIds.join("·")}와 확인된 ${selected.label}의 번호가 다릅니다. 다음은 관련 기준이며 요청 기준을 확인한 것이 아닙니다. ` : ""}${selected.law} ${selected.sourceArticle}가 인용한 ${selected.label}${selected.title ? `(${selected.title})` : ""} — ${selected.citation.trim()}${row ? ` 해당 표의 확인 행: ${row}` : ""}` } : {}),
+      ...(summary ? { summary: mismatch ? `요청한 ${mismatchIds.join("·")} 불일치 · 관련 ${selected ? summary
+        : `목록 ${listed.map((entry) => requestedAnnexLabels(entry.title).join("·")).filter(Boolean).join("·")} 확인`} · 요청 기준 미확인` : summary } : {}),
+      uncertainty: [mismatch ? `요청한 ${mismatchIds.join("·")}의 원문 기준은 확인되지 않았습니다. ${selected?.label ?? "다른 번호의 별표"}는 관련 자료일 뿐 요청한 번호의 기준으로 채택하지 않습니다.` : "",
+        state === "verified" ? row
+          ? `표의 해당 행 원문 확인. ${count ? `${count}차 위반 기준을 확인했으나` : "위반 차수가 특정되지 않았으며"} 위반행위 성립·감경·가중 및 개별 처분기간은 미확정입니다.`
+          : "별표 원문 확인. 업종·위반 유형·위반 차수 또는 유일한 해당 행을 특정하지 못해 개별 처분기간은 미확정입니다."
+          : state === "partial" ? "별표 원문 일부만 확인 — 확인된 인용·발췌와 별개로 해당 행 및 세부 기준의 나머지 원문 확인이 필요합니다."
+            : "별표 원문 미확보 — 조문 인용·목록 확인만으로 세부 처분 기준을 확인할 수 없습니다."].filter(Boolean).join(" "),
+      ...(listed.length ? { detail: `별표 목록 ${listed.length}건 · 원문 ${state === "verified" ? "확인" : state === "partial" ? "일부만 확인" : "미확보"}` } : {}) });
   }
   if (/불복|심판|소송|이의|구제/u.test(query)) {
     items.push({ label: "불복 자료", status: appealVerified ? "found" : decisions.length ? "viewed" : "none" });

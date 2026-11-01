@@ -401,10 +401,19 @@ p.research-meta { margin: 0; }
 .legal-research .research-issue-jump { display: flex; align-items: baseline; min-width: 0; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; overflow-wrap: anywhere; }
 .legal-research .research-issue-jump:hover { color: var(--blue-active); text-decoration: underline; text-underline-offset: 2px; }
 .legal-research .research-issue-jump:focus-visible { outline-offset: 2px; }
-/* A detail line under an assessed entry (PR #327's "확인한 항목" detail)
-   drops to its own row instead of flowing after the status. */
-.legal-research .research-issues.is-assessed li > .research-meta { flex: 1 1 100%; }
-.legal-research .research-issues.is-assessed li > .research-task-answer { color: var(--ink); font-size: var(--font-size-base); line-height: 1.55; overflow-wrap: anywhere; }
+/* One shared secondary-reading style across every assessed task: the title
+   and status retain their own emphasis, while details wrap below them. */
+.legal-research .research-issues.is-assessed li > .research-meta {
+  flex: 1 1 100%;
+  min-width: 0;
+  margin-top: var(--space-1);
+  color: var(--muted);
+  font-size: var(--font-size-xs, 12px);
+  font-weight: var(--font-weight-normal, 400);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.legal-research .research-issues.is-assessed li > .research-law-system-summary { white-space: pre-line; }
 
 /* Full research keeps the existing source/status model, with independently readable issue sections. */
 .legal-research .research-issue-nav { display: grid; gap: 8px; min-width: 0; }

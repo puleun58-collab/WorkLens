@@ -41,10 +41,12 @@ it("distinguishes the two directly delegated articles from citations in the summ
   const lawSystem = assessLawSystem(privacy.text, privacy.query);
   const html = render({ found: true, task: "law_system", text: privacy.text, markers: [], lawSystem });
   const summary = html.slice(0, html.indexOf('aria-label="상세 근거"'));
-  expect(summary).toContain("법 제38조 제3항 → 시행령 제47조: 수수료·우송료 관련 사항");
-  expect(summary).toContain("법 제38조 제1항 → 시행령 제45조: 대리인 관련 사항");
+  expect(summary).toContain("법 제38조 제1항 → 시행령 제45조");
+  expect(summary).toContain("대리인의 범위와 위임장 제출에 관한 사항");
+  expect(summary).toContain("법 제38조 제3항 → 시행령 제47조");
+  expect(summary).toContain("수수료·우송료에 관한 사항");
   expect(summary).not.toContain("→ 시행령 제42조의8");
-  expect(summary).toMatch(/단순 관련 규정[^<]*제42조의8/u);
+  expect(summary).toMatch(/관련 규정: 시행령 제42조의5·제42조의8/u);
 });
 
 it("keeps the overview short and folds supporting sources and originals once", () => {
@@ -132,7 +134,58 @@ describe("research result source structure", () => {
     expect(html).toMatch(/research-summary-status[^>]*data-tone="success"[^>]*>.*?관련 근거 확인/u);
     expect(html).toMatch(/research-summary-notice[^>]*data-tone="info"[^>]*>.*?일부 참고 자료 미확보/u);
     expect(html).not.toContain('class="legal-analysis-title" data-status="partial"');
-    if (failed) expect(html).toContain("일부 참고 자료 조회가 실패");
+    if (failed) expect(html).toContain("조회 실패 2건");
+  });
+
+  it("ranks three decision domains by verified body while folding missing and unrelated judgments", () => {
+    const decisionText = `═══ 쟁송 대비 ═══
+▶ 관련 판례
+판례 검색 결과 (총 3건, 1페이지):
+[100] 다른 사건
+  사건번호: 2020다123
+[101] 영업정지 기준
+  사건번호: 2021두456
+[102] 같은 사건
+  사건번호: 2021두456
+▶ 법령 해석례
+해석례 검색 결과 (총 1건, 1페이지):
+[201] 영업정지 해석례
+  해석례번호: 21-0001
+▶ 행정심판례
+행정심판례 검색 결과 (총 1건, 1페이지):
+[301] 영업정지 재결
+  재결번호: 2021-01`;
+    const html = render({ ...base, task: "dispute_prep", text: decisionText, enrichment: {
+      decisions: {
+        "precedent:100": { rank: "low", matched: [] }, "precedent:101": { rank: "direct", matched: ["영업정지"] },
+        "precedent:102": { rank: "related", matched: ["영업정지"] }, "interpretation:201": { rank: "unknown", matched: [] },
+        "tribunal:301": { rank: "related", matched: ["영업정지"] },
+      },
+    } });
+    expect(html).toContain("직접 관련 자료");
+    expect(html).toContain("동일 사건 조회 ID: 102");
+    expect(html).toContain("추가 조회 판례");
+    expect(html).toContain("추가 조회 해석례");
+    expect(html).toContain("보충 행정심판례");
+    expect(html).not.toContain("판시사항을 기준으로 관련성이 높은 판례부터 표시");
+  });
+
+  it("names the unresolved provision and failure reason, but never downgrades a missing core requirement to a reference gap", () => {
+    const unavailable = [{ type: "조문" as const, name: "식품위생법 시행규칙 제89조", reason: "failed" as const }];
+    const complete = render({ ...base, task: "action_basis", actionBasis: { status: "matched", items: [
+      { label: "처분·허가 근거", status: "found" },
+    ] }, followup: { status: "partial", attempted: 2, failed: 1, missing: 1, limited: false, unavailable } });
+    expect(complete).toContain("일부 참고 자료 미확보");
+    expect(complete).toContain("식품위생법 시행규칙 제89조 조문 조회 실패");
+    const incomplete = render({ ...base, task: "action_basis", actionBasis: { status: "partial", items: [
+      { label: "처분·허가 근거", status: "found" }, { label: "적용 요건", status: "viewed" },
+    ] }, followup: { status: "partial", attempted: 2, failed: 1, missing: 1, limited: false, unavailable } });
+    expect(incomplete).not.toContain("일부 참고 자료 미확보");
+    expect(incomplete).toContain("식품위생법 시행규칙 제89조 조문 조회 실패");
+    const noMissing = render({ ...base, task: "action_basis", actionBasis: { status: "matched", items: [
+      { label: "처분·허가 근거", status: "found" },
+    ] }, followup: { status: "complete", attempted: 2, failed: 0, missing: 0, limited: false } });
+    expect(noMissing).not.toContain("일부 참고 자료 미확보");
   });
 
   it("keeps failures red and preserves available bodies without asserting absence", () => {
@@ -165,7 +218,7 @@ describe("research result source structure", () => {
     expect(html).not.toContain("별표·서식 원문 미확보");
     // The retrieval failure is a different cause, named inside the one notice instead of a second box.
     expect(html.match(/data-slot="alert-title"/gu)).toHaveLength(1);
-    expect(html).toContain("일부 자료 조회도 완료되지 않았습니다. 조회 실패는 근거가 없다는 뜻이 아닙니다.");
+    expect(html).toContain("추가 자료 조회도 완료되지 않았습니다.");
     expect(html).not.toContain("추가 자료 조회 미완료");
   });
 
@@ -180,7 +233,7 @@ describe("research result source structure", () => {
     const lowerStart = html.indexOf(task === "law_system" ? 'aria-label="상세 근거"' : 'aria-label="항목별 법적 근거"');
     const top = html.slice(0, lowerStart);
     expect(top).toContain("직접 위임관계 미확인");
-    expect(top).toContain("단순 관련 규정 (직접 위임 미확인): 제40조 · 제41조");
+    expect(top).toContain("관련 규정: 시행령 제40조·제41조");
     expect(top).not.toContain("제42조");
     expect(html).toContain("위임관계 확인 필요");
     const lower = html.slice(lowerStart);
