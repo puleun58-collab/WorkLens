@@ -813,7 +813,19 @@
 .ax-diag-checks-head h3 { margin: 0; font-size: 15px; }
 .ax-diag-checks-head span { font-size: 12.5px; }
 .ax-diag-checks ul { list-style: none; margin: 0; padding: 0 16px; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 12px; background: var(--card); }
-.ax-diag-checks li { display: flex; gap: 12px; align-items: flex-start; padding: 12px 0; border-bottom: 1px solid var(--border); }
+.ax-diag-checks li { padding: 12px 0; border-bottom: 1px solid var(--border); }
+.ax-check-row { display: flex; gap: 12px; align-items: flex-start; }
+.ax-check-side { flex: none; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.ax-check-form { display: flex; flex-direction: column; gap: 10px; margin: 12px 0 0 30px; padding-top: 12px; border-top: 1px dashed var(--border); max-width: 640px; }
+.ax-check-form textarea { min-height: 84px; }
+.ax-check-form-need { margin: 0; font-size: 13px; color: var(--muted-foreground); }
+.ax-check-form-need strong { margin-right: 6px; color: var(--foreground); font-weight: 600; }
+.ax-check-form-status { margin: 0; font-size: 13px; color: var(--primary); }
+@media (max-width: 700px) {
+  .ax-check-row { flex-wrap: wrap; }
+  .ax-check-side { width: 100%; justify-content: flex-start; padding-left: 30px; }
+  .ax-check-form { margin-left: 0; }
+}
 .ax-diag-checks li:last-child { border-bottom: 0; }
 .ax-checks-done { margin-top: 10px; }
 .ax-checks-done-trigger { display: inline-flex; align-items: center; gap: 4px; padding: 4px 0; font-size: 13px; font-weight: 600; color: var(--muted-foreground); cursor: pointer; }
@@ -1125,11 +1137,14 @@
 /* 결과·로드맵 자동화 구현 계획 (레퍼런스): ① 요약 카드 + 구현 전 확인 · ② 구현 계획 그룹 · ③ 구현 범위·완료 기준 2열 */
 .ax-precheck { padding: 16px 0 0; text-align: left; }
 .ax-precheck-items { margin: 0; padding: 0 16px; list-style: none; display: grid; gap: 0; }
-.ax-precheck-row { display: flex; flex-direction: column; gap: 2px; padding: 12px 0; border-top: 1px solid var(--line-soft); }
+.ax-precheck-row { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; padding: 12px 0; border-top: 1px solid var(--line-soft); }
 .ax-precheck-row:first-child { border-top: 0; }
-.ax-precheck-row strong { font-size: 14px; }
-.ax-precheck-row > span { font-size: 13px; color: var(--muted-foreground); line-height: 1.55; }
+.ax-precheck-row-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ax-precheck-row > .ax-precheck-row-text + button { flex: none; }
+.ax-precheck-row strong { font-size: 14px; overflow-wrap: anywhere; }
+.ax-precheck-row-text > span { font-size: 13px; color: var(--muted-foreground); line-height: 1.55; overflow-wrap: anywhere; }
 .ax-precheck-row small { font-size: 12px; color: var(--muted-foreground); }
+@media (max-width: 700px) { .ax-precheck-row { flex-direction: column; align-items: flex-start; } }
 .ax-precheck-empty { margin: 0; padding: 12px 16px; }
 .ax-precheck-blocked { margin-top: 14px; }
 .ax-precheck-blocked h4 { margin: 0 0 8px; font-size: 14px; }

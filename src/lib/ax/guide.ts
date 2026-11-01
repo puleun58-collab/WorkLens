@@ -2880,6 +2880,11 @@ ${stateList ? `\n결과 상태 목록: ${stateList} — 지시문 전체에서 �
       : "",
     gate === "blocked" && profile?.blockReasons.length ? `### 차단 사유\n\n${bullets(profile.blockReasons)}` : "",
     conditions.length ? `### 현재 필수 조건\n\n${bullets(conditions)}` : "",
+    // 담당자가 근거와 함께 확인한 기술 조건(업무 진단의 확인 결과 기록): 시스템 검증이 아니므로 구현 시 실제로 다시 검증한다.
+    (() => {
+      const confirmed = (d?.technicalChecks ?? []).filter(check => check.status === "확인됨" && check.note.includes("담당자 확인:"));
+      return confirmed.length ? `${protectUserBlock(`### 담당자 확인 완료 조건 (시스템 미검증)\n\n${bullets(confirmed.map(check => `${check.topic} — ${check.note}`))}`)}\n\n담당자가 확인한 내용입니다. 구현 중 실제 권한·연동·형식이 기록과 다르면 진행하지 말고 차이를 보고하세요.` : "";
+    })(),
     relatedCandidateLines.length ? `### 관련 후보 (필수 조건으로 확정하지 않음)\n\n${bullets(relatedCandidateLines)}\n\n위 조건은 업무 단계명을 언급하지만 명시적 단계 연결 근거가 없어 관련 가능성만 표시합니다. 해당 단계의 필수 의존 조건으로 확정하지 말고, 실제 의존 관계를 확인한 뒤에만 현재 조건으로 승격하세요. 확인 전에는 확인 필요 상태를 유지합니다.` : "",
     unassignedRestLines.length || gaps.length ? `### 적용 단계 확인 필요\n\n${bullets([...unassignedRestLines, ...gaps])}\n\n미연결 조건의 적용 대상과 의존 관계를 실제 자료로 확인하세요. 무관하다고 임의로 해제하지 말고, 영향 가능성이 있는 작업은 확인·승인 대기로 두세요. 해당 조건과 독립적이라는 근거가 확인된 허용 작업만 계속 진행할 수 있습니다.` : "",
     extraConstraints.length ? `### 담당자·제외 제약 (추가)\n\n${bullets(extraConstraints)}` : "",

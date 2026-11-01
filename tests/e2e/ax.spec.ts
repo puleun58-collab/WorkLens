@@ -150,7 +150,7 @@ test("AX registration → diagnosis → correction → matrix → plans → relo
   await expect(diagChecks).toContainText("시스템 접근");
   await expect(diagChecks.getByText("확인 필요", { exact: true })).toBeVisible();
   await expect(page.getByText("먼저 확인", { exact: false })).toHaveCount(0);
-  await expect(page.locator(".ax-data-actions .ax-utility-message")).toHaveText("업무 진단을 완료했습니다. 필요한 경우 점수를 조정하세요.");
+  await expect(page.locator(".ax-data-actions .ax-utility-message")).toHaveText("업무 진단을 완료했습니다. 필요한 경우 점수를 조정하세요");
   // 유틸리티 메시지는 단계 박스 위에 있고, 관리 메뉴는 단계 박스 내부 우측 끝에 있다.
   const utility = await page.evaluate(() => { const message = document.querySelector(".ax-utility-message")!.getBoundingClientRect(), menu = document.querySelector('[aria-label="AI•AX 데이터 작업"]')!.getBoundingClientRect(), steps = document.querySelector(".ax-steps")!.getBoundingClientRect(); return { messageAboveSteps: message.bottom <= steps.top, menuInsideSteps: menu.top >= steps.top && menu.bottom <= steps.bottom && menu.left >= steps.left && menu.right <= steps.right, menuAtRightEnd: steps.right - menu.right <= 8 }; });
   expect(utility).toEqual({ messageAboveSteps: true, menuInsideSteps: true, menuAtRightEnd: true });
@@ -395,7 +395,7 @@ for (const fallbackFailure of ["false", "throw"] as const) {
       };
     }, fallbackFailure);
     await button.click();
-    await expect(section.getByRole("status")).toHaveText("복사하지 못했습니다. 직접 선택해 복사해주세요.");
+    await expect(section.getByRole("status")).toHaveText("복사하지 못했습니다. 직접 선택해 복사해주세요");
     await expect(button).not.toHaveAttribute("data-copied", "true");
     await expect(button.locator("svg.lucide-check")).toHaveCount(0);
     await expect(button.locator("svg.lucide-copy")).toHaveCount(1);
@@ -470,7 +470,7 @@ test("AX mobile steps scroll, bottom navigation and task delete", async ({ page 
 test("AX validates imports before replacement, cancel preserves existing data and reset cancel works", async ({ page }) => {
   await page.goto("/"); await ax(page); await register(page, "기존 업무");
   const imported = exportAxState({ ...emptyAxState(), tasks: [taskFixture("imported")] , selectedTaskId: "imported" });
-  await importData(page, "{broken"); await expect(page.getByText("올바른 JSON 파일이 아닙니다.", { exact: true })).toBeVisible();
+  await importData(page, "{broken"); await expect(page.getByText("올바른 JSON 파일이 아닙니다", { exact: true })).toBeVisible();
   await expect(page.getByRole("alertdialog")).toHaveCount(0);
   await importData(page, imported); await page.getByRole("alertdialog").getByRole("button", { name: "취소", exact: true }).click();
   await expect(page.getByLabel("등록 업무 목록")).toContainText("기존 업무");
@@ -507,7 +507,7 @@ test("AX styled file selection shows filenames and removes draft/session attachm
     const chooser = page.waitForEvent("filechooser");
     await page.getByRole("region", { name: "업무 자동화 진단", exact: true }).getByRole("button", { name: "파일 추가", exact: true }).click();
     await (await chooser).setFiles(file);
-    await expect(page.getByText("첨부 요약을 준비했습니다.", { exact: false })).toBeVisible();
+    await expect(page.getByText("첨부 요약을 준비했습니다", { exact: false })).toBeVisible();
     await expect(page.locator(".ax-file-row").filter({ hasText: "selected.csv" })).toBeVisible();
     await expect(page.locator(".ax-file-row").filter({ hasText: "selected.csv" })).not.toContainText("준비됨");
   };
@@ -573,7 +573,7 @@ test("AX attachment summaries stay out of storage/export and reload requires rea
   const calls: Record<string, unknown>[] = []; await mock(page, calls);
   await page.goto("/"); await ax(page);
   await page.getByRole("region", { name: "업무 자동화 진단", exact: true }).getByLabel("파일 추가", { exact: true }).setInputFiles({ name: "monthly.csv", mimeType: "text/csv", buffer: Buffer.from("업무,주기,처리\n표취합,매월,승인\n보고,매월,담당자 검토") });
-  await expect(page.getByText("첨부 요약을 준비했습니다.", { exact: false })).toBeVisible();
+  await expect(page.getByText("첨부 요약을 준비했습니다", { exact: false })).toBeVisible();
   await register(page);
   await page.getByRole("button", { name: "다음 단계" }).click();
   await page.getByRole("button", { name: "업무 진단 실행" }).click();
@@ -593,7 +593,7 @@ test("AX attachment summaries stay out of storage/export and reload requires rea
   await expect(page.locator(".ax-attachment")).toContainText("첨부 파일이 사용됨 — 재분석 시 재첨부 필요");
   await page.getByRole("button", { name: "업무 다시 진단" }).click(); expect(calls).toHaveLength(1);
   await page.getByRole("region", { name: "업무 자동화 진단", exact: true }).getByLabel("파일 추가", { exact: true }).setInputFiles({ name: "monthly.csv", mimeType: "text/csv", buffer: Buffer.from("업무,주기\n표취합,매월") });
-  await expect(page.getByText("첨부 요약을 준비했습니다.", { exact: false })).toBeVisible();
+  await expect(page.getByText("첨부 요약을 준비했습니다", { exact: false })).toBeVisible();
   await page.getByRole("button", { name: "업무 진단 실행" }).click(); await expect(page.getByText("정보 충분", { exact: true })).toBeVisible(); expect(calls).toHaveLength(2);
 });
 test("AX follows up on missing information and recalculates provisional decisions", async ({ page }) => {
@@ -653,7 +653,7 @@ test("AX level badge uses the unified label and shows the level description tool
   await expect(cards.locator("strong")).toHaveText(["1", "1", "1"]);
   const badge = page.locator(".ax-diag-card .ax-level-badge");
   await expect(badge).toHaveText("고도 자동화 (Level 3)");
-  const description = "넓게 자동화하되 승인·안전·법률·권한 관련 단계는 담당자가 유지합니다.";
+  const description = "넓게 자동화하되 승인·안전·법률·권한 관련 단계는 담당자가 유지합니다";
   // 호버 직후 레이아웃이 움직이면 마우스가 배지를 벗어날 수 있어, 열린 상태가 될 때까지 호버를 되풀이한다.
   await expect(async () => {
     await badge.hover();
@@ -680,7 +680,7 @@ test.describe("AX level badge touch", () => {
     await page.locator(".ax-diag-card").getByRole("button", { name: "업무 진단 실행" }).click();
     const badge = page.locator(".ax-diag-card .ax-level-badge");
     await expect(badge).toHaveText("고도 자동화 (Level 3)");
-    const description = page.getByText("넓게 자동화하되 승인·안전·법률·권한 관련 단계는 담당자가 유지합니다.", { exact: true });
+    const description = page.getByText("넓게 자동화하되 승인·안전·법률·권한 관련 단계는 담당자가 유지합니다", { exact: true });
     await badge.tap();
     await expect(description).toBeVisible();
     const box = (await description.boundingBox())!;
@@ -695,7 +695,7 @@ test("AX works and exports when IndexedDB is unavailable and rejects failed AI o
   await page.addInitScript(() => { Object.defineProperty(window, "indexedDB", { get() { throw new Error("storage disabled"); } }); });
   await page.route("**/api/ai", route => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { kind: "ax-diagnosis", diagnosis: { informationSufficiency: "sufficient" } } }) }));
   await page.goto("/"); await navigateWorkspace(page, "업무 자동화 진단");
-  await expect(page.getByRole("status").filter({ hasText: "자동 저장에 실패했습니다. 필요하면 AI•AX 데이터를 내보내 백업해주세요." })).toBeVisible(); await register(page);
+  await expect(page.getByRole("status").filter({ hasText: "자동 저장에 실패했습니다. 필요하면 AI•AX 데이터를 내보내 백업해주세요" })).toBeVisible(); await register(page);
   await expect(page.getByLabel("등록 업무 목록")).toContainText("월간 취합");
   await page.getByRole("button", { name: "다음 단계" }).click(); await page.getByRole("button", { name: "업무 진단 실행" }).click();
   await expect(page.getByText("진단 실패", { exact: false })).toBeVisible(); await expect(page.getByText("진단 결과", { exact: true })).toHaveCount(0);
@@ -962,10 +962,10 @@ test("AX attachment preflight rejects empty files and unsupported formats", asyn
   await page.goto("/"); await ax(page);
   const input = page.getByLabel("파일 추가", { exact: true });
   await input.setInputFiles({ name: "empty.csv", mimeType: "text/csv", buffer: Buffer.alloc(0) });
-  await expect(page.getByText("빈 파일은 첨부할 수 없습니다.", { exact: true })).toBeVisible();
+  await expect(page.getByText("빈 파일은 첨부할 수 없습니다", { exact: true })).toBeVisible();
   await expect(page.getByText("첨부 요약을 준비했습니다", { exact: false })).toHaveCount(0);
   await input.setInputFiles({ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("업무 메모") });
-  await expect(page.getByText("지원하지 않는 파일 형식입니다.", { exact: false })).toBeVisible();
+  await expect(page.getByText("지원하지 않는 파일 형식입니다", { exact: false })).toBeVisible();
   await expect(page.getByText("첨부 요약을 준비했습니다", { exact: false })).toHaveCount(0);
 });
 

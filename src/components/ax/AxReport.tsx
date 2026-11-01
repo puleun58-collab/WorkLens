@@ -15,11 +15,12 @@ import { extractReviewableItems, extractPlanReviewableItems, findReview, getVali
 import { Tabs, TabsList, TabsTab, TabsPanel } from "@/components/ui/tabs";
 import { buildFixPrompt, checkAllInOnePromptDelivery, guideCodeDisplayText, guideProseDisplayText, planSummary, setupGuide, TOOL_GUIDES, type AxCheckTone, type AxGitFlowBlock, type AxGuideBlock, type AxGuideSection, type AxPlanSummary, type AxToolId } from "@/lib/ax/guide";
 import { groupPlanSteps, type PlanGroupId } from "@/lib/ax/plan-groups";
+import { uiText } from "@/lib/ax/display-text";
 
 const VERDICT_LABELS = { 자동화: "자동화", "AI 보조": "AI 보조", "사람 유지": "담당자 수행" } as const;
 const OWNER_LABELS = { 시스템: "시스템", AI: "AI", 사용자: "담당자" } as const;
 export function AxList({ items }: { items: string[] }) {
-  return items.length ? <ul>{items.map((item, i) => <li key={i}>{item}</li>)}</ul> : <p className="ax-muted">기재된 내용 없음</p>;
+  return items.length ? <ul>{items.map((item, i) => <li key={i}>{uiText(item)}</li>)}</ul> : <p className="ax-muted">기재된 내용 없음</p>;
 }
 /** Level 툴팁 상태: 호버·키보드 포커스는 공통 툴팁의 기본 동작을 그대로 쓰고, 터치 탭은 클릭 토글로 연다.
  * 탭 직후에는 합성 hover 종료(trigger-hover)가 곧바로 발행돼 방금 연 설명을 닫으므로, 터치 눌림 1초 안에 온
@@ -83,9 +84,9 @@ export function AxSummary({ task, showGate = true }: { task: AxTask; showGate?: 
   return <div className="ax-summary">
     <AxLevelBadge level={l} variant="outline" className="ax-level-badge" suffix={l.provisional ? " · 잠정" : ""} />
     {showGate ? <p className="ax-gate-line"><span>실행 상태</span><span className="ax-gate-badge" data-gate={gate}>{GATE_LABELS[gate]}</span></p> : null}
-    {showGate && (checks.length || blocker) ? <p className="ax-gate-checks"><span>{checks.length ? "확인 필요" : "보류 사유"}</span>{checks.length ? checks.join(" · ") : blocker}</p> : null}
+    {showGate && (checks.length || blocker) ? <p className="ax-gate-checks"><span>{checks.length ? "확인 필요" : "보류 사유"}</span>{uiText(checks.length ? checks.join(" · ") : blocker ?? "")}</p> : null}
     <p>자동화 가치 {a.value} · 기술 실현 가능성 {a.feasibility} · 담당자 판단 필요도 {a.judgment} · 운영 위험 {a.risk}</p>
-    {showGate ? <p><strong>{action.label}</strong> — {action.detail}</p> : null}
+    {showGate ? <p><strong>{uiText(action.label)}</strong> — {uiText(action.detail ?? "")}</p> : null}
   </div>;
 }
 /** Display-only summary sentences composed from confirmed diagnosis data; no AI call, no invented facts.
@@ -117,7 +118,7 @@ export function diagnosisSummaryParts(d: AxDiagnosis): DiagnosisSummaryParts {
       count("사람 유지") ? `담당자 수행 ${count("사람 유지")}개` : "",
     ].filter(Boolean);
     parts.verdict = `전체 ${total}개 업무 단계 중 ${distribution.join(" · ")}`;
-    parts.verdictSentence = `${parts.verdict}로 ${automationLevel(d).provisional ? "잠정 판정" : "판정"}되었습니다.`;
+    parts.verdictSentence = `${parts.verdict}로 ${automationLevel(d).provisional ? "잠정 판정" : "판정"}되었습니다`;
   }
   // 담당자 관련 문장은 역할별로 구분한다. 사람 유지 단계는 '수행'으로만 표시하고,
   // humanInLoop 지점은 지점 자체의 명시 문구(승인 포함 여부)로만 검토·승인을 나눈다.
@@ -129,14 +130,14 @@ export function diagnosisSummaryParts(d: AxDiagnosis): DiagnosisSummaryParts {
   const approvalPoints = d.humanInLoop.filter(point => point.includes("승인"));
   if (reviewPoints.length) humanClauses.push(`${names(reviewPoints)} 지점에서는 담당자 검토가 필요합니다.`);
   if (approvalPoints.length) humanClauses.push(`${names(approvalPoints)} 지점에서는 담당자 승인이 필요합니다.`);
-  if (humanClauses.length) parts.human = humanClauses.join(" ");
-  if (executionGate(d) === "blocked") parts.check = "현재 진행 보류 상태로, 차단 사유를 해결한 뒤 재진단이 필요합니다.";
+  if (humanClauses.length) parts.human = uiText(humanClauses.join(" "));
+  if (executionGate(d) === "blocked") parts.check = "현재 진행 보류 상태로, 차단 사유를 해결한 뒤 재진단이 필요합니다";
   else {
     // 건수는 확인할 사항 영역에 실제로 표시되는 확인 필요 항목 수와 같은 기준을 쓴다
     // (추가 질문과 주제가 겹치는 항목은 질문 영역에서 확인하므로 세지 않는다).
     const needCount = visibleDiagnosisCheckItems(d).filter(item => item.kind === "need").length;
     if (needCount) parts.check = `구현 전 확인 ${needCount}건`;
-    else if (d.followUpQuestions.length) parts.check = `구현 전에 추가 질문 ${d.followUpQuestions.length}건에 대한 답변이 필요합니다.`;
+    else if (d.followUpQuestions.length) parts.check = `구현 전에 추가 질문 ${d.followUpQuestions.length}건에 대한 답변이 필요합니다`;
   }
   return parts;
 }
@@ -250,7 +251,7 @@ export type PrecheckTarget =
   | { kind: "none"; guidance: string };
 export function resolvePrecheckTarget(item: { topic: string; note?: string; tone?: AxCheckTone; origin?: "check" | "extra" | "conflict" | "block" }): PrecheckTarget {
   const text = `${item.topic} ${item.note ?? ""}`;
-  if (/출력 컬럼/u.test(text)) return { kind: "none", guidance: "전용 편집 화면이 없습니다. 출력 컬럼을 확정하려면 업무 등록 정보를 수정한 뒤 다시 진단하세요." };
+  if (/출력 컬럼/u.test(text)) return { kind: "none", guidance: "전용 편집 화면이 없습니다. 출력 컬럼을 확정하려면 업무 등록 정보를 수정한 뒤 다시 진단하세요" };
   // D번호가 하나만 언급되면 해당 결정 지점 행으로, 여러 개면(예: D1·D2·D3·D7이 함께 언급된 경우) 섹션 전체로 연결한다.
   const dMatches = [...new Set([...item.topic.matchAll(/\bD([1-7])\b/gu), ...(item.note ?? "").matchAll(/\bD([1-7])\b/gu)].map(m => m[1]))];
   if (dMatches.length === 1) return { kind: "decision", id: `D${dMatches[0]}` };
@@ -318,8 +319,8 @@ export function AxResultSummary({ task }: { task: AxTask }) {
       <div className="ax-result-meta">
         <AxLevelBadge level={level} variant="info" className="ax-result-level" suffix={level.provisional ? " · 잠정" : ""} />
         <span className="ax-gate-badge" data-gate={profile.gate}>{GATE_LABELS[profile.gate]}</span>
-        {d.sourceNote ? <p>{d.sourceNote}</p> : null}
-        <small>아래 단계별 건수는 진단상 목표 적합성으로, 현재 구현·배포 가능 범위가 아닙니다.</small>
+        {d.sourceNote ? <p>{uiText(d.sourceNote)}</p> : null}
+        <small>아래 단계별 건수는 진단상 목표 적합성으로, 현재 구현·배포 가능 범위가 아닙니다</small>
       </div>
     </div>
     <div className="ax-result-counts">{groups.map(({ verdict, label, icon: Icon }) => <div className="ax-result-count" data-verdict={verdict} key={verdict}>
@@ -346,13 +347,13 @@ export function AxProcess({ diagnosis: d, reviewProps }: { diagnosis: AxDiagnosi
     <section className="ax-section ax-panel ax-process-card">
       <header className="ax-process-head"><h3>AS-IS · 현재 업무</h3><small>현재 업무 구조 분석</small></header>
       <div className="ax-process-core">{core.map(({ label, icon: Icon, value }) => <div className="ax-process-field" key={label}>
-        <span className="ax-process-icon"><Icon aria-hidden="true" /></span><div><h4>{label}</h4>{typeof value === "string" ? <p>{value}</p> : value}</div>
+        <span className="ax-process-icon"><Icon aria-hidden="true" /></span><div><h4>{label}</h4>{typeof value === "string" ? <p>{uiText(value)}</p> : value}</div>
       </div>)}</div>
       {d.asIs.exceptions.length || d.asIs.humanDecisions.length ? <div className="ax-process-extras">
         {d.asIs.exceptions.length ? <div className="ax-process-extra" data-kind="exception"><AlertTriangle aria-hidden="true" /><div><h4>주요 예외 상황</h4><AxList items={d.asIs.exceptions} /></div></div> : null}
         {d.asIs.humanDecisions.length ? <div className="ax-process-extra" data-kind="human"><ClipboardList aria-hidden="true" /><div><h4>담당자 판단 사항</h4><AxList items={d.asIs.humanDecisions} /></div></div> : null}
       </div> : null}
-      {d.asIs.systems.length ? <div className="ax-process-systems"><MonitorCog aria-hidden="true" /><p><strong>사용 시스템</strong><span aria-hidden="true"> · </span>{d.asIs.systems.join(" · ")}</p></div> : null}
+      {d.asIs.systems.length ? <div className="ax-process-systems"><MonitorCog aria-hidden="true" /><p><strong>사용 시스템</strong><span aria-hidden="true"> · </span>{uiText(d.asIs.systems.join(" · "))}</p></div> : null}
     </section>
     <AxStepTable key={reviewProps?.taskId ?? "static"} diagnosis={d} headers={["업무 단계", "판정", "담당", "판단 근거"]} reviewProps={reviewProps} />
     {reviewProps ? <AxRiskReview key={reviewProps.taskId} diagnosis={d} reviewProps={reviewProps} /> : null}
@@ -450,7 +451,7 @@ function AxRiskReview({ diagnosis: d, reviewProps }: { diagnosis: AxDiagnosis; r
                   <td className="col-type">
                     <span className="ax-hitl-type-badge ax-hitl-type-badge-plan">위험</span>
                   </td>
-                  <td className="col-content">{item.text}</td>
+                  <td className="col-content">{uiText(item.text)}</td>
                   <td className="col-status">
                     <span className="ax-hitl-status-dot" data-status={displayState.status}>{displayState.label}</span>
                   </td>
@@ -531,10 +532,10 @@ function AxStepTable({ diagnosis: d, headers, reviewProps }: { diagnosis: AxDiag
                 const isOpen = item && openKey === item.key;
                 return <>
                   <tr key={i}>
-                    <td><span className="ax-step-number">{String(i + 1).padStart(2, "0")}</span>{s.step}</td>
+                    <td><span className="ax-step-number">{String(i + 1).padStart(2, "0")}</span>{uiText(s.step)}</td>
                     <td><Badge variant="outline" className="ax-verdict-badge" data-verdict={s.verdict}>{VERDICT_LABELS[s.verdict]}</Badge></td>
                     <td>{OWNER_LABELS[s.owner]}</td>
-                    <td>{s.note}</td>
+                    <td>{uiText(s.note)}</td>
                     <td className="col-status">
                       {displayState ? <span className="ax-hitl-status-dot" data-status={displayState.status}>{displayState.label}</span>
                         : <span className="ax-hitl-status-dot" data-status="pending">검토 전</span>}
@@ -571,9 +572,9 @@ function AxStepTable({ diagnosis: d, headers, reviewProps }: { diagnosis: AxDiag
   return <section className="ax-section ax-panel" aria-label="단계별 자동화 판단"><h3>단계별 자동화 판단</h3>
     <div className="ax-table-wrap"><table className="ax-step-table"><thead><tr>{headers.map(header => <th key={header}>{header}</th>)}</tr></thead><tbody>{d.stepAssessments.length ? d.stepAssessments.map((s, i) => {
     return <tr key={i}>
-      <td><span className="ax-step-number">{String(i + 1).padStart(2, "0")}</span>{s.step}</td>
+      <td><span className="ax-step-number">{String(i + 1).padStart(2, "0")}</span>{uiText(s.step)}</td>
       <td><Badge variant="outline" className="ax-verdict-badge" data-verdict={s.verdict}>{VERDICT_LABELS[s.verdict]}</Badge></td>
-      <td>{OWNER_LABELS[s.owner]}</td><td>{s.note}</td>
+      <td>{OWNER_LABELS[s.owner]}</td><td>{uiText(s.note)}</td>
     </tr>;
   }) : <tr><td colSpan={4}>기재된 단계 없음</td></tr>}</tbody></table></div>
   </section>;
@@ -601,7 +602,7 @@ function AxToBe({ diagnosis: d }: { diagnosis: AxDiagnosis }) {
   // 진단 데이터(technicalChecks·toBe)는 이 컴포넌트에서 변경하지 않는다.
   return <section className="ax-section ax-panel ax-tobe-card"><header className="ax-process-head"><h3>TO-BE · 역할과 흐름 (목표 프로세스)</h3><small>자동화 도입 후 예상 업무 흐름 · 구현 완료 아님</small></header>
     {d.toBe.length ? <ol className="ax-tobe-flow">{d.toBe.map((s, i) => { const Icon = icons[s.owner]; const desc = descriptionFor(s); return <li className="ax-tobe-item" data-owner={s.owner} key={i}>
-      <span className="ax-tobe-icon"><Icon aria-hidden="true" /></span><strong>{s.step}</strong><span>{OWNER_LABELS[s.owner]}</span>{desc ? <p>{desc}</p> : null}
+      <span className="ax-tobe-icon"><Icon aria-hidden="true" /></span><strong>{uiText(s.step)}</strong><span>{OWNER_LABELS[s.owner]}</span>{desc ? <p>{uiText(desc)}</p> : null}
       {i < d.toBe.length - 1 ? <ArrowRight className="ax-tobe-arrow" aria-hidden="true" /> : null}
     </li>; })}</ol> : <p className="ax-muted">기재된 목표 업무 단계 없음</p>}
   </section>;
@@ -637,7 +638,7 @@ export function AxCopyButton({ text, label, iconOnly = false }: { text: string; 
   return <>
     <span className="sr-only" aria-live="polite">{copied ? "복사 완료" : ""}</span>
     <Button type="button" variant={iconOnly ? "ghost" : "default"} size={iconOnly ? "icon-xs" : "default"} className={iconOnly ? "ax-guide-copy-button" : "ax-copy-button"} data-copied={copied ? "true" : undefined} aria-label={label} onClick={() => void copy()}>{copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}{iconOnly ? null : "복사"}</Button>
-    {failed ? <p className="ax-copy-error" role="status">복사하지 못했습니다. 직접 선택해 복사해주세요.</p> : null}
+    {failed ? <p className="ax-copy-error" role="status">복사하지 못했습니다. 직접 선택해 복사해주세요</p> : null}
   </>;
 }
 
@@ -645,7 +646,7 @@ export function AxCopyButton({ text, label, iconOnly = false }: { text: string; 
 // Bare https:// URLs are rendered as accessible external links.
 const URL_PATTERN = /(https:\/\/[^\s·,)]+)/gu;
 function AxGuideText({ text }: { text: string }) {
-  return <>{text.split(/(`[^`]+`)/g).map((part, i) => {
+  return <>{uiText(text).split(/(`[^`]+`)/g).map((part, i) => {
     if (part.startsWith("`")) return <code className="ax-cmd" key={i}>{part.slice(1, -1)}</code>;
     const segments = part.split(URL_PATTERN);
     return segments.map((segment, j) => {
@@ -661,8 +662,8 @@ function AxGuideBlockView({ block, listStyle }: { block: AxGuideBlock; listStyle
     const label = block.label ?? "PowerShell";
     const ariaLabel = label === "PowerShell" ? "PowerShell 명령" : label === ".gitignore" ? ".gitignore 예시" : "예시";
     return <>
-      <div className="ax-guide-code-wrap"><pre className={block.singleLine ? "ax-guide-code ax-guide-code--single-line" : "ax-guide-code"} aria-label={ariaLabel}><span className="ax-guide-code-label" aria-hidden="true">{label}</span><code>{block.prose ? guideProseDisplayText(block.lines) : guideCodeDisplayText(block.lines)}</code></pre><AxCopyButton key={block.lines.join("\n")} text={block.lines.join("\n")} label={`${ariaLabel} 복사`} iconOnly /></div>
-      {block.notes?.length ? <ul className="ax-guide-code-notes ax-guide-list" role="list">{block.notes.map((note, i) => <li key={i}><span className="ax-guide-marker" aria-hidden="true">•</span><span className="ax-guide-text">{note}</span></li>)}</ul> : null}
+      <div className="ax-guide-code-wrap"><pre className={block.singleLine ? "ax-guide-code ax-guide-code--single-line" : "ax-guide-code"} aria-label={ariaLabel}><span className="ax-guide-code-label" aria-hidden="true">{label}</span><code>{block.prose ? uiText(guideProseDisplayText(block.lines)) : guideCodeDisplayText(block.lines)}</code></pre><AxCopyButton key={block.lines.join("\n")} text={block.lines.join("\n")} label={`${ariaLabel} 복사`} iconOnly /></div>
+      {block.notes?.length ? <ul className="ax-guide-code-notes ax-guide-list" role="list">{block.notes.map((note, i) => <li key={i}><span className="ax-guide-marker" aria-hidden="true">•</span><span className="ax-guide-text"><AxGuideText text={note} /></span></li>)}</ul> : null}
     </>;
   }
   if (block.kind === "steps") {
@@ -705,7 +706,7 @@ const GIT_FLOW_GROUP_ICONS = [FileText, FileCode2, CloudUpload, Settings2, Rocke
 function AxGitFlowView({ block }: { block: AxGitFlowBlock }) {
   return <div className="ax-git-flow">
     <div className="ax-git-flow-head">
-      <div><p>{block.subtitle}</p></div>
+      <div><p>{uiText(block.subtitle)}</p></div>
     </div>
     <div className="ax-git-flow-track" role="list" aria-label="Git·GitHub 작업 순서">
       {block.steps.map((step, i) => {
@@ -715,7 +716,7 @@ function AxGitFlowView({ block }: { block: AxGitFlowBlock }) {
             <span className="ax-git-flow-no" aria-hidden="true">{step.no}</span>
             <span className="ax-git-flow-icon" aria-hidden="true"><Icon /></span>
             <h6>{step.title}</h6>
-            <p>{step.description}</p>
+            <p>{uiText(step.description)}</p>
             <span className="ax-git-flow-cmd">{step.command.map((line, j) => <span key={j}>{line}</span>)}</span>
           </article>
           {i < block.steps.length - 1 ? <ArrowRight aria-hidden="true" className="ax-git-flow-arrow" /> : null}
@@ -727,13 +728,13 @@ function AxGitFlowView({ block }: { block: AxGitFlowBlock }) {
         const Icon = GIT_FLOW_GROUP_ICONS[i] ?? FileText;
         return <li key={group.range} className="ax-git-flow-group" data-tone={group.tone}>
           <div className="ax-git-flow-group-head"><Icon aria-hidden="true" /><h6>{group.range} {group.title}</h6></div>
-          <ul role="list">{group.points.map((point, j) => <li key={j}>{point}</li>)}</ul>
+          <ul role="list">{group.points.map((point, j) => <li key={j}>{uiText(point)}</li>)}</ul>
         </li>;
       })}
     </ul>
     <div className="ax-git-flow-notes">
       <h6><Info aria-hidden="true" />추가 안내</h6>
-      <ul role="list">{block.notes.map((note, i) => <li key={i}>{note}</li>)}</ul>
+      <ul role="list">{block.notes.map((note, i) => <li key={i}>{uiText(note)}</li>)}</ul>
     </div>
   </div>;
 }
@@ -762,7 +763,7 @@ function AxSetupGuide({ tool, instructionsId, onGoToInstructions }: { tool: AxTo
   return <div className="ax-setup-tutorial" ref={root}>
     <header className="ax-tutorial-intro">
       <h3>설치부터 배포까지 따라 하기</h3>
-      <p>{intro.purpose}</p>
+      <p>{uiText(intro.purpose)}</p>
       <ol className="ax-tutorial-flow" aria-label="진행 흐름">{SETUP_COURSES.map(({ title: name, Icon }) => <li key={name}><Icon aria-hidden="true" /><span>{name}</span></li>)}</ol>
     </header>
     <nav className="ax-tutorial-toc" aria-label="설치·시작 단계 목차">
@@ -786,8 +787,8 @@ function AxSetupGuide({ tool, instructionsId, onGoToInstructions }: { tool: AxTo
             {glossary.blocks.map((block, blockIndex) => block.kind === "git-flow" ? <AxGitFlowView key={blockIndex} block={block} /> : block.kind === "steps" ? <dl key={blockIndex}>{block.items.map(term => {
               const split = term.indexOf(":");
               const name = term.slice(0, split);
-              return <div key={term}><dt>{name === "환경변수(Environment Variable)" ? <><span>환경변수</span><span className="ax-tutorial-term-translation">(Environment Variable)</span></> : name}</dt><dd>{term.slice(split + 2)}</dd></div>;
-            })}</dl> : block.kind === "text" ? <p key={blockIndex} className="ax-tutorial-terms-note">{block.text}</p> : null)}
+              return <div key={term}><dt>{name === "환경변수(Environment Variable)" ? <><span>환경변수</span><span className="ax-tutorial-term-translation">(Environment Variable)</span></> : name}</dt><dd><AxGuideText text={term.slice(split + 2)} /></dd></div>;
+            })}</dl> : block.kind === "text" ? <p key={blockIndex} className="ax-tutorial-terms-note"><AxGuideText text={block.text} /></p> : null)}
           </AccordionPanel>
         </AccordionItem></Accordion>
       </section>
@@ -799,7 +800,7 @@ function AxSetupGuide({ tool, instructionsId, onGoToInstructions }: { tool: AxTo
         const Icon = SETUP_ICONS[index];
         return <section className="ax-guide-step" data-setup-step={index + 1} aria-labelledby={`${id}-step-${index + 1}`} key={step.title}>
           <h4 id={`${id}-step-${index + 1}`} tabIndex={-1}><span className="ax-tutorial-step-no">STEP {String(index + 1).padStart(2, "0")}<Icon aria-hidden="true" /></span><span className="ax-guide-step-title"><span>{title(step.title)}</span></span></h4>
-          {step.purpose ? <p className="ax-guide-purpose">{step.purpose}</p> : null}
+          {step.purpose ? <p className="ax-guide-purpose">{uiText(step.purpose)}</p> : null}
           <p className="ax-tutorial-action-label"><Terminal aria-hidden="true" />실행 방법</p>
           {step.sections.map(section => <AxGuideSectionView key={section.title} section={section} completion={SETUP_COMPLETIONS.has(section.title)} warning={SETUP_WARNINGS.has(section.title)} collapsed={section.collapsed || (section.title in SETUP_DETAILS)} />)}
           {index === 2 ? <Button type="button" variant="default" className="ax-guide-step-cta" onClick={onGoToInstructions} aria-controls={instructionsId}>올인원 지시문으로 이동</Button> : null}
@@ -811,7 +812,7 @@ function AxSetupGuide({ tool, instructionsId, onGoToInstructions }: { tool: AxTo
 
 /** One heading pattern: optional filled number badge, title and an inline muted purpose line. */
 function AxPlanHeading({ no, title, description, id }: { no?: string; title: string; description?: string; id?: string }) {
-  return <div className="ax-plan-title"><h4 id={id} tabIndex={id ? -1 : undefined}>{no ? <><span className="ax-plan-no">{no}</span> </> : null}{title}</h4>{description ? <p className="ax-plan-desc">{description}</p> : null}</div>;
+  return <div className="ax-plan-title"><h4 id={id} tabIndex={id ? -1 : undefined}>{no ? <><span className="ax-plan-no">{no}</span> </> : null}{title}</h4>{description ? <p className="ax-plan-desc">{uiText(description)}</p> : null}</div>;
 }
 /** ① 구현 전 확인: 검토 영역 공통 아코디언(기본 접힘)에 제목 + 미해결 건수만 표시한다.
  * 펼치면 배지 건수와 같은 집계 기준의 실제 미해결 항목을 짧은 목록으로 보여준다
@@ -821,6 +822,25 @@ function AxPlanHeading({ no, title, description, id }: { no?: string; title: str
  * 숨기지 않으므로, 목록 길이는 항상 배지 건수와 같다.
  * 항목별 이동 대상 판정(resolvePrecheckTarget)은 단위 테스트가 유지하므로 삭제하지 않는다. */
 export type PrecheckListItem = { title: string; detail: string; target: PrecheckTarget };
+/** 표시 정리: 제목과 설명이 같은 문장이면 제목에서 끝의 상태 표기("(확인 필요)" 등)만 떼어 설명으로 쓰고,
+ * 제목·설명이 모두 같은 항목(같은 확인 조건이 여러 출처에서 온 경우)은 한 번만 보인다. 서로 다른
+ * 조건은 문장이 비슷해도 합치지 않으며, 원본 요약 데이터는 바꾸지 않는다. */
+function tidyPrecheckItems(items: PrecheckListItem[]): PrecheckListItem[] {
+  const norm = (text: string) => text.replace(/\s+/gu, " ").trim();
+  const seen = new Set<string>();
+  return items.flatMap(item => {
+    let { title, detail } = item;
+    if (norm(title) === norm(detail)) {
+      const marker = /\s*\((확인 필요|미확인|확인 전 보류|보류)\)\s*$/u.exec(title);
+      title = marker ? title.slice(0, marker.index).trim() : title;
+      detail = marker ? marker[1] : "확인 필요";
+    }
+    const key = `${norm(title)}\0${norm(detail)}`;
+    if (seen.has(key)) return [];
+    seen.add(key);
+    return [{ ...item, title, detail }];
+  });
+}
 export function precheckListItems(summary: AxPlanSummary): PrecheckListItem[] {
   const pending = <T extends { tone: AxCheckTone }>(items: T[]) => items.filter(item => item.tone === "required" || item.tone === "blocked" || item.tone === "held");
   const items: PrecheckListItem[] = [];
@@ -829,9 +849,11 @@ export function precheckListItems(summary: AxPlanSummary): PrecheckListItem[] {
   for (const check of pending(summary.additionalChecks)) items.push({ title: check.item, detail: check.content, target: resolvePrecheckTarget({ topic: check.item, note: check.content, tone: check.tone, origin: "extra" }) });
   for (const text of summary.conflictingCriteria ?? []) items.push({ title: text, detail: "성공·실패 기준 충돌 — 확인 필요", target: resolvePrecheckTarget({ topic: text, origin: "conflict" }) });
   for (const text of summary.numericConflictCriteria ?? []) items.push({ title: text, detail: "수치·허용 기준 상충 — 확인 필요", target: resolvePrecheckTarget({ topic: text, origin: "conflict" }) });
-  return items;
+  return tidyPrecheckItems(items);
 }
-function AxPrecheckSection({ summary }: { summary: AxPlanSummary }) {
+/** ① 구현 전 확인: 항목마다 실제 확인·수정 위치로 가는 '확인하러 가기' 버튼을 둔다 (이동 위치가 없는
+ * 항목은 버튼 없이 안내 문구만). 버튼을 누르는 것만으로 완료 처리하지 않는다. */
+function AxPrecheckSection({ summary, onGoToTarget }: { summary: AxPlanSummary; onGoToTarget?: (target: PrecheckTarget, topic: string) => void }) {
   const [open, setOpen] = useState(false);
   const items = precheckListItems(summary);
   const count = items.length;
@@ -839,7 +861,12 @@ function AxPrecheckSection({ summary }: { summary: AxPlanSummary }) {
   return <AxReviewAccordion className="ax-precheck" headClassName="ax-precheck-head" label="구현 전 확인" icon={ClipboardList} meta={<span>{blocked ? "진행 보류" : "미해결"} {count}건</span>} open={open} onOpenChange={setOpen}>
     {count ? <ul className="ax-precheck-items">{items.map((item, i) => {
       const location = item.target.kind === "none" ? "" : precheckTargetLabel(item.target) + (item.target.kind === "decision" && item.target.id ? ` ${item.target.id}` : "");
-      return <li key={i} className="ax-precheck-row"><strong>{item.title}</strong><span>{item.detail}</span>{location ? <small>확인 위치: {location}</small> : null}</li>;
+      const target = item.target;
+      return <li key={i} className="ax-precheck-row">
+        <div className="ax-precheck-row-text"><strong>{uiText(item.title)}</strong><span>{uiText(item.detail)}</span>
+          {target.kind === "none" ? <small>{uiText(target.guidance)}</small> : location ? <small>확인 위치: {location}</small> : null}</div>
+        {target.kind !== "none" && onGoToTarget ? <Button type="button" variant="outline" size="sm" onClick={() => onGoToTarget(target, item.title)}>확인하러 가기</Button> : null}
+      </li>;
     })}</ul> : <p className="ax-muted ax-precheck-empty">필수 확인사항 없음</p>}
   </AxReviewAccordion>;
 }
@@ -1027,7 +1054,7 @@ function AxPlanGroups({ steps, planItems, controls, open, onOpenChange }: {
       return <AccordionItem key={group.id} value={group.id} className="ax-plan-group">
         <AccordionTrigger className="ax-plan-group-trigger">
           <span className="ax-plan-group-name"><span className="ax-plan-group-icon" aria-hidden="true"><Icon size={22} /></span><span className="ax-plan-group-title">{group.title} ({group.steps.length}개)</span></span>
-          <span className="ax-plan-group-desc">{group.description}</span>
+          <span className="ax-plan-group-desc">{uiText(group.description)}</span>
           <span className="ax-plan-group-count">{group.steps.length}개</span>
         </AccordionTrigger>
         <AccordionPanel className="ax-plan-group-panel">
@@ -1037,7 +1064,7 @@ function AxPlanGroups({ steps, planItems, controls, open, onOpenChange }: {
               return <li key={step.index} className="ax-plan-step">
                 <div className="ax-plan-step-row">
                   <span className="ax-plan-step-no" title="원본 실행 순서">{step.index + 1}</span>
-                  <span className="ax-plan-step-text">{step.text}</span>
+                  <span className="ax-plan-step-text">{uiText(step.text)}</span>
                   {item && controls ? <PlanReviewStatus item={item} controls={controls} /> : null}
                 </div>
                 {item && controls ? <PlanReviewPanel item={item} controls={controls} /> : null}
@@ -1067,7 +1094,7 @@ function AxScopeCriteria({ summary, diagnosis, plan, planItems, criteria, contro
     ? getValidConfirmedReviews({ reviews: controls.reviews } as AxTaskV2, [...extractReviewableItems(diagnosis), ...planItems, ...criteria])
     : [];
   const deferred = validReviews.filter(review => review.action === "defer" && (review.target.type === "step" || review.target.type === "planItem"))
-    .map(review => [review.target.sourceText, review.reason ? `보류 사유: ${review.reason}` : "", review.resumeCondition ? `재개 조건: ${review.resumeCondition}` : ""].filter(Boolean).join(" · "));
+    .map(review => [uiText(review.target.sourceText), review.reason ? `보류 사유: ${review.reason}` : "", review.resumeCondition ? `재개 조건: ${review.resumeCondition}` : ""].filter(Boolean).join(" · "));
   const scopeRows = [
     { label: "구현 대상", items: include },
     { label: "담당자 수행", items: human },
@@ -1079,7 +1106,7 @@ function AxScopeCriteria({ summary, diagnosis, plan, planItems, criteria, contro
     <section className="ax-scope-panel" data-scope-group="scope" aria-labelledby="ax-scope-title">
       <h3 id="ax-scope-title"><Target size={22} aria-hidden="true" />구현 범위</h3>
       <div className="ax-scope-sections">{scopeRows.map(row => <section key={row.label} className="ax-scope-section">
-        <h4>{row.label}</h4>{row.items.length ? <ul>{row.items.map((text, index) => <li key={`${index}-${text}`}>{text}</li>)}</ul> : <p className="ax-muted">정보 없음</p>}
+        <h4>{row.label}</h4>{row.items.length ? <ul>{row.items.map((text, index) => <li key={`${index}-${text}`}>{row.label === "보류·제외" && text.startsWith("보류:") ? text : uiText(text)}</li>)}</ul> : <p className="ax-muted">정보 없음</p>}
       </section>)}</div>
     </section>
     <section className="ax-scope-panel" data-scope-group="criteria" aria-labelledby="ax-criteria-title">
@@ -1089,11 +1116,11 @@ function AxScopeCriteria({ summary, diagnosis, plan, planItems, criteria, contro
         const status = controls ? reviewDisplayState(item, review, new Set(controls.validKeys)).status : "pending";
         const Icon = status === "confirmed" ? CheckCircle2 : status === "stale" ? AlertTriangle : Circle;
         return <li key={item.key} className="ax-criteria-item" data-status={status}>
-          <div className="ax-criteria-row"><Icon size={16} aria-hidden="true" className="ax-criteria-icon" /><span className="ax-criteria-text">{item.text}</span>{controls ? <PlanReviewStatus item={item} controls={controls} /> : null}</div>
+          <div className="ax-criteria-row"><Icon size={16} aria-hidden="true" className="ax-criteria-icon" /><span className="ax-criteria-text">{uiText(item.text)}</span>{controls ? <PlanReviewStatus item={item} controls={controls} /> : null}</div>
           {controls ? <PlanReviewPanel item={item} controls={controls} /> : null}
         </li>;
       })}</ul> : rows.coreCriteria.length ? <ul className="ax-scope-list">
-        {rows.coreCriteria.map((text, i) => <li key={i}><Circle size={14} aria-hidden="true" className="ax-scope-bullet" /><span>{text}</span></li>)}
+        {rows.coreCriteria.map((text, i) => <li key={i}><Circle size={14} aria-hidden="true" className="ax-scope-bullet" /><span>{uiText(text)}</span></li>)}
         {rows.additionalCriteriaCount ? <li><Circle size={14} aria-hidden="true" className="ax-scope-bullet" /><span>추가 기준 {rows.additionalCriteriaCount}개</span></li> : null}
       </ul> : <p className="ax-muted">완료 기준 정보 없음</p>}
     </section>
@@ -1138,7 +1165,7 @@ export function AxExecutionPackage({ plan, target, taskName, taskContext, prereq
     {/* 전달 검사는 내부에서 그대로 수행하고, 실제 전달 문제가 있을 때만 안내한다 (상시 요약 줄은 표시하지 않음). */}
     {delivery.findings.length ? <div className="ax-delivery-check">
       <div className="ax-actions"><Button type="button" variant="outline" size="sm" aria-expanded={showFindings} onClick={() => setShowFindings(value => !value)}>{showFindings ? "전달 문제 접기" : `전달 문제 ${delivery.findings.length}건 보기`}</Button></div>
-      {showFindings ? <ul role="list">{delivery.findings.map((finding, i) => <li key={i}>{finding.message}</li>)}</ul> : null}
+      {showFindings ? <ul role="list">{delivery.findings.map((finding, i) => <li key={i}>{uiText(finding.message)}</li>)}</ul> : null}
     </div> : null}
   </div>;
 }
@@ -1213,8 +1240,8 @@ export function AxFixPromptSection({ diagnosis, plan, taskName, taskContext, pre
     previousFailureNames,
   });
   function saveRound() {
-    if (!validFailures.length) { setFormError("실패한 기능을 1건 이상 입력하세요."); return; }
-    if (!onSaveVerificationResults) { setFormError("검증 결과를 저장할 수 없습니다. 다시 시도하세요."); return; }
+    if (!validFailures.length) { setFormError("실패한 기능을 1건 이상 입력하세요"); return; }
+    if (!onSaveVerificationResults) { setFormError("검증 결과를 저장할 수 없습니다. 다시 시도하세요"); return; }
     const text = (value: string | undefined) => value?.trim() ? value.trim() : undefined;
     onSaveVerificationResults({
       reportedAt: new Date().toISOString(),
@@ -1233,17 +1260,17 @@ export function AxFixPromptSection({ diagnosis, plan, taskName, taskContext, pre
       ...(text(testRunFailure) ? { testRunFailure: text(testRunFailure) } : {}),
     });
     setFormError("");
-    setSavedMessage("검증 결과를 저장했습니다. 보고 일시가 라운드 구분자로 기록됩니다.");
+    setSavedMessage("검증 결과를 저장했습니다. 보고 일시가 라운드 구분자로 기록됩니다");
   }
   return <section className="ax-plan-block" aria-label="검증 결과와 수정·보완 지시문">
-    <div className="ax-plan-title"><h4>검증 결과 · 수정·보완 지시문</h4><p className="ax-plan-desc">STEP 08 검증 결과를 입력하면 실패 항목만 다루는 수정 지시문을 만듭니다. 정상 기능은 수정하지 않습니다.</p></div>
+    <div className="ax-plan-title"><h4>검증 결과 · 수정·보완 지시문</h4><p className="ax-plan-desc">STEP 08 검증 결과를 입력하면 실패 항목만 다루는 수정 지시문을 만듭니다. 정상 기능은 수정하지 않습니다</p></div>
     {gate === "blocked" ? <p role="status" className="ax-notice">현재 진단에서는 수정·보완 지시문 생성 불가</p> : <>
       {failures.map((failure, i) => <div className="ax-fix-failure" key={i}>
         <div className="ax-fix-failure-head"><strong>실패 {i + 1}</strong>{failures.length > 1 ? <Button type="button" variant="outline" size="sm" onClick={() => setFailures(current => current.filter((_, j) => j !== i))}>삭제</Button> : null}</div>
         <AxFixField label="실패 기능" value={failure.feature} onChange={value => patchFailure(i, { feature: value })} rows={1} maxLength={500} />
         <AxFixField label="기대 결과" value={failure.expected} onChange={value => patchFailure(i, { expected: value })} rows={2} maxLength={2000} />
         <AxFixField label="실제 결과" value={failure.actual} onChange={value => patchFailure(i, { actual: value })} rows={2} maxLength={2000} />
-        <AxFixField label="오류 내용" hint="개인정보·키·토큰은 [REDACTED]로 가리고 필요한 부분만 입력하세요. 로그 전체를 복사하지 마세요." value={failure.error} onChange={value => patchFailure(i, { error: value })} rows={2} maxLength={2000} />
+        <AxFixField label="오류 내용" hint="개인정보·키·토큰은 [REDACTED]로 가리고 필요한 부분만 입력하세요. 로그 전체를 복사하지 마세요" value={failure.error} onChange={value => patchFailure(i, { error: value })} rows={2} maxLength={2000} />
         <AxFixField label="재현 절차" value={failure.reproduction} onChange={value => patchFailure(i, { reproduction: value })} rows={2} maxLength={2000} />
       </div>)}
       <div className="ax-actions"><Button type="button" variant="outline" onClick={() => setFailures(current => [...current, emptyAxFixDraftFailure()])}>실패 항목 추가</Button></div>
@@ -1259,14 +1286,14 @@ export function AxFixPromptSection({ diagnosis, plan, taskName, taskContext, pre
       {verificationResults?.length ? <div className="ax-fix-rounds">
         <h5>저장된 검증 라운드</h5>
         <ul role="list">{verificationResults.map((round, i) => <li key={`${round.reportedAt}-${i}`}>{new Date(round.reportedAt).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })} · 실패 {round.failures.length}건 — {round.failures.map(failure => failure.feature).join(" / ")}</li>)}</ul>
-        <p className="ax-muted">이전 라운드 실패 항목이 이번 입력과 겹치면 지시문에서 반복 실패 확인 대상으로 표시됩니다.</p>
+        <p className="ax-muted">이전 라운드 실패 항목이 이번 입력과 겹치면 지시문에서 반복 실패 확인 대상으로 표시됩니다</p>
       </div> : null}
-      {preview ? <div className="ax-fix-preview"><AxPrompt key={preview} prompt={preview} name="수정·보완" copySuffix="지시문" /></div> : <p className="ax-muted">실패 기능을 1건 이상 입력하면 수정·보완 지시문 미리보기가 표시됩니다.</p>}
+      {preview ? <div className="ax-fix-preview"><AxPrompt key={preview} prompt={preview} name="수정·보완" copySuffix="지시문" /></div> : <p className="ax-muted">실패 기능을 1건 이상 입력하면 수정·보완 지시문 미리보기가 표시됩니다</p>}
     </>}
   </section>;
 }
 
-export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenerate, reviewProps, genericRules, activeTool: controlledTool, onToolChange }: {
+export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenerate, reviewProps, genericRules, activeTool: controlledTool, onToolChange, onGoToTarget }: {
 
   diagnosis: AxDiagnosis;
   taskName: string;
@@ -1279,6 +1306,8 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
    * 미제공 시 기존 내부 상태 동작을 유지한다. */
   activeTool?: AxToolId;
   onToolChange?: (tool: AxToolId) => void;
+  /** 구현 전 확인 '확인하러 가기' 이동 (선택 업무 기준). */
+  onGoToTarget?: (target: PrecheckTarget, topic: string) => void;
 }) {
   const profile = executionProfile(diagnosis);
   const gate = profile.gate;
@@ -1319,7 +1348,7 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
   return <div className="ax-plan-stack" id="ax-plan-section" role="region" aria-label="자동화 구현 계획"><section className="ax-surface ax-plan-overview-surface">
     <div className="ax-plan-head"><BarChart3 size={24} aria-hidden="true" className="ax-plan-head-icon" /><h3>자동화 구현 계획</h3></div>
     <AxStatCards cards={PLAN_OVERVIEW_CARDS.map(card => ({ ...card, count: card.key === "check" ? precheckListItems(summary).length : diagnosis.stepAssessments.filter(step => step.verdict === card.key).length }))} />
-    <AxPrecheckSection summary={summary} />
+    <AxPrecheckSection summary={summary} onGoToTarget={onGoToTarget} />
   </section>
   <section className="ax-surface ax-plan-groups-surface" id="ax-plan-review" aria-label="구현 계획">
     <div className="ax-plan-groups-head">

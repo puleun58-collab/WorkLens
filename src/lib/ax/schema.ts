@@ -222,6 +222,22 @@ export const verificationResultSchema = z.object({
   testRunFailure: z.string().trim().max(2000).optional(),
 }).strict();
 
+/** 사용자가 기록한 기술 확인 항목(technicalChecks)의 확인 결과. AI 진단 원본은 바꾸지 않고
+ * 업무 단위로 따로 저장하며, 원본 항목과는 key(주제)·sourceHash(주제+확인 내용)로 연결한다.
+ * 원본이 바뀌면(재진단) sourceHash가 달라져 적용하지 않고 재확인 필요로 보인다.
+ * - 확인 완료: 담당자가 근거(note)와 함께 확인함 → 해당 항목을 확인됨(담당자 확인)으로 본다
+ * - 사용 불가: 담당자가 근거와 함께 조건 미충족을 확인함 → 불가로 본다
+ * - 미확인: 확인 내용만 기록(상태 변화 없음) */
+export const CHECK_CONFIRMATION_RESULTS = ["확인 완료", "사용 불가", "미확인"] as const;
+export const checkConfirmationSchema = z.object({
+  key: z.string().trim().min(1).max(300),
+  topic: z.string().trim().min(1).max(300),
+  sourceHash: z.string().trim().min(1).max(64),
+  result: z.enum(CHECK_CONFIRMATION_RESULTS),
+  note: z.string().trim().max(2000),
+  updatedAt: z.iso.datetime(),
+}).strict();
+
 // v2: HITL 검토 데이터 포함
 export const axTaskV2Schema = axTaskSchema.extend({
   // 사람 검토 데이터 (AI 진단 원본과 분리)
@@ -238,6 +254,8 @@ export const axTaskV2Schema = axTaskSchema.extend({
   // 그대로 검증·마이그레이션되며, 내보내기/가져오기는 스키마를 그대로
   // 통과하므로 별도 화이트리스트·버전 상향이 필요 없다.
   verificationResults: z.array(verificationResultSchema).max(50).optional(),
+  // 기술 확인 항목 확인 기록: 진단 원본과 분리된 사용자 기록 (선택 필드, 기존 데이터 호환).
+  checkConfirmations: z.array(checkConfirmationSchema).max(30).optional(),
 });
 
 export const axStateV2Schema = z.object({

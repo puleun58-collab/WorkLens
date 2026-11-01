@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import type { HitlReview, HitlAction, HitlStatus } from "@/lib/ax/types";
 import type { ReviewableItem } from "@/lib/ax/hitl";
+import { uiText } from "@/lib/ax/display-text";
 
 // 상태별 표시 문구와 스타일 (사용자 표시 통일)
 const STATUS_META: Record<HitlStatus, { label: string; className: string }> = {
@@ -41,16 +42,16 @@ export function StaleNotice({ review, currentText }: { review: HitlReview; curre
   const changed = review.target.sourceText !== currentText;
   return (
     <div className="ax-hitl-stale-notice" role="alert">
-      <p className="ax-hitl-stale-title">AI 진단 내용이 변경되었습니다. 이전 검토를 확인해 주세요.</p>
+      <p className="ax-hitl-stale-title">AI 진단 내용이 변경되었습니다. 이전 검토를 확인해 주세요</p>
       {changed ? (
         <div className="ax-hitl-stale-compare">
           <div className="ax-hitl-stale-old">
             <span className="ax-hitl-stale-label">이전 원본</span>
-            <p>{review.target.sourceText}</p>
+            <p>{uiText(review.target.sourceText)}</p>
           </div>
           <div className="ax-hitl-stale-new">
             <span className="ax-hitl-stale-label">현재 원본</span>
-            <p>{currentText}</p>
+            <p>{uiText(currentText)}</p>
           </div>
         </div>
       ) : null}
@@ -127,11 +128,11 @@ export function HitlReviewPanel({ item, review, onSave, onCancel, onEdit }: Hitl
     setError("");
     // 액션별 필수 입력 검증
     if (action === "supplement" && !supplement.trim()) {
-      setError("보완 내용을 입력해 주세요.");
+      setError("보완 내용을 입력해 주세요");
       return;
     }
     if ((action === "defer" || action === "exclude") && !reason.trim()) {
-      setError("사유를 입력해 주세요.");
+      setError("사유를 입력해 주세요");
       return;
     }
     setSaving(true);
@@ -171,7 +172,7 @@ export function HitlReviewPanel({ item, review, onSave, onCancel, onEdit }: Hitl
           <span className="ax-hitl-v2-original-title">AI 판단</span>
           <span className="ax-hitl-v2-original-sub">검토 대상 원본</span>
         </div>
-        <p className="ax-hitl-v2-original-text">{item.text}</p>
+        <p className="ax-hitl-v2-original-text">{uiText(item.text)}</p>
       </div>
 
       {isEditing ? (
@@ -203,7 +204,7 @@ export function HitlReviewPanel({ item, review, onSave, onCancel, onEdit }: Hitl
               required={false}
               value={comment}
               onChange={setComment}
-              placeholder="유지 이유나 참고 사항을 입력하세요."
+              placeholder="유지 이유나 참고 사항을 입력하세요"
             />
           ) : null}
 
@@ -214,14 +215,14 @@ export function HitlReviewPanel({ item, review, onSave, onCancel, onEdit }: Hitl
                 required={true}
                 value={reason}
                 onChange={setReason}
-                placeholder="보류 사유를 입력하세요."
+                placeholder="보류 사유를 입력하세요"
               />
               <ReviewTextarea
                 label="재개 조건"
                 required={false}
                 value={resumeCondition}
                 onChange={setResumeCondition}
-                placeholder="재개 조건을 입력하세요."
+                placeholder="재개 조건을 입력하세요"
               />
             </>
           ) : null}
@@ -232,7 +233,7 @@ export function HitlReviewPanel({ item, review, onSave, onCancel, onEdit }: Hitl
               required={true}
               value={reason}
               onChange={setReason}
-              placeholder="제외 사유를 입력하세요."
+              placeholder="제외 사유를 입력하세요"
             />
           ) : null}
 
@@ -242,7 +243,7 @@ export function HitlReviewPanel({ item, review, onSave, onCancel, onEdit }: Hitl
               required={true}
               value={supplement}
               onChange={setSupplement}
-              placeholder="추가 내용을 입력하세요."
+              placeholder="추가 내용을 입력하세요"
             />
           ) : null}
 

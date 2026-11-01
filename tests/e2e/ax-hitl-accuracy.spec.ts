@@ -92,7 +92,7 @@ for (const viewport of VIEWPORTS) {
     // 진단 요약: 수행 단계와 명시된 승인 지점을 구분하고 결합 문구를 만들지 않는다.
     const summary = page.locator(".ax-diag-summary");
     await expect(summary).toContainText("담당자 승인 단계는 담당자가 직접 수행해야 합니다.");
-    await expect(summary).toContainText("담당자 최종 승인 지점에서는 담당자 승인이 필요합니다.");
+    await expect(summary).toContainText("담당자 최종 승인 지점에서는 담당자 승인이 필요합니다");
     await expect(summary).not.toContainText("판단·승인이 필요합니다");
 
     const steps = await expectCounts(page, seeded);
