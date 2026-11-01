@@ -92,7 +92,7 @@ test("AX 간소화·COSS 통일: 판단 하단 문구 제거·매트릭스 버�
   const badgeText = await precheck.locator(".ax-precheck-head").textContent();
   const badgeCount = Number(/미해결 (\d+)건/.exec(badgeText ?? "")?.[1]);
   await expect(precheck.locator(".ax-precheck-row")).toHaveCount(badgeCount);
-  await expect(precheck.getByRole("button", { name: "확인하러 가기" })).toHaveCount(badgeCount);
+  await expect(precheck.getByRole("button", { name: "확인", exact: true })).toHaveCount(badgeCount);
   await expect(precheck.getByRole("button", { name: "계획 검토" })).toHaveCount(0);
   await expect(precheck.getByRole("button", { name: "업무 정보 수정" })).toHaveCount(0);
 

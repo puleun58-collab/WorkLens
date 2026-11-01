@@ -194,7 +194,8 @@ export function AxDiagnosisView() {
           : checkScroll.target === "checks"
             ? panel?.querySelector(".ax-diag-checks") ?? panel?.querySelector(".ax-diag-card")
             : panel?.querySelector("#ax-answer-section") ?? panel?.querySelector(".ax-diag-checks") ?? panel?.querySelector(".ax-diag-card");
-        target?.scrollIntoView({ behavior: "smooth", block: "start" });
+        // 항목 이동(selector)은 즉시 이동해 펼쳐진 입력 위 항목 제목에 정확히 착지한다 (부드러운 스크롤 중 레이아웃 변화로 어긋나지 않게).
+        target?.scrollIntoView({ behavior: checkScroll.selector ? "instant" : "smooth", block: "start" });
         setCheckScroll(null);
       });
     }, 260);

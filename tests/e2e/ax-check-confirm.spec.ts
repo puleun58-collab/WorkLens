@@ -80,10 +80,16 @@ test("AX 확인 필요 항목: 근거와 함께 확인 완료를 저장하면 �
   await plan.getByRole("button", { name: "전체 보기" }).click();
   await expect(plan.locator(".ax-prompt")).toContainText("IT팀이 서비스 계정에 읽기·쓰기 권한 부여 확인");
   const target = precheck.locator(".ax-precheck-row").filter({ hasText: "보고서 템플릿 자동화" });
-  await target.getByRole("button", { name: "확인하러 가기" }).click();
+  // 한 줄 구성(굵은 항목명 + 확인)이며 보조 설명·확인 위치 문구는 없다.
+  await expect(target).not.toContainText("확인 위치");
+  await target.getByRole("button", { name: "확인", exact: true }).click();
   await expect(page.getByRole("tab", { name: "업무 진단", exact: true })).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".ax-diag-card h2")).toHaveText("업무 A");
   await expect(page.getByRole("group", { name: "보고서 템플릿 자동화 확인 결과 입력" })).toBeVisible();
+  // 이동 후 항목 제목이 고정 헤더 아래에 먼저 보인다.
+  const title = page.locator(".ax-diag-checks li").filter({ hasText: "보고서 템플릿 자동화" }).locator(".ax-check-text strong");
+  await expect.poll(async () => (await title.boundingBox())?.y ?? -1).toBeGreaterThan(60);
+  await expect.poll(async () => (await title.boundingBox())?.y ?? 9999).toBeLessThan(220);
   // 업무 B는 영향 없음
   await page.locator('section[aria-label="등록 업무 목록"]').getByRole("button", { name: /업무 B/ }).click();
   await expect(page.locator(".ax-judgement-foot")).toContainText("확인 필요 · 2건");

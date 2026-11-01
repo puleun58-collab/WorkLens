@@ -149,11 +149,13 @@ test("implementation steps and completion criteria save independently and persis
   const detail = criterion.locator(".ax-plan-review-panel");
   await expect(detail.locator(".ax-hitl-panel-v2")).toBeVisible();
   await expect(detail.getByText("AI 판단", { exact: true })).toBeVisible();
-  const nestedSurfaces = await detail.evaluate(root => [root.querySelector(".ax-hitl-panel-v2"), root.querySelector(".ax-hitl-v2-original")].map(node => {
+  // 완료 기준 검토 패널은 단계별 자동화 판단 검토와 같은 디자인(패널 테두리·AI 판단 박스 배경)을 쓴다.
+  const surfaces = await detail.evaluate(root => [root.querySelector(".ax-hitl-panel-v2"), root.querySelector(".ax-hitl-v2-original")].map(node => {
     const style = getComputedStyle(node!);
     return { border: style.borderTopWidth, background: style.backgroundColor };
   }));
-  expect(nestedSurfaces).toEqual([{ border: "0px", background: "rgba(0, 0, 0, 0)" }, { border: "1px", background: "rgba(0, 0, 0, 0)" }]);
+  expect(surfaces[0].border).not.toBe("0px");
+  expect(surfaces[1].background).toBe("rgb(240, 244, 248)");
   await detail.getByRole("radio", { name: /유지/ }).check();
   await detail.getByRole("button", { name: "확정" }).click();
   await expect(criterion).toHaveAttribute("data-status", "confirmed");
