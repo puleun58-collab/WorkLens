@@ -47,12 +47,4 @@ describe("UI wording fixes", () => {
     expect(css).not.toContain("#7f1d1d");
     expect(css).not.toContain("#dc2626");
   });
-
-  it("diagnosis next action is a COSS outline button, not an underlined link", () => {
-    const view = read("../src/components/ax/AxDiagnosisView.tsx");
-    const css = read("../src/components/ax/ax.css");
-    expect(view).toContain('<Button type="button" variant="outline" size="sm" onClick={() => scrollToSummaryTarget(action.target!)}>');
-    expect(view).not.toContain("ax-summary-action");
-    expect(css).not.toContain("ax-summary-action");
-  });
 });

@@ -783,16 +783,18 @@
 .ax-diag-actions { display: flex; gap: 8px; flex: none; }
 /* 진단 결과 요약: 판정 분포 3카드(자동화 적합·AI 보조 적합·담당자 수행) + 핵심 판단 패널. */
 .ax-diag-summary { display: flex; flex-direction: column; gap: 12px; }
-.ax-diag-source { font-size: 12px; }
-.ax-diag-summary > p.ax-diag-source { margin: 0; }
 .ax-diag-summary-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .ax-diag-summary-head h3 { margin: 0; font-size: 15px; }
+.ax-diag-summary > p.ax-diag-source { margin: 0; font-size: 12px; }
+/* 업무 진단(3열)·자동화 구현 계획(4열) 공통 요약 카드 (AxStatCards): 흰색 원형 아이콘 + 항목명 + 큰 숫자·"개". */
 .ax-verdict-cards { margin: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.ax-verdict-cards[data-cols="4"] { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .ax-verdict-card { --tone: #2563eb; --tone-bg: #eff6ff; --tone-border: #dbeafe; display: grid; grid-template-columns: 40px minmax(0, 1fr); grid-template-rows: auto auto; column-gap: 12px; align-items: center; padding: 14px 16px; border: 1px solid var(--tone-border); border-radius: 12px; background: var(--tone-bg); }
 .ax-verdict-card[data-tone="violet"] { --tone: #7c3aed; --tone-bg: #f5f3ff; --tone-border: #ede9fe; }
 .ax-verdict-card[data-tone="green"] { --tone: #16a34a; --tone-bg: #f0fdf4; --tone-border: #dcfce7; }
+.ax-verdict-card[data-tone="yellow"] { --tone: #ca8a04; --tone-bg: #fefce8; --tone-border: #fef08a; }
 .ax-verdict-icon { grid-row: 1 / span 2; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; color: var(--tone); background: var(--card); box-shadow: inset 0 0 0 1px var(--tone-border); }
-.ax-verdict-card dt { font-size: 13px; font-weight: 600; color: var(--muted-foreground); }
+.ax-verdict-card dt { min-width: 0; font-size: 13px; font-weight: 600; color: var(--muted-foreground); overflow-wrap: anywhere; }
 .ax-verdict-card dd { margin: 0; font-size: 13px; color: var(--muted-foreground); }
 .ax-verdict-card dd strong { margin-right: 2px; font-size: 24px; font-weight: 700; line-height: 1.2; color: var(--foreground); font-variant-numeric: tabular-nums; }
 .ax-judgement { border: 1px solid #dbeafe; border-radius: 12px; background: #f5f9ff; }
@@ -801,11 +803,9 @@
 .ax-judgement-text { min-width: 0; }
 .ax-judgement-text h4 { margin: 0 0 4px; font-size: 14px; font-weight: 700; }
 .ax-judgement-text p { margin: 0; font-size: 13.5px; line-height: 1.6; overflow-wrap: anywhere; }
-.ax-judgement-foot { margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-top: 1px solid #dbeafe; }
-.ax-judgement-foot > div { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 10px 16px; }
-.ax-judgement-foot > div + div { border-left: 1px solid #dbeafe; }
-.ax-judgement-foot dt { flex: none; font-size: 13px; font-weight: 600; color: var(--primary); }
-.ax-judgement-foot dd { margin: 0; min-width: 0; font-size: 13.5px; overflow-wrap: anywhere; }
+.ax-judgement-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; padding: 10px 16px; border-top: 1px solid #dbeafe; }
+.ax-judgement-foot p { margin: 0; font-size: 13.5px; }
+.ax-judgement-foot strong { font-weight: 600; color: var(--primary); }
 /* 확인 필요 항목: 하나의 목록 컨테이너 안의 행 (항목별 개별 카드 없음). */
 .ax-diag-checks-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
 .ax-diag-checks-head h3 { margin: 0; font-size: 15px; }
@@ -813,6 +813,10 @@
 .ax-diag-checks ul { list-style: none; margin: 0; padding: 0 16px; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 12px; background: var(--card); }
 .ax-diag-checks li { display: flex; gap: 12px; align-items: flex-start; padding: 12px 0; border-bottom: 1px solid var(--border); }
 .ax-diag-checks li:last-child { border-bottom: 0; }
+.ax-checks-done { margin-top: 10px; }
+.ax-checks-done-trigger { display: inline-flex; align-items: center; gap: 4px; padding: 4px 0; font-size: 13px; font-weight: 600; color: var(--muted-foreground); cursor: pointer; }
+.ax-checks-done-trigger[data-panel-open] svg { transform: rotate(180deg); }
+.ax-checks-done ul { margin-top: 8px; }
 .ax-check-icon { flex: none; color: var(--primary); margin-top: 2px; }
 .ax-check-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .ax-check-text strong { font-size: 13.5px; font-weight: 600; overflow-wrap: anywhere; }
@@ -827,10 +831,11 @@
   .ax-diag-head { flex-direction: column; align-items: stretch; }
   .ax-diag-actions { width: 100%; }
   .ax-diag-actions > * { flex: 1; }
-  .ax-verdict-cards { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .ax-verdict-cards, .ax-verdict-cards[data-cols="4"] { grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .ax-verdict-card { padding: 10px 14px; }
-  .ax-judgement-foot { grid-template-columns: minmax(0, 1fr); }
-  .ax-judgement-foot > div + div { border-left: 0; border-top: 1px solid #dbeafe; }
+}
+@media (min-width: 701px) and (max-width: 1100px) {
+  .ax-verdict-cards[data-cols="4"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 /* HITL 검토 UI */
@@ -1137,15 +1142,6 @@
 .ax-precheck-item p { margin: 6px 0 0; color: var(--muted-foreground); font-size: 13px; line-height: 1.6; }
 .ax-precheck-guidance { font-size: 13px; }
 .ax-plan-head-icon { flex: none; color: var(--primary); }
-.ax-plan-overview { margin: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
-.ax-plan-stat { --tone: #2563eb; --tone-bg: #eef4ff; --tone-border: #dbe7fe; display: grid; grid-template-columns: 44px minmax(0, 1fr); grid-template-rows: auto auto; column-gap: 14px; align-items: center; min-height: 92px; padding: 16px 20px; border: 1px solid var(--tone-border); border-radius: 12px; background: var(--tone-bg); }
-.ax-plan-stat[data-tone="violet"] { --tone: #7c3aed; --tone-bg: #f4f0ff; --tone-border: #e9e2fe; }
-.ax-plan-stat[data-tone="green"] { --tone: #16a34a; --tone-bg: #ecfdf3; --tone-border: #d5f5e0; }
-.ax-plan-stat[data-tone="yellow"] { --tone: #ca8a04; --tone-bg: #fffbea; --tone-border: #fdf0c4; }
-.ax-plan-stat-icon { grid-row: 1 / span 2; display: grid; place-items: center; width: 44px; height: 44px; color: var(--tone); }
-.ax-plan-stat dt { font-size: 14px; font-weight: 600; color: var(--foreground); }
-.ax-plan-stat dd { margin: 0; font-size: 15px; font-weight: 600; color: var(--foreground); }
-.ax-plan-stat dd strong { font-size: 28px; font-weight: 700; line-height: 1.2; font-variant-numeric: tabular-nums; }
 .ax-plan-groups-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
 .ax-plan-groups-head h3 { display: flex; align-items: center; gap: 12px; margin: 0; font-size: 20px; font-weight: 700; }
 .ax-plan-groups-head h3 svg { color: var(--primary); }
@@ -1191,13 +1187,11 @@
 .ax-plan-stack { display: grid; gap: 16px; min-width: 0; }
 .ax-instructions-surface > .ax-plan-instructions { border-top: 0; padding-top: 0; }
 @media (max-width: 900px) {
-  .ax-plan-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ax-plan-group-title { flex: 1 1 0; min-width: 0; }
   .ax-plan-group-desc { order: 5; flex-basis: 100%; padding-left: 56px; }
   .ax-scope-summary { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 480px) {
-  .ax-plan-overview { grid-template-columns: minmax(0, 1fr); }
   .ax-plan-step-row, .ax-criteria-row { grid-template-columns: 24px minmax(0, 1fr); }
   .ax-plan-review-cell { grid-column: 2; }
   .ax-scope-panel { padding: 18px; }

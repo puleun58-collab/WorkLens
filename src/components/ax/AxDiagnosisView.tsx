@@ -1,10 +1,11 @@
 "use client";
 import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
-import { MoreHorizontal, Upload, Download, Trash2, Pencil, ClipboardList, CircleCheck, Stethoscope, LayoutGrid, Map as MapIcon, ArrowLeft, ArrowRight, Paperclip, FileText, X, Repeat, CalendarCheck, Database, Plug, UserCheck, AlertTriangle, RotateCcw, CircleHelp, SlidersHorizontal, ChevronRight, Info, Sparkles, Zap } from "lucide-react";
+import { MoreHorizontal, Upload, Download, Trash2, Pencil, ClipboardList, CircleCheck, Stethoscope, LayoutGrid, Map as MapIcon, ArrowLeft, ArrowRight, Paperclip, FileText, X, Repeat, CalendarCheck, Database, Plug, UserCheck, AlertTriangle, RotateCcw, CircleHelp, SlidersHorizontal, ChevronRight, ChevronDown, Info, Sparkles, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Accordion, AccordionItem, AccordionPanel, AccordionTrigger } from "@/components/ui/accordion";
 import { Tabs, TabsList, TabsTab, TabsPanel } from "@/components/ui/tabs";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
@@ -14,7 +15,7 @@ import { useAxState } from "@/client/use-ax-state";
 import { runInWorker } from "@/client/document-client";
 import { diagnoseAx, planAx, interruptServerAi, aiFailureDetail } from "@/client/server-ai-client";
 import { AX_LIMITS, FACTOR_LABELS, axTaskV2Schema, confirmedAxDiagnosis } from "@/lib/ax/schema";
-import { axes, automationLevel, diagnosisCounts, diagnosisStatusItems, executionGate, executionProfile, GATE_LABELS, planAllowed, factorEffectiveValue, factorHasAdjustment, factorScale, matrixPosition, nextAction, priority, taskStatus, taskDisplayStatus } from "@/lib/ax/policy";
+import { axes, automationLevel, diagnosisCounts, diagnosisStatusItems, executionGate, executionProfile, GATE_LABELS, planAllowed, factorEffectiveValue, factorHasAdjustment, factorScale, matrixPosition, priority, taskStatus, taskDisplayStatus } from "@/lib/ax/policy";
 import { candidateTask, taskDetails, followUpDescription, legacyDetailValues, validateAttachmentPreflight, isRegistrationUnchanged } from "@/lib/ax/registration";
 import { MAX_TASK_ATTACHMENTS, attachmentPatch, buildAttachmentSummary, combineAttachmentSummaries, taskAttachments } from "@/lib/ax/attachments";
 import type { AxAttachmentMeta } from "@/lib/ax/types";
@@ -22,7 +23,7 @@ import type { AxToolId } from "@/lib/ax/guide";
 import { exportAxState, importAxState } from "@/lib/ax/transfer";
 import { emptyAxState, type AxStateV2, type AxTask, type AxDiagnosis, type AxDetails, type FactorKey } from "@/lib/ax/types";
 import { extractReviewableItems, extractPlanReviewableItems, reconcileReviews, validateReviewForConfirm } from "@/lib/ax/hitl";
-import { AxLevelBadge, AxProcess, AxPlanSection, AxCheckIcon, diagnosisSummaryParts, diagnosisCheckItems, visibleDiagnosisCheckItems, resolveActiveTool, concreteNextAction, formatUnifiedNextAction } from "./AxReport";
+import { AxLevelBadge, AxProcess, AxPlanSection, AxCheckIcon, AxStatCards, diagnosisSummaryParts, diagnosisCheckItems, visibleDiagnosisCheckItems, resolveActiveTool, concreteNextAction, formatUnifiedNextAction, type AxCheckItem } from "./AxReport";
 import { UnifiedRulesSection } from "./AxUnifiedRules";
 import "./ax.css";
 
@@ -269,7 +270,9 @@ export function AxDiagnosisView() {
   // 실제 스크롤 주체는 document(window) — #workspace-content(.workspace)는 스크롤 컨테이너가 아니므로
   // 해당 요소에만 scrollTop을 설정하면 동작하지 않음 (PR #161의 잔여 결함)
   // useLayoutEffect: DOM 반영 직후·페인트 전에 실행해 스크롤 잔상 방지
-  const stepRef = useRef(state.step);
+  // 저장 데이터 로드로 단계가 복원되는 것은 단계 전환이 아니다: 로드 완료(ready) 시점의 단계를
+  // 기준으로 삼고, 그 이후 사용자가 단계를 바꿀 때만 초기화한다 (로드 직후 사용자의 스크롤을 되돌리지 않음).
+  const stepRef = useRef<number | null>(null);
   // Firefox의 자동 스크롤 복원이 React 스크롤 초기화와 경합하는 것을 방지
   // (history.scrollRestoration='manual'로 브라우저 자동 복원 비활성화)
   useEffect(() => {
@@ -281,13 +284,16 @@ export function AxDiagnosisView() {
     return undefined;
   }, []);
   useLayoutEffect(() => {
+    if (!ready) return undefined;
+    if (stepRef.current === null) { stepRef.current = state.step; return undefined; }
     if (stepRef.current !== state.step) {
       stepRef.current = state.step;
+      // html의 scroll-behavior: smooth를 따르면 초기화가 애니메이션이 되어, 새 단계 콘텐츠가
+      // 자리를 잡는 동안(Firefox 스크롤 앵커링 등) 중간 위치에서 멈출 수 있다. 항상 즉시 이동한다.
       const doScroll = () => {
         const container = document.getElementById("workspace-content");
-        if (container && container.scrollHeight > container.clientHeight) container.scrollTop = 0;
-        window.scrollTo(0, 0);
-        document.documentElement.scrollTop = 0;
+        if (container && container.scrollHeight > container.clientHeight) container.scrollTo({ top: 0, behavior: "instant" });
+        window.scrollTo({ top: 0, behavior: "instant" });
       };
       doScroll();
       // Firefox 등에서 페인트 후 스크롤 위치가 복원되는 경우에 대비해 다음 프레임에서도 적용
@@ -315,7 +321,7 @@ export function AxDiagnosisView() {
       return () => { cancelAnimationFrame(raf); cancelAnimationFrame(raf2); cancelAnimationFrame(raf3); cancelAnimationFrame(raf4); clearTimeout(timer); };
     }
     return undefined;
-  }, [state.step]);
+  }, [state.step, ready]);
   function clearDraft() { setName(""); setDescription(""); setDetails({}); setDraftAttachments([]); setEditingId(null); }
   function editTask(task: AxTask) {
     select(task.id);
@@ -868,26 +874,10 @@ export function AxDiagnosisView() {
     <AlertDialog open={confirmation !== null} onOpenChange={open => { if (!open) setConfirmation(null); }}><AlertDialogPopup><AlertDialogHeader><AlertDialogTitle>{confirmation?.kind === "import" ? "AI•AX 데이터를 덮어쓸까요?" : confirmation?.kind === "delete" ? "업무를 삭제할까요?" : "AI•AX 데이터를 초기화할까요?"}</AlertDialogTitle><AlertDialogDescription>{confirmation?.kind === "import" ? "검증된 가져오기 데이터로 현재 AI•AX 업무·진단·계획을 교체합니다." : confirmation?.kind === "delete" ? "선택한 업무와 진단·계획을 삭제합니다." : "현재 AI•AX 업무·진단·계획만 삭제합니다. 다른 작업 공간은 유지됩니다."}</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogClose render={<Button type="button" variant="ghost" />}>취소</AlertDialogClose><Button type="button" variant="destructive" onClick={() => void confirm()}>{confirmation?.kind === "import" ? "덮어쓰기" : confirmation?.kind === "delete" ? "삭제" : "초기화"}</Button></AlertDialogFooter></AlertDialogPopup></AlertDialog>
   </section>;
 }
-/** 요약 '다음 행동' 표시: nextAction()의 판정 순서·우선순위는 그대로 두고 표시 문구와 이동 대상만 정한다.
- * 이동 대상이 없는 상태(확인할 사항 없음 등)는 기존 정책 라벨을 링크 없이 표시한다. */
-function summaryNextAction(d: AxDiagnosis, needCount: number): { label: string; target?: "answers" | "checks" } {
-  const gate = executionGate(d);
-  if (gate === "blocked") return { label: "차단 사유 확인", target: "checks" };
-  if (d.informationSufficiency === "needs-check") {
-    if (d.followUpQuestions.length) return { label: "추가 질문 답변", target: "answers" };
-    if (needCount) return { label: "확인할 사항 검토", target: "checks" };
-    return { label: nextAction(d).label };
-  }
-  if (gate === "conditional" && needCount) return { label: `아래 ${needCount}개 항목 확인`, target: "checks" };
-  return { label: nextAction(d).label };
-}
-/** 다음 행동 클릭 시 대상 영역으로 스크롤한다. 대상 요소가 없으면(상태 변경·미렌더) 이동하지 않는다.
- * 스크롤 방식·여백은 정보 확인 바로가기(#276)와 같은 scrollIntoView + scroll-margin 규칙을 쓴다. */
-function scrollToSummaryTarget(target: "answers" | "checks") {
-  const el = target === "answers"
-    ? document.getElementById("ax-answer-section")
-    : document.querySelector(".ax-diag-checks");
-  el?.scrollIntoView({ behavior: "smooth", block: "start" });
+/** '확인 필요 항목 보기': 구현 전 확인 사항 목록으로 이동한다 (목록은 항상 펼친 상태로 렌더링된다).
+ * 대상 요소가 없으면 이동하지 않는다. 고정 헤더 여백은 .ax-diag-checks의 scroll-margin 규칙을 쓴다. */
+function scrollToChecks() {
+  document.querySelector(".ax-diag-checks")?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 /** 진단 결과 요약 판정 분포 카드: 단계 판정값(자동화·AI 보조·사람 유지)별 실제 건수를 표시한다. */
 const VERDICT_CARDS = [
@@ -895,7 +885,7 @@ const VERDICT_CARDS = [
   { verdict: "AI 보조", label: "AI 보조 적합", tone: "violet", icon: Sparkles },
   { verdict: "사람 유지", label: "담당자 수행", tone: "green", icon: UserCheck },
 ] as const;
-/** Step 2 selected-task card: name/Gate·Level badges + actions → 진단 결과 요약(판정 분포 3카드·핵심 판단 패널) → 확인 필요 항목 목록. Follow-up questions render once, in the answer section below this card. */
+/** Step 2 selected-task card: name/Gate·Level badges + actions → 진단 결과 요약(판정 분포 3카드·핵심 판단 패널) → 구현 전 확인 사항(미확인 우선, 확인 완료는 접힘). Follow-up questions render once, in the answer section below this card. */
 function DiagnosisCard({ task, busy, onDiagnose, onEdit, attachment }: {
   task: AxTask; busy: string | null; onDiagnose: () => void; onEdit: () => void; attachment: ReactNode;
 }) {
@@ -907,7 +897,14 @@ function DiagnosisCard({ task, busy, onDiagnose, onEdit, attachment }: {
   const summary = d ? diagnosisSummaryParts(d) : undefined;
   // 추가 질문이 같은 주제로 묻고 있는 확인 항목은 질문 영역에서 확인하므로 목록에서 중복 표시하지 않는다.
   const visibleChecks = d ? visibleDiagnosisCheckItems(d) : [];
-  const action = d ? summaryNextAction(d, visibleChecks.filter(c => c.kind === "need").length) : null;
+  // 미확인 = 확인 필요·보류 사유, 확인 완료 = 확인됨. 상단 건수와 목록 건수는 같은 집계(pending)를 쓴다.
+  const pendingChecks = visibleChecks.filter(c => c.kind !== "done");
+  const doneChecks = visibleChecks.filter(c => c.kind === "done");
+  const checkRow = (c: AxCheckItem, i: number) => <li key={i}>
+    <span className="ax-check-icon"><AxCheckIcon title={c.title} /></span>
+    <span className="ax-check-text"><strong>{c.title}</strong>{c.desc ? <small>{c.desc}</small> : null}</span>
+    <span className="ax-check-badge" data-kind={c.kind}>{c.badge}</span>
+  </li>;
   return <section className="ax-surface ax-diag-card" aria-label={`${task.name} 진단`}>
     <div className="ax-diag-head">
       <div className="ax-diag-title">
@@ -931,13 +928,7 @@ function DiagnosisCard({ task, busy, onDiagnose, onEdit, attachment }: {
       <section className="ax-diag-summary" aria-label="진단 결과 요약">
         <div className="ax-diag-summary-head"><h3>진단 결과 요약</h3>{d.informationSufficiency !== "needs-check" ? <Badge variant={d.informationSufficiency === "sufficient" ? "success" : "warning"}>{SUFFICIENCY[d.informationSufficiency]}</Badge> : null}</div>
         {/* 단계별 판정 분포: 실제 stepAssessments 판정 건수 (자동화 / AI 보조 / 사람 유지). */}
-        <dl className="ax-verdict-cards">
-          {VERDICT_CARDS.map(card => <div key={card.verdict} className="ax-verdict-card" data-tone={card.tone}>
-            <span className="ax-verdict-icon" aria-hidden="true"><card.icon size={18} /></span>
-            <dt>{card.label}</dt>
-            <dd><strong>{d.stepAssessments.filter(step => step.verdict === card.verdict).length}</strong>개</dd>
-          </div>)}
-        </dl>
+        <AxStatCards cards={VERDICT_CARDS.map(card => ({ key: card.verdict, label: card.label, tone: card.tone, icon: card.icon, count: d.stepAssessments.filter(step => step.verdict === card.verdict).length }))} />
         <div className="ax-judgement" role="group" aria-label="핵심 판단">
           <div className="ax-judgement-main">
             <Info size={18} aria-hidden="true" className="ax-judgement-icon" />
@@ -947,20 +938,22 @@ function DiagnosisCard({ task, busy, onDiagnose, onEdit, attachment }: {
               <p>{summary?.human ?? summary?.verdict ?? "단계별 판정 정보 없음"}</p>
             </div>
           </div>
-          <dl className="ax-judgement-foot">
-            <div><dt>확인 필요</dt><dd>{summary?.check ?? "없음"}</dd></div>
-            <div><dt>다음 단계</dt><dd>{action?.target ? <Button type="button" variant="outline" size="sm" onClick={() => scrollToSummaryTarget(action.target!)}>{action.label}</Button> : <strong>{action?.label ?? nextAction(d).label}</strong>}</dd></div>
-          </dl>
+          <div className="ax-judgement-foot">
+            <p><strong>확인 필요</strong> · {pendingChecks.length}건</p>
+            {pendingChecks.length ? <Button type="button" variant="outline" size="sm" onClick={scrollToChecks}>확인 필요 항목 보기</Button> : null}
+          </div>
         </div>
-        {d.sourceNote ? <p className="ax-muted ax-diag-source">{d.sourceNote}</p> : null}
+        {/* 기본 출처 문구("사용자 등록 정보 기반 진단")는 표시하지 않고, 재첨부 안내가 담긴 첨부 파일 기반 문구만 남긴다. */}
+        {d.sourceNote && d.sourceNote !== "사용자 등록 정보 기반 진단" ? <p className="ax-muted ax-diag-source">{d.sourceNote}</p> : null}
       </section>
-      {visibleChecks.length || !checks.length ? <section className="ax-diag-checks" aria-label="확인 필요 항목">
-        <div className="ax-diag-checks-head"><h3>확인 필요 항목</h3><span className="ax-muted">총 {visibleChecks.length}건 · 확인 필요 {visibleChecks.filter(c => c.kind === "need").length}건</span></div>
-        {visibleChecks.length ? <ul>{visibleChecks.map((c, i) => <li key={i}>
-          <span className="ax-check-icon"><AxCheckIcon title={c.title} /></span>
-          <span className="ax-check-text"><strong>{c.title}</strong>{c.desc ? <small>{c.desc}</small> : null}</span>
-          <span className="ax-check-badge" data-kind={c.kind}>{c.badge}</span>
-        </li>)}</ul> : <p className="ax-muted">확인할 사항이 없습니다.</p>}
+      {/* 모든 확인 항목이 추가 질문 영역에서 다뤄지면(표시 항목 0, 원본 1건 이상) 이 영역을 두지 않는다. */}
+      {visibleChecks.length || !checks.length ? <section className="ax-diag-checks" aria-label="구현 전 확인 사항">
+        <div className="ax-diag-checks-head"><h3>구현 전 확인 사항</h3><span className="ax-muted">· {pendingChecks.length}건</span></div>
+        {pendingChecks.length ? <ul>{pendingChecks.map(checkRow)}</ul> : <p className="ax-muted">확인이 필요한 항목이 없습니다.</p>}
+        {doneChecks.length ? <Collapsible className="ax-checks-done">
+          <CollapsibleTrigger className="ax-checks-done-trigger">확인 완료 항목 보기 ({doneChecks.length}건)<ChevronDown size={16} aria-hidden="true" /></CollapsibleTrigger>
+          <CollapsiblePanel><ul>{doneChecks.map(checkRow)}</ul></CollapsiblePanel>
+        </Collapsible> : null}
       </section> : null}
     </> : null}
   </section>;
