@@ -69,6 +69,24 @@ describe("공식 원문 대조: 식품위생법 처분·허가", () => {
     const result = assessActionBasis("식품위생법 영업허가 요건", food.text, food.enrichment as Parameters<typeof assessActionBasis>[2]);
     expect(result.items.find((item) => item.label === "처분·허가 근거")?.answer).toBeUndefined();
   });
+
+  it("uses permission-specific cautions when the operative source grants business permission", () => {
+    const permit = { law: "식품위생법", jo: "제37조", title: "영업허가 등",
+      excerpt: "제37조(영업허가 등) ① 제36조제1항 각 호에 따른 영업 중 대통령령으로 정하는 영업을 하려는 자는 대통령령으로 정하는 바에 따라 영업 종류별 또는 영업소별로 식품의약품안전처장 또는 시장ㆍ군수ㆍ구청장의 허가를 받아야 한다.",
+      matched: ["영업허가"] };
+    const result = assessActionBasis("식품위생법상 영업허가 요건", food.text, {
+      ...food.enrichment, supplement: { status: "found", articles: [...food.enrichment.supplement.articles, permit] },
+    } as Parameters<typeof assessActionBasis>[2]);
+    const basis = result.items.find((item) => item.label === "처분·허가 근거")!;
+    expect(basis.answer).toContain("제37조");
+    expect(basis.uncertainty).toContain("허가·등록 확정이 아닙니다");
+    expect(basis.uncertainty).not.toContain("처분");
+    expect(result.items.find((item) => item.label === "적용 요건")?.uncertainty).toContain("허가·등록 가능 여부");
+    expect(result.items.find((item) => item.label === "적용 요건")?.uncertainty).not.toContain("위반행위");
+    const missing = assessActionBasis("식품위생법상 영업허가 요건", food.text, food.enrichment as Parameters<typeof assessActionBasis>[2]);
+    expect(missing.items.find((item) => item.label === "처분·허가 근거")?.uncertainty).not.toContain("처분");
+    expect(foodResult().items.find((item) => item.label === "처분·허가 근거")?.uncertainty).toContain("처분 확정");
+  });
 });
 
   it("matches only a unique original table row and an explicitly stated offence count", () => {

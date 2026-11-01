@@ -239,6 +239,7 @@ export function assessActionBasis(query: string, text: string, enrichment?: Rese
   const appealVerified = decisions.some((entry) => entry.caseNumber && verified.has(entry.caseNumber));
   const asksFine = asksSubstituteFine(query);
   const disposition = isDispositionAct(acts);
+  const asksPermission = !disposition && acts.some((act) => PERMISSION_CORE.test(act.core));
   const actWords = acts.map((act) => act.term).join(" ");
   // Supporting, not direct: a provision whose own role is a different
   // institution or an ancillary step for the asked act. Judged from the
@@ -269,16 +270,24 @@ export function assessActionBasis(query: string, text: string, enrichment?: Rese
     { label: "처분·허가 근거", ...(basisTitle !== "처분·허가 근거" ? { title: basisTitle } : {}),
       status: authorityRefs.length ? "found" : basisRefs.length || bodies.length ? "viewed" : "none",
       ...(authorityRefs[0] ? { answer: legalAnswer(authorityRefs[0], query) } : {}),
-      uncertainty: authorityRefs.length ? "법정 권한 확인은 개별 위반행위의 성립이나 실제 처분 확정이 아닙니다." : "직접 근거 원문 미확보 — 조회 실패나 제목 일치만으로 근거가 없다고 단정할 수 없습니다.",
+      uncertainty: authorityRefs.length
+        ? asksPermission ? "법정 허가·등록 권한 확인은 신청인의 개별 요건 충족이나 허가·등록 확정이 아닙니다."
+          : "법정 권한 확인은 개별 위반행위의 성립이나 실제 처분 확정이 아닙니다."
+        : asksPermission ? "직접 권한 원문 미확보 — 조회 실패나 제목 일치만으로 허가·등록이 불가능하다고 단정할 수 없습니다."
+          : "직접 근거 원문 미확보 — 조회 실패나 제목 일치만으로 근거가 없다고 단정할 수 없습니다.",
       basisRefs: structuredRefs(ordered(basisRefs)),
-      ...(authorityRefs.length === 0 && basisRefs.length ? { detail: "과징금 갈음 규정만 확인 — 직접 처분 근거 추가 확인 필요" }
+      ...(authorityRefs.length === 0 && basisRefs.length ? { detail: asksPermission
+        ? "조회 조문은 허가·등록 직접 근거로 확인되지 않아 추가 원문 대조가 필요합니다."
+        : "과징금 갈음 규정만 확인 — 직접 처분 근거 추가 확인 필요" }
         : authorityRefs.length === 0 && bodies.length ? { detail: "질문한 법적 행위의 직접 근거 문언 미확인 — 조회된 조문은 관련성이 확인되지 않아 근거로 표시하지 않습니다." } : {}) },
   ];
   if (requirementRefs !== undefined && directRequirementRefs !== undefined) {
     const mentionOnly = (requirementMentioned ?? []).some((ref) => !ref.note) && directRequirementRefs.length === 0;
     items.push({ label: "적용 요건", status: directRequirementRefs.length ? "found" : bodies.length ? "viewed" : "none",
       ...(directRequirementRefs[0] ? { answer: legalAnswer(directRequirementRefs[0], query) } : {}),
-      uncertainty: "위반행위와 영업 종류가 특정되지 않으면 개별 적용 여부를 판단할 수 없습니다. 업종·위반행위·예외 사실을 대조해야 합니다.",
+      uncertainty: asksPermission
+        ? "신청 대상 업종·자격·시설 등 필요한 사실과 예외를 대조해야 하며, 원문 확인만으로 허가·등록 가능 여부를 확정할 수 없습니다."
+        : "위반행위와 영업 종류가 특정되지 않으면 개별 적용 여부를 판단할 수 없습니다. 업종·위반행위·예외 사실을 대조해야 합니다.",
       requirementRefs: structuredRefs(ordered(requirementRefs)),
       ...(mentionOnly ? { detail: "요건 관련 문언 확인 — 실제 요건·기준은 원문에서 대조 필요" }
         : directRequirementRefs.length === 0 && bodies.length ? { detail: "질문한 법적 행위의 요건 문언 미확인" } : {}) });
