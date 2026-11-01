@@ -13,12 +13,17 @@ import type { TaskEvidenceArticle, TaskEvidenceItem } from "@/lib/task-evidence"
 /** Top summary for one law-system tier item: the directly linked provisions
  * by name, or that the direct link to the asked article is unconfirmed. */
 export function lawSystemTopSummary(item: TaskEvidenceItem): string | undefined {
-  const direct = (item.articles ?? []).filter((article) => article.relation === "twoWay");
+  const articles = item.articles ?? [];
+  const direct = articles.filter((article) => article.relation === "twoWay")
+    .sort((a, b) => Number(a.parentParagraph ?? Infinity) - Number(b.parentParagraph ?? Infinity));
   if (direct.length) return direct.map((article) => {
     const parent = article.parentJo ? `법 ${article.parentJo}${article.parentParagraph ? ` 제${article.parentParagraph}항` : ""} → ` : "";
-    const subject = article.subject ? `${article.subject} 관련 사항` : article.title ? `${article.title} 관련 사항` : "";
-    return `${parent}${item.label} ${article.jo}${subject ? `: ${subject}` : ""}`;
-  }).join(" · ");
+    const subject = article.subject ?? article.title;
+    return `${parent}${item.label} ${article.jo}${subject ? `\n${subject}에 관한 사항` : ""}`;
+  }).join("\n");
+  if (articles.some((article) => article.relation === "citation" || article.relation === "direct")) {
+    return "질문 조항을 인용·준용하는 규정 확인";
+  }
   return "직접 위임관계 미확인 (원문 부족은 관계 부존재를 뜻하지 않습니다)";
 }
 

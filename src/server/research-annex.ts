@@ -1,5 +1,5 @@
 import type { AnnexEvidence } from "@/lib/research-annex";
-import { actionTerms, asksSubstituteFine, concernsAction, isDispositionAct } from "@/lib/action-basis-evidence";
+import { actionTerms, asksSubstituteFine, concernsAction, isDispositionAct, requestedAnnexLabels } from "@/lib/action-basis-evidence";
 import type { LawResearchTask } from "@/lib/law-research";
 import { compactLaw, lawAnnexUrl } from "@/lib/research-scope";
 import { questionTerms, isLawName } from "@/lib/research-relevance";
@@ -28,6 +28,7 @@ export async function retrieveAnnexes(query: string, articles: readonly Followup
   const disposition = isDispositionAct(acts);
   const asksFine = asksSubstituteFine(query);
   const asksPenalty = /과태료/u.test(query);
+  const requested = requestedAnnexLabels(query).map(compactLaw);
   const candidates = new Map<string, AnnexEvidence & { number: string; form: boolean; score: number }>();
   for (const article of articles) {
     for (const line of article.body.split(/\n/u)) {
@@ -38,7 +39,7 @@ export async function retrieveAnnexes(query: string, articles: readonly Followup
         const form = match[1] === "별지";
         const number = `${match[2]}${match[3] ? `의${match[3]}` : ""}`;
         const label = form ? `별지 제${match[2]}호${match[3] ? `의${match[3]}` : ""}서식` : `별표 ${number}`;
-        const named = compactLaw(query).includes(compactLaw(label));
+        const named = requested.includes(compactLaw(label));
         let relevance: AnnexEvidence["relevance"] = "related";
         if (task === "action_basis" && acts.length && !named) {
           // Another institution (과징금·과태료) or an ancillary step (신청서 서식·수수료)
@@ -49,6 +50,9 @@ export async function retrieveAnnexes(query: string, articles: readonly Followup
           if (otherInstitution || ancillary || !concerns) continue;
           relevance = "direct";
         } else if (task === "action_basis" && named) relevance = "direct";
+        // Keep the act's actual table as context, but a different explicitly
+        // requested number must never become the question's adopted standard.
+        if (task === "action_basis" && requested.length && !named) relevance = "related";
         const score = terms.reduce((n, term) => n + (compactLaw(line).includes(compactLaw(term)) ? 1 : 0), 0)
           + (named ? 20 : 0);
         const key = `${compactLaw(article.law)}\0${label}`;
@@ -58,16 +62,22 @@ export async function retrieveAnnexes(query: string, articles: readonly Followup
     }
   }
   const selected = [...candidates.values()].sort((a, b) => b.score - a.score).slice(0, 3);
-  return Promise.all(selected.map(async ({ number, form, score: _score, ...candidate }): Promise<AnnexEvidence> => {
+  return Promise.all(selected.map(async ({ number, form, ...scored }): Promise<AnnexEvidence> => {
+    const candidate = { law: scored.law, label: scored.label, sourceArticle: scored.sourceArticle,
+      citation: scored.citation, status: scored.status, relevance: scored.relevance };
     try {
       const result = await read(candidate.law, number, form);
       if (result.isError || !result.text.trim() || /\[(?:FAILED|EXTERNAL_API_ERROR|REQUEST_TIMEOUT)\]/u.test(result.text)) return { ...candidate, status: "failed" };
       if (/\[NOT_FOUND\]/u.test(result.text)) return { ...candidate, status: "not-found" };
       const first = result.text.split("\n")[0];
       const identity = /^(.+?)\s+-\s+(.+)$/u.exec(first);
-      const label = compactLaw(candidate.label);
+      const responseLabel = /\[((?:별표|별지)[^\]]*)\]/u.exec(result.text)?.[1];
       if (!identity || compactLaw(identity[1]) !== compactLaw(candidate.law)
-        || !compactLaw(result.text).includes(`[${label}]`) || !/파일 형식/u.test(result.text)) return candidate;
+        || !responseLabel || !requestedAnnexLabels(responseLabel).some((label) => compactLaw(label) === compactLaw(candidate.label))
+        || !/파일 형식/u.test(result.text)) return candidate;
+      const content = result.text.split("\n").slice(1).filter((line) => line.trim()
+        && !/파일 형식/u.test(line) && !/\[(?:별표|별지)[^\]]*\]/u.test(line)).join("\n").trim();
+      if (!content) return candidate;
       const text = result.text.slice(0, 200_000);
       // The preservation cap must cover a complete annex table, not cut
       // it: a 44,000-character table the upstream returned whole (identity
@@ -75,7 +85,7 @@ export async function retrieveAnnexes(query: string, articles: readonly Followup
       // truncated one. The cap stays as a bound — anything longer, or
       // carrying an omission marker, still reports identified, never
       // verified on a partial text.
-      const truncated = result.text.length > text.length || /생략|일부만 표시|추출 실패/u.test(result.text);
+      const truncated = result.text.length > text.length || /생략|중략|일부만 표시|추출 실패|…|\.{3}/u.test(result.text);
       const url = lawAnnexUrl(candidate.law, form ? "서식" : "별표", number);
       return { ...candidate, status: truncated ? "identified" : "verified", title: identity[2], text,
         ...(truncated ? { truncated: true } : {}),
