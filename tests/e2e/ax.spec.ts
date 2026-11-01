@@ -264,9 +264,7 @@ test("AX registration → diagnosis → correction → matrix → plans → relo
   const summary = packageSection.getByRole("region", { name: "구현 범위·완료 기준", exact: true });
   const precheck = packageSection.getByRole("region", { name: "구현 전 확인", exact: true });
   // 범위 카드에는 구현·담당자 수행·제외 항목을 실제 업무 내용으로 보여 준다.
-  await expect(summary.locator('[data-scope-group="scope"]')).toContainText("구현 대상:");
-  await expect(summary.locator('[data-scope-group="scope"]')).toContainText("담당자 수행:");
-  await expect(summary.locator('[data-scope-group="scope"]')).toContainText("보류·제외:");
+  await expect(summary.locator('[data-scope-group="scope"] h4')).toHaveText(["구현 대상", "담당자 수행", "보류·제외", "적용 방식", "산출물"]);
   // 추가 확인 조건은 요약 배지로만 표시되고, 상세 문구는 기본 화면에 반복되지 않는다.
   await expect(precheck.locator(".ax-precheck-head")).toContainText(/미해결 \d+건/);
   await expect(precheck).not.toContainText("API와 권한 실제 확인");
@@ -987,7 +985,7 @@ test("AX execution package remains readable on mobile with the setup guide colla
   await page.screenshot({ path: `artifacts/ax/roadmap-mobile-${test.info().project.name}.png`, fullPage: true });
   const mobileView = section.getByRole("region", { name: "구현 범위·완료 기준", exact: true });
   await expect(mobileView.getByRole("heading", { name: "구현 범위", exact: true })).toBeVisible();
-  await expect(mobileView.getByRole("heading", { name: "완료 기준", exact: true })).toBeVisible();
+  await expect(mobileView.getByRole("heading", { name: /^완료 기준 \(\d+개\)$/ })).toBeVisible();
   expect(await mobileView.evaluate(root => [...root.querySelectorAll("li")].every(el => el.getBoundingClientRect().right <= innerWidth + 0.5))).toBe(true);
   await mobileView.screenshot({ path: `artifacts/ax/plan-view-mobile-${test.info().project.name}.png` });
   for (const [tool, copy] of [["Codex", "Codex용 올인원 지시문 복사"], ["Claude Code", "Claude Code용 올인원 지시문 복사"]]) {
@@ -1329,7 +1327,7 @@ for (const width of [1440, 390]) {
     // 계획 헤더 통합(§2.4): 업무명은 선택 업무 헤더에 표시된다.
     await expect(page.locator(".ax-report-intro")).toContainText(task.name);
     // 진단에서 산출한 범위는 건수가 아닌 실제 업무 항목으로 표시된다.
-    await expect(summary.locator('[data-scope-group="scope"] li').first()).toContainText("구현 대상:");
+    await expect(summary.locator('[data-scope-group="scope"] h4').first()).toHaveText("구현 대상");
     for (const [tool, target, plan, other] of [["Codex", "codex", codex, claude], ["Claude Code", "claude", claude, codex]] as const) {
       if (target === "claude") await section.getByRole("tab", { name: tool, exact: true }).click();
       await section.getByRole("button", { name: `${tool}용 구현 계획 생성`, exact: true }).click();
@@ -1340,8 +1338,8 @@ for (const width of [1440, 390]) {
       await expect(precheck).not.toContainText(other.prerequisites[0]);
       // 범위 카드에는 담당자 수행·보류 항목을 명시하고, 완료 기준은 검토 가능하다.
       const scopeRow = summary.locator('[data-scope-group="scope"]');
-      await expect(scopeRow).toContainText("담당자 수행:");
-      await expect(scopeRow).toContainText("보류·제외:");
+      await expect(scopeRow).toContainText("담당자 수행");
+      await expect(scopeRow).toContainText("보류·제외");
       await expect(scopeRow).toContainText(plan.humanInLoop[0]);
       for (const item of plan.outOfScope) await expect(scopeRow).toContainText(item);
       const criteria = summary.locator('[data-scope-group="criteria"]');
@@ -1398,9 +1396,9 @@ for (const level of [0, 1, 2, 3]) {
       if (gate === "blocked") await expect(precheck).toContainText("진행 보류");
       // 범위 카드에는 단계의 허용 범위와 담당자 수행·보류 항목을 명시한다.
       const scopeRow = summary.locator('[data-scope-group="scope"]');
-      await expect(scopeRow.locator("li").first()).toContainText("구현 대상:");
-      await expect(scopeRow).toContainText("담당자 수행:");
-      await expect(scopeRow).toContainText("보류·제외:");
+      await expect(scopeRow.locator("h4").first()).toHaveText("구현 대상");
+      await expect(scopeRow).toContainText("담당자 수행");
+      await expect(scopeRow).toContainText("보류·제외");
       await expect(scopeRow).toContainText("담당자 승인");
       if (gate === "blocked") {
         // 요약 전용: 차단 사유 상세 문구는 기본 화면에 반복되지 않는다.
@@ -1476,8 +1474,8 @@ test("AX Level 0 keeps generated implementation suggestions subordinate to diagn
   await expect(page.locator(".ax-report-intro")).toContainText("Level 0");
   const permitted = summary.locator('[data-scope-group="scope"]');
   // Level 0은 제안된 구현을 그대로 허용하지 않고 진단의 담당자 수행·제외 경계를 표시한다.
-  await expect(permitted.locator("li").first()).toContainText("구현 대상:");
-  await expect(permitted).toContainText("담당자 수행:");
+  await expect(permitted.locator("h4").first()).toHaveText("구현 대상");
+  await expect(permitted).toContainText("담당자 수행");
   const prompt = await section.locator(".ax-prompt").textContent();
   const review = prompt!.split("### 함께 수행할 확인")[1].split("###")[0];
   expect(review).toContain("- 샘플 데이터 형식·필수 항목 확인");
@@ -1781,8 +1779,8 @@ for (const width of [1440, 390]) {
     // 구현 범위 카드에서 자동화 대상과 담당자 승인 경계를 확인한다.
     const summary = plan.getByRole("region", { name: "구현 범위·완료 기준", exact: true });
     const scope = summary.locator('[data-scope-group="scope"]');
-    await expect(scope).toContainText("구현 대상:");
-    await expect(scope).toContainText("담당자 수행:");
+    await expect(scope).toContainText("구현 대상");
+    await expect(scope).toContainText("담당자 수행");
     await expect(scope).toContainText("가동률 계산 AI 후보·초안 생성");
     for (const tool of ["Codex", "Claude Code"]) {
       await plan.getByRole("tab", { name: tool, exact: true }).click();
