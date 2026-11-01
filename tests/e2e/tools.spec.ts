@@ -1926,21 +1926,27 @@ test("RESEARCH procedure_detail shows the server's per-requirement verdict inste
 });
 
 test("RESEARCH shows the server's per-kind verdict for law_system and dispute_prep instead of a blanket weak result", async ({ page }) => {
-  // Mocked API answers shaped exactly like the server's responses: a
-  // law_system answer with both sub-law tiers delegation-anchored, and a
-  // dispute_prep answer whose decisions were only listed, never verified.
+  // The fictional parent's actual delegation wording and each subordinate
+  // provision's matching subject justify the mocked two-way verdict.
+  // The dispute_prep answer only lists decisions, never verifies them.
   await page.route("**/api/law/research", (route) => {
     const body = route.request().postDataJSON() as { task: string };
-    const lawText = "═══ 법체계 확인: 근로기준법 ═══\n\n▶ 3단 비교 (법률·시행령·시행규칙)\n법령명: 근로기준법\n\n"
-      + "[시행령] 근로기준법 시행령 제7조 (적용범위)\n법 제11조제2항에 따라 적용하는 법 규정은 별표 1과 같다.\n\n"
-      + "[시행규칙] 근로기준법 시행규칙 제4조 (해고 예고의 예외)\n법 제26조제3호에서 고용노동부령으로 정하는 사유란 별표 1과 같다.\n";
+    const lawText = "═══ 법체계 확인: 검증예시법 ═══\n\n▶ 3단 비교 (법률·시행령·시행규칙)\n법령명: 검증예시법\n\n"
+      + "[법률] 검증예시법 제11조 (적용범위)\n제11조(적용범위)\n② 적용범위는 대통령령으로 정한다.\n\n"
+      + "[시행령] 검증예시법 시행령 제7조 (적용범위)\n법 제11조제2항에 따른 적용범위는 별표 1과 같다.\n\n"
+      + "[법률] 검증예시법 제26조 (해고 예고)\n제26조(해고 예고)\n③ 해고 예고의 예외 사유는 고용노동부령으로 정한다.\n\n"
+      + "[시행규칙] 검증예시법 시행규칙 제4조 (해고 예고의 예외)\n법 제26조제3항에 따른 해고 예고의 예외 사유는 별표 1과 같다.\n";
     const disputeText = "▶ 대법원 판례\n판례 검색 결과 (총 1건):\n\n[1] 부당해고구제재심판정취소\n  사건번호: 2019두12345\n  법원: 대법원\n  선고일: 20240101\n";
     return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: body.task === "law_system"
       ? { found: true, task: "law_system", text: lawText, markers: [],
         lawSystem: { status: "matched", items: [
-          { label: "법률", status: "found", detail: "근로기준법" },
-          { label: "시행령", status: "found", detail: "시행령 1건 · 위임 연결 1건" },
-          { label: "시행규칙", status: "found", detail: "시행규칙 1건 · 위임 연결 1건" }] } }
+          { label: "법률", status: "found", detail: "검증예시법" },
+          { label: "시행령", status: "found", detail: "시행령 1건 · 위임 연결 1건", articles: [
+            { law: "검증예시법 시행령", jo: "제7조", title: "적용범위", relation: "twoWay", expression: "법 제11조제2항에 따른 적용범위" },
+          ] },
+          { label: "시행규칙", status: "found", detail: "시행규칙 1건 · 위임 연결 1건", articles: [
+            { law: "검증예시법 시행규칙", jo: "제4조", title: "해고 예고의 예외", relation: "twoWay", expression: "법 제26조제3항에 따른 해고 예고의 예외 사유" },
+          ] }] } }
       : { found: true, task: "dispute_prep", text: disputeText, markers: [],
         dispute: { status: "viewed", items: [
           { label: "판례·결정례·재결례", status: "viewed", detail: "검색 1건" }] } } }) });
@@ -1949,7 +1955,7 @@ test("RESEARCH shows the server's per-kind verdict for law_system and dispute_pr
   await page.getByRole("tab", { name: "종합 리서치", exact: true }).click();
   const form = page.getByRole("form", { name: /^(종합 리서치|문서 검토) 입력$/ });
   const output = page.locator(".legal-research .legal-analysis-output");
-  await form.getByLabel("질문 또는 검색어").fill("근로기준법의 법체계와 하위법령 관계");
+  await form.getByLabel("질문 또는 검색어").fill("검증예시법의 법체계와 하위법령 관계");
   await chooseOption(page, form.getByLabel("리서치 유형"), researchTaskLabels.law_system);
   await form.getByRole("button", { name: "실행" }).click();
   const overview = output.locator(".research-overview");
@@ -1962,7 +1968,7 @@ test("RESEARCH shows the server's per-kind verdict for law_system and dispute_pr
   await expect(items).toContainText("시행령");
   await expect(items).toContainText("시행규칙");
   // Tier verdicts read as delegation links, apart from the law's own retrieval.
-  await expect(items.locator(".research-issue-status")).toHaveText(["원문 확인", "직접 연결 확인", "직접 연결 확인"]);
+  await expect(items.locator(".research-issue-status")).toHaveText(["원문 확인", "직접 위임관계 확인", "직접 위임관계 확인"]);
   await form.getByLabel("질문 또는 검색어").fill("부당해고 구제신청과 행정소송 판례");
   await chooseOption(page, form.getByLabel("리서치 유형"), researchTaskLabels.dispute_prep);
   await form.getByRole("button", { name: "실행" }).click();
