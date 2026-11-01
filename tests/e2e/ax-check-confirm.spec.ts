@@ -87,7 +87,7 @@ test("AX 확인 필요 항목: 근거와 함께 확인 완료를 저장하면 �
   await precheck.getByRole("button", { name: /구현 전 확인/ }).click();
   await expect(precheck).not.toContainText("파일 저장소 접근 권한");
   // 올인원 지시문에 담당자 확인 근거가 반영된다.
-  await plan.getByRole("button", { name: "전체 보기" }).click();
+  await plan.getByRole("region", { name: "올인원 지시문", exact: true }).getByRole("button", { name: "전체 보기", exact: true }).click();
   await expect(plan.locator(".ax-prompt")).toContainText("IT팀이 서비스 계정에 읽기·쓰기 권한 부여 확인");
   const target = precheck.locator(".ax-precheck-row").filter({ hasText: "보고서 템플릿 자동화" });
   // 한 줄 구성(굵은 항목명 + 확인)이며 보조 설명·확인 위치 문구는 없다.

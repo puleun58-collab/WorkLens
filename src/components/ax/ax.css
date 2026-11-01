@@ -1132,7 +1132,7 @@
 /* 업무 규칙 확인 통합 — 신규 배지 */
 .ax-decision-no-new { width: auto; padding: 0 10px; font-size: 11px; }
 
-/* 결과·로드맵 자동화 구현 계획 (레퍼런스): ① 요약 카드 + 구현 전 확인 · ② 구현 계획 그룹 · ③ 구현 범위·완료 기준 2열 */
+/* 결과·로드맵: 요약 카드·구현 전 확인 → 원본 실행 순서 목록 → 구현 범위·완료 기준 */
 .ax-precheck { padding: 16px 0 0; text-align: left; }
 .ax-precheck-items { margin: 0; padding: 0 16px; list-style: none; display: grid; gap: 0; }
 .ax-precheck-row { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; padding: 12px 0; border-top: 1px solid var(--line-soft); }
@@ -1162,42 +1162,42 @@
 .ax-plan-groups-head h3 svg { color: var(--primary); }
 .ax-plan-groups-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .ax-plan-groups-tools .ax-hitl-plan-tabs { margin: 0; }
-.ax-plan-groups { display: grid; gap: 10px; }
-.ax-plan-group { border: 1px solid var(--border); border-radius: 12px; background: var(--card); }
-.ax-plan-group-trigger.ax-plan-group-trigger { display: grid; grid-template-columns: minmax(0, 280px) minmax(0, 1fr) auto 16px; align-items: center; column-gap: 16px; padding: 12px 20px; text-align: left; }
-.ax-plan-group-trigger > [data-slot="accordion-indicator"] { translate: none; align-self: center; }
-.ax-plan-group-name { display: flex; align-items: center; gap: 16px; min-width: 0; }
-.ax-plan-group-trigger:hover { text-decoration: none; }
-.ax-plan-group-icon { display: grid; place-items: center; flex: none; color: var(--primary); }
-.ax-plan-group-title { font-size: 16px; font-weight: 700; color: var(--foreground); }
-.ax-plan-group-desc { min-width: 0; font-size: 14px; font-weight: 400; color: var(--muted-foreground); overflow-wrap: anywhere; }
-.ax-plan-group-count { padding: 2px 12px; border-radius: 999px; background: color-mix(in srgb, var(--primary) 8%, var(--card)); border: 1px solid color-mix(in srgb, var(--primary) 18%, transparent); font-size: 13px; font-weight: 600; color: var(--foreground); }
-.ax-plan-group-panel { padding: 0 20px 12px; }
 .ax-plan-steps { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--border); }
 .ax-plan-step { padding: 10px 0; border-bottom: 1px solid var(--line-soft); }
 .ax-plan-step:last-child { border-bottom: 0; }
 .ax-plan-step-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 12px; }
 .ax-plan-step-no { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: color-mix(in srgb, var(--primary) 10%, var(--card)); color: var(--primary); font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .ax-plan-step-text { min-width: 0; font-size: 14px; line-height: 1.6; color: var(--foreground); overflow-wrap: anywhere; }
+.ax-plan-step-content { display: grid; gap: 4px; min-width: 0; }
+.ax-plan-step-category { color: var(--muted-foreground); font-size: 12px; line-height: 1.5; }
 .ax-plan-review-cell { display: inline-flex; align-items: center; gap: 10px; white-space: nowrap; }
 /* 구현 계획·완료 기준 검토 패널은 단계별 자동화 판단과 같은 HitlReviewPanel 기본 디자인을 그대로 쓴다. */
 .ax-plan-review-panel { margin-top: 12px; }
-.ax-scope-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; text-align: left; }
+.ax-scope-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 16px; text-align: left; }
 .ax-scope-panel { min-width: 0; padding: 24px; border: 1px solid var(--border); border-radius: 14px; background: var(--card); box-shadow: var(--shadow-sm, 0 1px 2px rgb(16 24 40 / 0.04)); }
 .ax-scope-panel h3 { display: flex; align-items: center; gap: 12px; margin: 0 0 16px; font-size: 20px; font-weight: 700; }
 .ax-scope-panel h3 svg { color: var(--primary); }
-.ax-scope-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; }
-.ax-scope-list > li:not(.ax-criteria-item) { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 10px; align-items: start; font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; }
-.ax-scope-bullet { margin-top: 4px; color: var(--primary); }
-.ax-scope-sections { display: grid; gap: 16px; }
-.ax-scope-section h4 { margin: 0 0 6px; font-size: 14px; font-weight: 700; color: var(--foreground); }
+.ax-scope-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 0; }
+.ax-scope-list > li { padding: 12px 0; border-bottom: 1px solid var(--line-soft); }
+.ax-scope-list > li:first-child { padding-top: 0; }
+.ax-scope-list > li:last-child { border-bottom: 0; padding-bottom: 0; }
+.ax-scope-list > li:not(.ax-criteria-item) { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 12px; align-items: start; font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; }
+.ax-scope-bullet { margin-top: 4px; }
+.ax-scope-sections { display: grid; gap: 0; }
+.ax-scope-section { border-bottom: 1px solid var(--line-soft); }
+.ax-scope-section:last-child { border-bottom: 0; }
+.ax-scope-trigger.ax-scope-trigger { align-items: center; gap: 12px; padding: 14px 0; text-align: left; }
+.ax-scope-trigger.ax-scope-trigger:hover { text-decoration: none; }
+.ax-scope-trigger > span:first-child { display: grid; gap: 6px; min-width: 0; }
+.ax-scope-trigger strong { font-size: 15px; font-weight: 700; }
+.ax-scope-preview { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; color: var(--muted-foreground); font-size: 14px; font-weight: 400; line-height: 1.6; overflow-wrap: anywhere; }
+.ax-scope-details { padding-bottom: 14px; }
+.ax-scope-footer { display: flex; justify-content: flex-end; margin-top: 16px; }
 .ax-scope-section ul { display: grid; gap: 4px; margin: 0; padding: 0 0 0 18px; color: var(--muted-foreground); }
 .ax-scope-section li { padding-left: 2px; font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; }
-.ax-criteria-row { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 10px; align-items: center; font-size: 14px; line-height: 1.6; }
+.ax-criteria-row { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; gap: 12px; align-items: center; min-height: 40px; font-size: 14px; line-height: 1.6; }
 .ax-criteria-text { min-width: 0; overflow-wrap: anywhere; }
-.ax-criteria-icon { color: var(--muted-foreground); }
-.ax-criteria-item[data-status="confirmed"] .ax-criteria-icon { color: #16a34a; }
-.ax-criteria-item[data-status="stale"] .ax-criteria-icon { color: #c2410c; }
+.ax-criteria-icon, .ax-scope-bullet { width: 20px; height: 20px; fill: #BFDBFE; color: #93C5FD; flex: none; }
 .ax-plan-instructions-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .ax-plan-instructions-head .ax-plan-toolbar { margin-top: 0; }
 .ax-plan-instructions-head + * { margin-top: 16px; }
@@ -1205,13 +1205,9 @@
 .ax-plan-stack { display: grid; gap: 16px; min-width: 0; }
 .ax-instructions-surface > .ax-plan-instructions { border-top: 0; padding-top: 0; }
 @media (max-width: 900px) {
-  .ax-plan-group-trigger.ax-plan-group-trigger { grid-template-columns: minmax(0, 1fr) auto 16px; row-gap: 8px; }
-  .ax-plan-group-name { grid-column: 1; }
-  .ax-plan-group-desc { grid-column: 1 / -1; grid-row: 2; padding-left: 38px; }
   .ax-scope-summary { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 480px) {
-  .ax-plan-group-desc { padding-left: 0; }
   .ax-plan-step-row, .ax-criteria-row { grid-template-columns: 24px minmax(0, 1fr); }
   .ax-plan-review-cell { grid-column: 2; }
   .ax-scope-panel { padding: 18px; }

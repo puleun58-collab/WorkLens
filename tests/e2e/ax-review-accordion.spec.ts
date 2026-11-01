@@ -50,10 +50,12 @@ for (const [name, size] of [["desktop", { width: 1440, height: 900 }], ["mobile"
     await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
     const plan = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
     const planReview = plan.getByRole("region", { name: "구현 계획", exact: true });
-    const groups = planReview.locator(".ax-plan-group");
-    await expect(groups).toHaveCount(2);
-    await expect(groups.locator('[data-slot="accordion-trigger"]')).toHaveCount(2);
-    for (const trigger of await groups.locator('[data-slot="accordion-trigger"]').all()) await expect(trigger).toHaveAttribute("aria-expanded", "false");
+    const steps = planReview.locator(".ax-plan-steps > .ax-plan-step");
+    await expect(planReview.locator(".ax-plan-group")).toHaveCount(0);
+    await expect(steps).toHaveCount(planFixture.implementation.length);
+    await expect(steps.locator(".ax-plan-step-no")).toHaveText(["01", "02", "03"]);
+    await expect(steps.locator(".ax-plan-step-text")).toHaveText(planFixture.implementation);
+    await expect(planReview.getByRole("button", { name: "전체 접기", exact: true })).toHaveAttribute("aria-expanded", "true");
     await expect(planReview.locator(".ax-hitl-table-counts")).toHaveText("검토 대상 5개 (구현 단계 3 · 완료 기준 2) · 검토 완료 0 · 검토 필요 5");
     await expect(planReview.getByRole("heading", { name: "구현 계획 (3개)" })).toBeVisible();
     await expect(plan.getByRole("heading", { name: "완료 기준 (2개)" })).toBeVisible();
@@ -63,12 +65,13 @@ for (const [name, size] of [["desktop", { width: 1440, height: 900 }], ["mobile"
       return [level, status].map(style => [style.minHeight, style.borderRadius, style.borderTopWidth, style.paddingLeft, style.fontSize, style.fontWeight, style.alignItems]);
     });
     expect(badgeStyles[0]).toEqual(badgeStyles[1]);
+    const categories = steps.locator(".ax-plan-step-category");
+    await expect(categories).toHaveCount(planFixture.implementation.length);
     if (name === "desktop") {
-      const descriptions = await groups.locator(".ax-plan-group-desc").evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().x));
-      expect(Math.max(...descriptions) - Math.min(...descriptions)).toBeLessThan(1);
+      const positions = await steps.locator(".ax-plan-step-text").evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().x));
+      expect(Math.max(...positions) - Math.min(...positions)).toBeLessThan(1);
     } else {
-      await expect(groups.locator(".ax-plan-group-desc")).toHaveCount(2);
-      expect(await groups.locator(".ax-plan-group-desc").evaluateAll(nodes => nodes.every(node => node.scrollWidth <= node.clientWidth + 1))).toBe(true);
+      expect(await categories.evaluateAll(nodes => nodes.every(node => node.scrollWidth <= node.clientWidth + 1))).toBe(true);
     }
     const precheck = plan.getByRole("region", { name: "구현 전 확인", exact: true });
     const precheckHeader = await headerOf(precheck);
@@ -88,7 +91,6 @@ for (const [name, size] of [["desktop", { width: 1440, height: 900 }], ["mobile"
     await criterion.getByRole("button", { name: "확정" }).click();
     await criterion.getByRole("button", { name: "닫기" }).click();
     await criterion.getByRole("button", { name: "보기" }).click();
-    await planReview.getByRole("button", { name: "전체 펼치기" }).click();
     await page.screenshot({ path: `artifacts/roadmap-tmp/screenshots/roadmap-${name}.png`, fullPage: true });
   });
 }
@@ -111,15 +113,17 @@ test("review accordions toggle by keyboard and keep the panel open while a revie
   await expect(trigger).toHaveAttribute("aria-expanded", "false");
   await expect(precheck.locator(".ax-hitl-table-counts")).toHaveText(`미해결 ${count}건`);
 
-  // 구현 계획 그룹은 기본 접힘이고 검토 중 입력을 보호하기 위해 열린 그룹을 유지한다.
+  // 구현 계획은 원본 순서로 기본 펼침이며, 전체 접기도 검토 중 입력을 숨기지 않는다.
   const review = plan.getByRole("region", { name: "구현 계획", exact: true });
-  const group = review.locator(".ax-plan-group").first();
-  const reviewTrigger = group.locator('[data-slot="accordion-trigger"]');
-  await expect(reviewTrigger).toHaveAttribute("aria-expanded", "false");
+  const reviewTrigger = review.getByRole("button", { name: "전체 접기", exact: true });
+  await expect(reviewTrigger).toHaveAttribute("aria-expanded", "true");
   await reviewTrigger.focus();
   await page.keyboard.press("Enter");
+  await expect(review.getByRole("button", { name: "전체 펼치기", exact: true })).toHaveAttribute("aria-expanded", "false");
+  await expect(review.locator(".ax-plan-step")).toHaveCount(0);
+  await page.keyboard.press("Space");
   await expect(reviewTrigger).toHaveAttribute("aria-expanded", "true");
-  const step = group.locator(".ax-plan-step").first();
+  const step = review.locator(".ax-plan-steps > .ax-plan-step").first();
   await step.getByRole("button", { name: "검토" }).click();
   await expect(step.getByRole("button", { name: "닫기" })).toBeVisible();
   await reviewTrigger.click();
@@ -127,8 +131,8 @@ test("review accordions toggle by keyboard and keep the panel open while a revie
   await expect(step.locator(".ax-hitl-panel-v2")).toBeVisible();
   await step.getByRole("button", { name: "닫기" }).click();
   await reviewTrigger.click();
-  await expect(reviewTrigger).toHaveAttribute("aria-expanded", "false");
-  await expect(group.locator(".ax-plan-step")).toHaveCount(0);
+  await expect(review.getByRole("button", { name: "전체 펼치기", exact: true })).toHaveAttribute("aria-expanded", "false");
+  await expect(review.locator(".ax-plan-step")).toHaveCount(0);
 });
 
 test("implementation steps and completion criteria save independently and persist after reload", async ({ page }) => {
@@ -138,7 +142,6 @@ test("implementation steps and completion criteria save independently and persis
   await navigateWorkspace(page, "업무 자동화 진단");
   const plan = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
   const review = plan.getByRole("region", { name: "구현 계획", exact: true });
-  await review.getByRole("button", { name: "전체 펼치기" }).click();
   const step = review.locator(".ax-plan-step").first();
   await step.getByRole("button", { name: "검토" }).click();
   await step.locator(".ax-hitl-panel-v2").getByRole("radio", { name: /유지/ }).check();
@@ -177,7 +180,6 @@ test("implementation steps and completion criteria save independently and persis
   }, task.id)).toBe("2:true");
   await page.reload();
   await navigateWorkspace(page, "업무 자동화 진단");
-  await plan.getByRole("region", { name: "구현 계획", exact: true }).getByRole("button", { name: "전체 펼치기" }).click();
   await expect(plan.locator(".ax-plan-step").first().locator(".ax-hitl-status-dot")).toHaveAttribute("data-status", "confirmed");
   await expect(plan.locator(".ax-criteria-item").first()).toHaveAttribute("data-status", "confirmed");
   await plan.locator(".ax-criteria-item").first().getByRole("button", { name: "보기" }).click();
@@ -197,19 +199,24 @@ test("roadmap scope keeps every item, distinguishes confirmed deferrals, and omi
   const plan = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
   const scope = plan.locator('[data-scope-group="scope"]');
   await expect(scope.locator(".ax-scope-section")).toHaveCount(5);
-  await expect(scope.getByRole("heading", { name: "산출물" }).locator("..").locator("li")).toHaveText(diagnosis.poc.outputs);
-  await expect(scope.getByRole("heading", { name: "적용 방식" }).locator("..").locator("li")).toHaveCount(4);
+  const sections = scope.locator(".ax-scope-section");
+  for (const trigger of await sections.locator('[data-slot="accordion-trigger"]').all()) {
+    await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  }
+  await scope.getByRole("button", { name: "전체 보기", exact: true }).click();
+  await expect(sections.filter({ has: page.getByRole("button", { name: /^산출물 \(4개\)/ }) }).locator("li")).toHaveText(diagnosis.poc.outputs);
+  await expect(sections.filter({ has: page.getByRole("button", { name: /^적용 방식 \(4개\)/ }) }).locator("li")).toHaveCount(4);
   await expect(scope).not.toContainText("미확정 처리 방식과 필수 기준은 해당 단계에서 확인이 필요합니다");
   await expect(plan.locator('[data-scope-group="criteria"]')).not.toContainText("정확한 합격 판정 기준은 실제 업무 규칙 확인 후 확정합니다");
   await expect(plan.locator('[data-scope-group="criteria"]')).not.toContainText("검증 대상 단계와 적용 범위는 확인이 필요합니다");
   const review = plan.getByRole("region", { name: "구현 계획", exact: true });
-  await review.getByRole("button", { name: "전체 펼치기" }).click();
   const step = review.locator(".ax-plan-step").first();
   await step.getByRole("button", { name: "검토" }).click();
   await step.getByRole("radio", { name: /보류/ }).check();
   await step.getByRole("textbox", { name: /보류 사유/ }).fill("외부 승인 대기");
   await step.getByRole("textbox", { name: /재개 조건/ }).fill("승인 수령");
   await step.getByRole("button", { name: "확정" }).click();
-  await expect(scope.getByRole("heading", { name: "보류·제외" }).locator("..")).toContainText("보류 사유: 외부 승인 대기 · 재개 조건: 승인 수령");
-  await expect(scope.getByRole("heading", { name: "보류·제외" }).locator("..")).toContainText("현재 구현 제외");
+  const deferred = scope.locator(".ax-scope-section").filter({ has: page.getByRole("button", { name: /^보류·제외 \(\d+개\)/ }) });
+  await expect(deferred).toContainText("보류 사유: 외부 승인 대기 · 재개 조건: 승인 수령");
+  await expect(deferred).toContainText("현재 구현 제외");
 });
