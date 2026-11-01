@@ -103,7 +103,7 @@ for (const width of [1440, 390]) test(`AX two-task ID-linked four-stage flow, in
     await expect(page.locator(".ax-report-intro h2")).toHaveText(row.name);
     await page.getByRole("button", { name: "Codex용 구현 계획 생성", exact: true }).click();
     await expect.poll(async () => (await stored(page)).tasks.find(t => t.id === row.id)?.diagnosis?.planCodex?.goal).toEqual([`${row.name} 계획`]);
-    await page.getByRole("button", { name: "전체 보기", exact: true }).click();
+    await page.getByRole("region", { name: "올인원 지시문", exact: true }).getByRole("button", { name: "전체 보기", exact: true }).click();
     await expect(page.locator(".ax-prompt")).toContainText(row.name);
     await expect(page.locator(".ax-prompt")).toContainText("담당자 최종 승인");
   }

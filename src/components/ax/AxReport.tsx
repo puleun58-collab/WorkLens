@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useId, useRef, useState } from "react";
-import { AlertTriangle, ArrowRight, BarChart3, Bot, BrainCircuit, Check, CheckCircle2, ChevronsUpDown, Circle, CircleCheck, Clipboard, ClipboardCheck, ClipboardList, CloudUpload, Code2, Copy, Database, Download, FileCode2, FileOutput, FilePlus2, FileSpreadsheet, FileText, Flag, Folder, GitBranch, GitMerge, GitPullRequest, Globe, Info, ListChecks, Monitor, MonitorCog, Play, Plug, Rocket, Settings2, ShieldAlert, ShieldCheck, Sparkles, Target, Terminal, UserRound, type LucideIcon } from "lucide-react";
+import { AlertTriangle, ArrowRight, BarChart3, Bot, BrainCircuit, Check, CheckCircle2, ChevronsUpDown, Circle, CircleCheck, Clipboard, ClipboardCheck, ClipboardList, CloudUpload, Copy, Database, Download, FileCode2, FileOutput, FilePlus2, FileSpreadsheet, FileText, Flag, Folder, GitBranch, GitMerge, GitPullRequest, Globe, Info, ListChecks, Monitor, MonitorCog, Play, Plug, Rocket, Settings2, ShieldAlert, ShieldCheck, Sparkles, Target, Terminal, UserRound, type LucideIcon } from "lucide-react";
 import type { AxDiagnosis, AxPlan, AxTask, AxTaskV2, HitlReview, VerificationResult } from "@/lib/ax/types";
 import { automationLevel, axes, executionGate, executionProfile, factorEffectiveValue, GATE_LABELS, gateBlockReasons, LEVEL_DESCRIPTIONS, levelDisplayLabel, nextAction, prerequisiteTopicKey, splitGatePrerequisites } from "@/lib/ax/policy";
 import { FACTOR_LABELS } from "@/lib/ax/schema";
@@ -14,7 +14,7 @@ import { HitlReviewPanel } from "./HitlReview";
 import { extractReviewableItems, extractPlanReviewableItems, findReview, getValidConfirmedReviews, type ReviewableItem } from "@/lib/ax/hitl";
 import { Tabs, TabsList, TabsTab, TabsPanel } from "@/components/ui/tabs";
 import { buildFixPrompt, checkAllInOnePromptDelivery, guideCodeDisplayText, guideProseDisplayText, planSummary, setupGuide, TOOL_GUIDES, type AxCheckTone, type AxGitFlowBlock, type AxGuideBlock, type AxGuideSection, type AxPlanSummary, type AxToolId } from "@/lib/ax/guide";
-import { groupPlanSteps, type PlanGroupId } from "@/lib/ax/plan-groups";
+import { groupPlanSteps } from "@/lib/ax/plan-groups";
 import { uiText } from "@/lib/ax/display-text";
 
 const VERDICT_LABELS = { 자동화: "자동화", "AI 보조": "AI 보조", "사람 유지": "담당자 수행" } as const;
@@ -1033,47 +1033,27 @@ function PlanReviewPanel({ item, controls }: { item: ReviewableItem; controls: P
       onEdit={() => controls.setEditingKey(item.key)} />
   </div>;
 }
-const PLAN_GROUP_ICONS: Record<PlanGroupId, LucideIcon> = { collect: Database, process: Code2, report: FileText, operate: Settings2 };
-/** 구현 계획: 계획 원본 단계를 업무 흐름 4개 그룹 아코디언으로 표시한다 (기본 접힘, 표시 전용 분류).
- * 단계는 한 그룹에만 나오며 원본 순번을 함께 표시하고, 단계별 검토(HITL)는 각 단계 행에서 한다. */
-function AxPlanGroups({ steps, planItems, controls, open, onOpenChange }: {
+/** 원본 배열 순서로 렌더링하고 분류는 보조 라벨로만 사용한다.
+ * 검토 항목도 같은 원본 index로 연결하므로 분류가 달라도 번호·검토 키는 변하지 않는다. */
+function AxPlanSteps({ steps, planItems, controls }: {
   steps: string[];
   planItems: ReviewableItem[];
   controls?: PlanReviewControls;
-  open: string[];
-  onOpenChange: (open: string[]) => void;
 }) {
-  const groups = groupPlanSteps(steps);
-  // 입력 보호: 검토 패널이 열린 단계의 그룹은 접히지 않는다 (작성 중 입력이 사라지지 않게).
-  const locked = controls?.openKey ? groups.find(group => group.steps.some(step => planItems[step.index]?.key === controls.openKey))?.id : undefined;
-  const value = locked && !open.includes(locked) ? [...open, locked] : open;
-  return <Accordion multiple className="ax-plan-groups" value={value} onValueChange={values => onOpenChange(locked && !values.includes(locked) ? [...values as string[], locked] : values as string[])}>
-    {groups.map(group => {
-      const Icon = PLAN_GROUP_ICONS[group.id];
-      return <AccordionItem key={group.id} value={group.id} className="ax-plan-group">
-        <AccordionTrigger className="ax-plan-group-trigger">
-          <span className="ax-plan-group-name"><span className="ax-plan-group-icon" aria-hidden="true"><Icon size={22} /></span><span className="ax-plan-group-title">{group.title} ({group.steps.length}개)</span></span>
-          <span className="ax-plan-group-desc">{uiText(group.description)}</span>
-          <span className="ax-plan-group-count">{group.steps.length}개</span>
-        </AccordionTrigger>
-        <AccordionPanel className="ax-plan-group-panel">
-          <ol className="ax-plan-steps">
-            {group.steps.map(step => {
-              const item = planItems[step.index];
-              return <li key={step.index} className="ax-plan-step">
-                <div className="ax-plan-step-row">
-                  <span className="ax-plan-step-no" title="원본 실행 순서">{step.index + 1}</span>
-                  <span className="ax-plan-step-text">{uiText(step.text)}</span>
-                  {item && controls ? <PlanReviewStatus item={item} controls={controls} /> : null}
-                </div>
-                {item && controls ? <PlanReviewPanel item={item} controls={controls} /> : null}
-              </li>;
-            })}
-          </ol>
-        </AccordionPanel>
-      </AccordionItem>;
+  const categories = new Map(groupPlanSteps(steps).flatMap(group => group.steps.map(step => [step.index, group.title] as const)));
+  return <ol className="ax-plan-steps">
+    {steps.map((text, index) => {
+      const item = planItems[index];
+      return <li key={index} className="ax-plan-step">
+        <div className="ax-plan-step-row">
+          <span className="ax-plan-step-no" title="원본 실행 순서">{String(index + 1).padStart(2, "0")}</span>
+          <div className="ax-plan-step-content"><span className="ax-plan-step-text">{uiText(text)}</span><span className="ax-plan-step-category">{categories.get(index)}</span></div>
+          {item && controls ? <PlanReviewStatus item={item} controls={controls} /> : null}
+        </div>
+        {item && controls ? <PlanReviewPanel item={item} controls={controls} /> : null}
+      </li>;
     })}
-  </Accordion>;
+  </ol>;
 }
 /** 구현 범위·완료 기준: 요약 데이터의 원본 항목을 줄이지 않고 영역별 목록으로 표시한다. */
 function AxScopeCriteria({ summary, diagnosis, plan, planItems, criteria, controls }: {
@@ -1084,6 +1064,7 @@ function AxScopeCriteria({ summary, diagnosis, plan, planItems, criteria, contro
   criteria: ReviewableItem[];
   controls?: PlanReviewControls;
 }) {
+  const [openScope, setOpenScope] = useState<string[]>([]);
   const rows = scopeSummaryRows(summary);
   const include = summary.include;
   const human = summary.humanKept;
@@ -1104,18 +1085,25 @@ function AxScopeCriteria({ summary, diagnosis, plan, planItems, criteria, contro
   return <section className="ax-scope-summary" aria-label="구현 범위·완료 기준">
     <section className="ax-scope-panel" data-scope-group="scope" aria-labelledby="ax-scope-title">
       <h3 id="ax-scope-title"><Target size={22} aria-hidden="true" />구현 범위</h3>
-      <div className="ax-scope-sections">{scopeRows.map(row => <section key={row.label} className="ax-scope-section">
-        <h4>{row.label}</h4>{row.items.length ? <ul>{row.items.map((text, index) => <li key={`${index}-${text}`}>{row.label === "보류·제외" && text.startsWith("보류:") ? text : uiText(text)}</li>)}</ul> : <p className="ax-muted">정보 없음</p>}
-      </section>)}</div>
+      <Accordion multiple className="ax-scope-sections" value={openScope} onValueChange={setOpenScope}>
+        {scopeRows.map(row => {
+          const items = [...new Set(row.items.map(text => row.label === "보류·제외" && text.startsWith("보류:") ? text : uiText(text)))];
+          const preview = foldScopeItems(items).items.slice(0, 2).map(text => text.length > 72 ? `${text.slice(0, 72)}…` : text).join(", ");
+          return <AccordionItem key={row.label} value={row.label} className="ax-scope-section">
+            <AccordionTrigger className="ax-scope-trigger"><span><strong>{row.label} ({items.length}개)</strong><span className="ax-scope-preview">{preview ? `${preview}${items.length > 2 ? " 등" : ""}` : "정보 없음"}</span></span></AccordionTrigger>
+            <AccordionPanel className="ax-scope-details">{items.length ? <ul>{items.map((text, index) => <li key={`${index}-${text}`}>{text}</li>)}</ul> : <p className="ax-muted">정보 없음</p>}</AccordionPanel>
+          </AccordionItem>;
+        })}
+      </Accordion>
+      <div className="ax-scope-footer"><Button type="button" variant="outline" size="sm" onClick={() => setOpenScope(openScope.length === scopeRows.length ? [] : scopeRows.map(row => row.label))}>{openScope.length === scopeRows.length ? "전체 접기" : "전체 보기"}</Button></div>
     </section>
     <section className="ax-scope-panel" data-scope-group="criteria" aria-labelledby="ax-criteria-title">
       <h3 id="ax-criteria-title"><Flag size={22} aria-hidden="true" />완료 기준 ({plan ? criteria.length : rows.coreCriteria.length + rows.additionalCriteriaCount}개)</h3>
       {plan && criteria.length ? <ul className="ax-scope-list">{criteria.map(item => {
         const review = controls ? findReview({ reviews: controls.reviews } as AxTaskV2, item.key) : undefined;
         const status = controls ? reviewDisplayState(item, review, new Set(controls.validKeys)).status : "pending";
-        const Icon = status === "confirmed" ? CheckCircle2 : status === "stale" ? AlertTriangle : Circle;
         return <li key={item.key} className="ax-criteria-item" data-status={status}>
-          <div className="ax-criteria-row"><Icon size={16} aria-hidden="true" className="ax-criteria-icon" /><span className="ax-criteria-text">{uiText(item.text)}</span>{controls ? <PlanReviewStatus item={item} controls={controls} /> : null}</div>
+          <div className="ax-criteria-row"><Circle size={20} aria-hidden="true" className="ax-criteria-icon" /><span className="ax-criteria-text">{uiText(item.text)}</span>{controls ? <PlanReviewStatus item={item} controls={controls} /> : null}</div>
           {controls ? <PlanReviewPanel item={item} controls={controls} /> : null}
         </li>;
       })}</ul> : rows.coreCriteria.length ? <ul className="ax-scope-list">
@@ -1338,11 +1326,10 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
   const validKeys = reviewProps ? validConfirmedKeySet(reviewItems, reviewProps.reviews) : new Set<string>();
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [editingKey, setEditingKey] = useState<string | null>(null);
-  const [openGroups, setOpenGroups] = useState<string[]>([]);
+  const [stepsExpanded, setStepsExpanded] = useState(true);
   const controls: PlanReviewControls | undefined = reviewProps ? { reviews: reviewProps.reviews, validKeys, openKey, editingKey, setOpenKey, setEditingKey, onSaveReview: reviewProps.onSaveReview } : undefined;
-  const groupIds = reviewPlan ? groupPlanSteps(reviewPlan.implementation).map(group => group.id) : [];
-  const allOpen = groupIds.length > 0 && groupIds.every(id => openGroups.includes(id));
-  // 화면 구성 (레퍼런스): ① 요약 카드 → ② 구현 계획(업무 흐름 그룹) → ③ 구현 범위·완료 기준 2열 → 올인원 지시문.
+  const stepsVisible = stepsExpanded || planItems.some(item => item.key === openKey);
+  // 화면 구성: 요약 카드 → 원본 실행 순서의 구현 계획 → 구현 범위·완료 기준 2열 → 올인원 지시문.
   // 바깥 래퍼는 기존 "자동화 구현 계획" 영역 이름과 이동 대상 id를 그대로 유지한다.
   return <div className="ax-plan-stack" id="ax-plan-section" role="region" aria-label="자동화 구현 계획"><section className="ax-surface ax-plan-overview-surface">
     <div className="ax-plan-head"><BarChart3 size={24} aria-hidden="true" className="ax-plan-head-icon" /><h3>자동화 구현 계획</h3></div>
@@ -1358,10 +1345,10 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
           <Button type="button" variant={reviewTool === "claude" ? "default" : "outline"} size="sm" aria-pressed={reviewTool === "claude"} onClick={() => setSelectedTool("claude")}>Claude Code</Button>
         </div> : null}
         {reviewProps ? <span className="ax-hitl-table-counts"><span>검토 대상 {reviewItems.length}개 (구현 단계 {planItems.length} · 완료 기준 {criteriaItems.length})</span><span aria-hidden="true"> · </span><span>검토 완료 {reviewItems.filter(item => validKeys.has(item.key)).length} · 검토 필요 {reviewItems.length - validKeys.size}</span></span> : null}
-        <Button type="button" variant="outline" size="sm" onClick={() => setOpenGroups(allOpen ? [] : groupIds)}><ChevronsUpDown aria-hidden="true" />{allOpen ? "전체 접기" : "전체 펼치기"}</Button>
+        <Button type="button" variant="outline" size="sm" aria-expanded={stepsVisible} onClick={() => { if (!planItems.some(item => item.key === openKey)) setStepsExpanded(!stepsVisible); }}><ChevronsUpDown aria-hidden="true" />{stepsVisible ? "전체 접기" : "전체 펼치기"}</Button>
       </div> : null}
     </div>
-    {reviewPlan ? <AxPlanGroups steps={reviewPlan.implementation} planItems={planItems} controls={controls} open={openGroups} onOpenChange={setOpenGroups} />
+    {reviewPlan ? stepsVisible ? <AxPlanSteps steps={reviewPlan.implementation} planItems={planItems} controls={controls} /> : null
       : <><p className="ax-muted">도구별 구현 계획을 생성하면 단계별 구현 계획이 표시됩니다</p>{!plans.codex && !plans.claude ? <div className="ax-actions">{generateButton("codex")}{generateButton("claude")}</div> : null}</>}
   </section>
   <AxScopeCriteria summary={summary} diagnosis={diagnosis} plan={reviewPlan} planItems={planItems} criteria={criteriaItems} controls={controls} />
