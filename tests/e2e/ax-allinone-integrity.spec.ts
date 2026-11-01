@@ -96,8 +96,8 @@ test("allinone: linked plan renders composite processing and step-linked scope",
   await expect(prompt).toContainText("현재 자동화 제외");
   const scope = packageSection.getByRole("region", { name: "구현 범위·완료 기준", exact: true });
   await expect(scope).not.toContainText("정산 승인 — 자동 승인 로직");
-  // 구현 범위는 실제 항목을 보여 주고, 계획의 완료 기준은 별도 패널에서 검토한다.
-  await expect(scope.locator('[data-scope-group="scope"] li')).toContainText(["구현 대상:", "담당자 수행:", "보류·제외:", "적용 방식:", "산출물:"]);
+  // 구현 범위는 항목별 목록이며 완료 기준은 카드 안에서 검토한다.
+  await expect(scope.locator('[data-scope-group="scope"] .ax-scope-section h4')).toHaveText(["구현 대상", "담당자 수행", "보류·제외", "적용 방식", "산출물"]);
   await expect(scope.locator('[data-scope-group="scope"]')).toContainText("실적 파일 병합");
   await expect(scope.locator('[data-scope-group="criteria"]')).toContainText("계약서상 정산 오차율 0.5% 이내 확인");
   await expect(scope.locator('[data-scope-group="criteria"] .ax-criteria-item').first().getByRole("button", { name: "검토" })).toBeVisible();

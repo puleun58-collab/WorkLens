@@ -54,7 +54,22 @@ for (const [name, size] of [["desktop", { width: 1440, height: 900 }], ["mobile"
     await expect(groups).toHaveCount(2);
     await expect(groups.locator('[data-slot="accordion-trigger"]')).toHaveCount(2);
     for (const trigger of await groups.locator('[data-slot="accordion-trigger"]').all()) await expect(trigger).toHaveAttribute("aria-expanded", "false");
-    await expect(planReview.locator(".ax-hitl-table-counts")).toHaveText(/전체 \d+·검토 완료 0·검토 필요 \d+/);
+    await expect(planReview.locator(".ax-hitl-table-counts")).toHaveText("검토 대상 5개 (구현 단계 3 · 완료 기준 2) · 검토 완료 0 · 검토 필요 5");
+    await expect(planReview.getByRole("heading", { name: "구현 계획 (3개)" })).toBeVisible();
+    await expect(plan.getByRole("heading", { name: "완료 기준 (2개)" })).toBeVisible();
+    const badgeStyles = await page.locator(".ax-report-intro .ax-title-group").evaluate(group => {
+      const level = getComputedStyle(group.querySelector(".ax-level-badge")!);
+      const status = getComputedStyle(group.querySelector(".ax-status-badge")!);
+      return [level, status].map(style => [style.minHeight, style.borderRadius, style.borderTopWidth, style.paddingLeft, style.fontSize, style.fontWeight, style.alignItems]);
+    });
+    expect(badgeStyles[0]).toEqual(badgeStyles[1]);
+    if (name === "desktop") {
+      const descriptions = await groups.locator(".ax-plan-group-desc").evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().x));
+      expect(Math.max(...descriptions) - Math.min(...descriptions)).toBeLessThan(1);
+    } else {
+      await expect(groups.locator(".ax-plan-group-desc")).toHaveCount(2);
+      expect(await groups.locator(".ax-plan-group-desc").evaluateAll(nodes => nodes.every(node => node.scrollWidth <= node.clientWidth + 1))).toBe(true);
+    }
     const precheck = plan.getByRole("region", { name: "구현 전 확인", exact: true });
     const precheckHeader = await headerOf(precheck);
     // 구현 전 확인은 기본 접힘이고, 접혀 있어도 미해결 건수를 표시한다.
@@ -67,6 +82,14 @@ for (const [name, size] of [["desktop", { width: 1440, height: 900 }], ["mobile"
       expect(Math.abs(Math.round(header.chevronInset) - Math.round(headers[0].chevronInset))).toBeLessThanOrEqual(1);
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    const criterion = plan.locator(".ax-criteria-item").first();
+    await criterion.getByRole("button", { name: "검토" }).click();
+    await criterion.getByRole("radio", { name: /유지/ }).check();
+    await criterion.getByRole("button", { name: "확정" }).click();
+    await criterion.getByRole("button", { name: "닫기" }).click();
+    await criterion.getByRole("button", { name: "보기" }).click();
+    await planReview.getByRole("button", { name: "전체 펼치기" }).click();
+    await page.screenshot({ path: `artifacts/roadmap-tmp/screenshots/roadmap-${name}.png`, fullPage: true });
   });
 }
 
@@ -123,9 +146,24 @@ test("implementation steps and completion criteria save independently and persis
   await expect(step.locator(".ax-hitl-status-dot")).toHaveAttribute("data-status", "confirmed");
   const criterion = plan.locator(".ax-criteria-item").first();
   await criterion.getByRole("button", { name: "검토" }).click();
-  await criterion.locator(".ax-hitl-panel-v2").getByRole("radio", { name: /유지/ }).check();
-  await criterion.locator(".ax-hitl-panel-v2").getByRole("button", { name: "확정" }).click();
+  const detail = criterion.locator(".ax-plan-review-panel");
+  await expect(detail.locator(".ax-hitl-panel-v2")).toBeVisible();
+  await expect(detail.getByText("AI 판단", { exact: true })).toBeVisible();
+  const nestedSurfaces = await detail.evaluate(root => [root.querySelector(".ax-hitl-panel-v2"), root.querySelector(".ax-hitl-v2-original")].map(node => {
+    const style = getComputedStyle(node!);
+    return { border: style.borderTopWidth, background: style.backgroundColor };
+  }));
+  expect(nestedSurfaces).toEqual([{ border: "0px", background: "rgba(0, 0, 0, 0)" }, { border: "1px", background: "rgba(0, 0, 0, 0)" }]);
+  await detail.getByRole("radio", { name: /유지/ }).check();
+  await detail.getByRole("button", { name: "확정" }).click();
   await expect(criterion).toHaveAttribute("data-status", "confirmed");
+  await criterion.getByRole("button", { name: "닫기" }).click();
+  await criterion.getByRole("button", { name: "보기" }).click();
+  await expect(detail.getByText("내 검토", { exact: true })).toBeVisible();
+  await detail.getByRole("button", { name: "수정" }).click();
+  await detail.getByRole("textbox", { name: /의견/ }).fill("기준 확인 완료");
+  await detail.getByRole("button", { name: "확정" }).click();
+  await expect(detail).toContainText("기준 확인 완료");
   await expect(review.locator(".ax-hitl-table-counts")).toContainText("검토 완료 2");
   // IndexedDB 영구 저장은 UI 반영 뒤 비동기로 완료되므로 저장 결과를 기다린 뒤 재조회한다.
   await expect.poll(() => page.evaluate(async taskId => {
@@ -139,4 +177,36 @@ test("implementation steps and completion criteria save independently and persis
   await plan.getByRole("region", { name: "구현 계획", exact: true }).getByRole("button", { name: "전체 펼치기" }).click();
   await expect(plan.locator(".ax-plan-step").first().locator(".ax-hitl-status-dot")).toHaveAttribute("data-status", "confirmed");
   await expect(plan.locator(".ax-criteria-item").first()).toHaveAttribute("data-status", "confirmed");
+  await plan.locator(".ax-criteria-item").first().getByRole("button", { name: "보기" }).click();
+  await expect(plan.locator(".ax-criteria-item").first().locator(".ax-plan-review-panel")).toContainText("기준 확인 완료");
+});
+
+test("roadmap scope keeps every item, distinguishes confirmed deferrals, and omits generic notices", async ({ page }) => {
+  await page.goto("/");
+  const diagnosis = {
+    ...diagnosisFixture,
+    poc: { ...diagnosisFixture.poc, outputs: ["결과 A", "결과 B", "결과 C", "결과 D"] },
+    planCodex: { ...planFixture, integrations: ["연동 A", "연동 B", "연동 C", "연동 D"] },
+  };
+  const task = taskFixture("scope-review", diagnosis);
+  await seed(page, { ...emptyAxState(), tasks: [task], selectedTaskId: task.id, step: 4 });
+  await navigateWorkspace(page, "업무 자동화 진단");
+  const plan = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
+  const scope = plan.locator('[data-scope-group="scope"]');
+  await expect(scope.locator(".ax-scope-section")).toHaveCount(5);
+  await expect(scope.getByRole("heading", { name: "산출물" }).locator("..").locator("li")).toHaveText(diagnosis.poc.outputs);
+  await expect(scope.getByRole("heading", { name: "적용 방식" }).locator("..").locator("li")).toHaveCount(4);
+  await expect(scope).not.toContainText("미확정 처리 방식과 필수 기준은 해당 단계에서 확인이 필요합니다");
+  await expect(plan.locator('[data-scope-group="criteria"]')).not.toContainText("정확한 합격 판정 기준은 실제 업무 규칙 확인 후 확정합니다");
+  await expect(plan.locator('[data-scope-group="criteria"]')).not.toContainText("검증 대상 단계와 적용 범위는 확인이 필요합니다");
+  const review = plan.getByRole("region", { name: "구현 계획", exact: true });
+  await review.getByRole("button", { name: "전체 펼치기" }).click();
+  const step = review.locator(".ax-plan-step").first();
+  await step.getByRole("button", { name: "검토" }).click();
+  await step.getByRole("radio", { name: /보류/ }).check();
+  await step.getByRole("textbox", { name: /보류 사유/ }).fill("외부 승인 대기");
+  await step.getByRole("textbox", { name: /재개 조건/ }).fill("승인 수령");
+  await step.getByRole("button", { name: "확정" }).click();
+  await expect(scope.getByRole("heading", { name: "보류·제외" }).locator("..")).toContainText("보류 사유: 외부 승인 대기 · 재개 조건: 승인 수령");
+  await expect(scope.getByRole("heading", { name: "보류·제외" }).locator("..")).toContainText("현재 구현 제외");
 });
