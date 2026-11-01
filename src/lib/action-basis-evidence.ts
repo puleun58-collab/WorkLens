@@ -139,6 +139,35 @@ function legalAnswer(ref: BodyRef, query?: string): string {
   return `${ref.law} ${ref.jo}${ref.title ? `(${ref.title})` : ""}: ${clause}${numbered ? ` 해당 위반 항목: ${numbered[1]}. ${numbered[2].trim()}` : ""}`;
 }
 
+/** The requirements and the authority may share a provision, but never the
+ * same answer sentence. Only the provision's operative paragraph and its own
+ * numbered subitems can establish a condition; a search preview cannot fill
+ * in a missing violation or exception. */
+function requirementAnswer(ref: BodyRef, query: string): string {
+  const first = ref.body.indexOf("①");
+  const paragraph = first < 0 ? ref.body : ref.body.slice(first + 1).split(/[②-⑳]/u)[0];
+  const sentence = operativeClause(ref.body);
+  const subject = /([^\s,。]{2,28}(?:자|인|업체))(?:가|는|이)\s+다음 각 호/u.exec(sentence)?.[1];
+  const conditionEnd = /경우에는|경우에|해당하면|하려는 자는|하려는 사람은|하는 자는/u.exec(sentence);
+  const condition = conditionEnd
+    ? sentence.slice(subject ? sentence.lastIndexOf(subject) : 0, conditionEnd.index + conditionEnd[0].length).trim()
+    : "";
+  const violations = [...paragraph.matchAll(/(?:^|\n)\s*(\d+(?:의\d+)?)\.\s*([^\n]+)/gu)]
+    .filter((match) => !/^삭제(?:\b|<|$)/u.test(match[2]) && !/…\s*$/u.test(match[2]));
+  const cited = [...query.matchAll(/제\d+조(?:의\d+)?(?:제\d+항)?/gu)].map((match) => match[0]);
+  const scoped = cited.length ? violations.filter((entry) => cited.some((jo) => entry[2].includes(jo))) : [];
+  const examples = scoped.length === 1 ? scoped : violations.slice(0, 3);
+  const heading = `${ref.law} ${ref.jo}${ref.title ? `(${ref.title})` : ""}`;
+  const parts = [`${heading} 적용 대상·조건: ${condition || "원문에서 개별 요건을 분리하지 못했습니다"}.`];
+  if (violations.length) {
+    parts.push(`${first >= 0 ? "제1항 " : ""}원문에서 확인한 위반행위 ${violations.length}개 호(삭제 호 제외): ${examples.map((entry) => `${entry[1]}. ${entry[2].trim()}`).join(" · ")}${scoped.length !== 1 && violations.length > examples.length ? " · 나머지 호는 하단 조문 원문에서 확인" : ""}.`);
+  }
+  const exception = /다만,?[^\n]{10,400}?(?:할 수 있다|하여야 한다|해야 한다|된다)\./u.exec(paragraph);
+  if (exception) parts.push(`예외 단서: ${exception[0]}`);
+  else if (paragraph.includes("다만")) parts.push("예외 단서는 발췌가 중략되어 세부 요건 미확인.");
+  return parts.join(" ");
+}
+
 /** An authority must confer the act being asked about; permission revocation
  * is not permission to grant, and a subordinate criteria rule is not the
  * enabling statute. */
@@ -283,8 +312,17 @@ export function assessActionBasis(query: string, text: string, enrichment?: Rese
   ];
   if (requirementRefs !== undefined && directRequirementRefs !== undefined) {
     const mentionOnly = (requirementMentioned ?? []).some((ref) => !ref.note) && directRequirementRefs.length === 0;
+    // The chain preview and the separately fetched full article can describe
+    // the same provision. Use the fullest adopted original for its numbered
+    // conditions, while keeping the authority provision's scope unchanged.
+    let requirementSource: BodyRef | undefined;
+    for (const ref of directRequirementRefs) {
+      if (authorityRefs[0] && (ref.law !== authorityRefs[0].law || ref.jo !== authorityRefs[0].jo)) continue;
+      if (!requirementSource || ref.body.length > requirementSource.body.length) requirementSource = ref;
+    }
+    requirementSource ??= directRequirementRefs[0];
     items.push({ label: "적용 요건", status: directRequirementRefs.length ? "found" : bodies.length ? "viewed" : "none",
-      ...(directRequirementRefs[0] ? { answer: legalAnswer(directRequirementRefs[0], query) } : {}),
+      ...(requirementSource ? { answer: requirementAnswer(requirementSource, query) } : {}),
       uncertainty: asksPermission
         ? "신청 대상 업종·자격·시설 등 필요한 사실과 예외를 대조해야 하며, 원문 확인만으로 허가·등록 가능 여부를 확정할 수 없습니다."
         : "위반행위와 영업 종류가 특정되지 않으면 개별 적용 여부를 판단할 수 없습니다. 업종·위반행위·예외 사실을 대조해야 합니다.",
