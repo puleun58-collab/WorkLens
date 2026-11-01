@@ -34,6 +34,9 @@ async function report(page: Page) {
   await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
   await expect(page.locator(".ax-report-intro")).toBeVisible();
   await expect(page.getByRole("button", { name: "Codex용 올인원 지시문 복사", exact: true })).toBeVisible();
+  // AxDiagnosisView resets scroll for 150ms after a tab change; let that finish before
+  // Playwright scrolls to the review button, otherwise Firefox can lose the pointer click.
+  await page.waitForTimeout(200);
 }
 
 for (const width of [1440, 390]) test(`범용 확정 버튼: 기존 기록·재확정·메타데이터·지시문 ${width}px`, async ({ page }) => {
@@ -60,11 +63,12 @@ for (const width of [1440, 390]) test(`범용 확정 버튼: 기존 기록·재�
   // Clicking confirm changes only the draft until the existing bottom save is used.
   expect((await stored(page)).tasks[0].genericRules?.[0].status).toBe("미확정");
   const geometry = await row.evaluate(element => {
-    const textarea = element.querySelector("textarea")!.getBoundingClientRect();
+    // COSS paints the input border on its wrapper; the native textarea is inset by 1px.
+    const textarea = element.querySelector('[data-slot="textarea-control"]')!.getBoundingClientRect();
     const button = element.querySelector(".ax-rule-confirm button")!.getBoundingClientRect();
     return { right: Math.abs(textarea.right - button.right), gap: button.top - textarea.bottom };
   });
-  expect(geometry.right).toBeLessThanOrEqual(1);
+  expect(geometry.right).toBeLessThanOrEqual(0.1);
   expect(geometry.gap).toBeGreaterThanOrEqual(8);
   expect(geometry.gap).toBeLessThanOrEqual(12);
   await row.screenshot({ path: `artifacts/rulesui/confirm-${width}.png` });
