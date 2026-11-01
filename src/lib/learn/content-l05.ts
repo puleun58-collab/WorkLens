@@ -110,8 +110,8 @@ export const CONTENT_L05: LearnContent = {
     },
     {
       id: "l5-u2",
-      title: "변경 확인과 스테이징 — git status, git add",
-      shortTitle: "스테이징 — status, add",
+      title: "변경 확인과 스테이징: git status, git add",
+      shortTitle: "스테이징: status, add",
       estimatedMinutes: 12,
       goal: "git status로 변경 상태를 읽고 git add로 커밋할 파일을 스테이징할 수 있다.",
       concepts: [
@@ -162,7 +162,7 @@ export const CONTENT_L05: LearnContent = {
         },
       ],
       practice: {
-        title: "실습 B-1 — 상태 확인과 스테이징",
+        title: "실습 B-1: 상태 확인과 스테이징",
         steps: [
           "가상 저장소 'my-project'에서 git status 를 입력합니다. (수정된 report.txt와 새 memo.txt가 보입니다)",
           "git add report.txt 로 보고서만 스테이징합니다.",
@@ -196,8 +196,8 @@ export const CONTENT_L05: LearnContent = {
     },
     {
       id: "l5-u3",
-      title: "커밋으로 기록 남기기 — git commit, git log",
-      shortTitle: "커밋 — commit, log",
+      title: "커밋으로 기록 남기기: git commit, git log",
+      shortTitle: "커밋: commit, log",
       estimatedMinutes: 12,
       goal: "git commit -m으로 변경을 기록하고 git log로 기록을 확인할 수 있다.",
       concepts: [
@@ -242,7 +242,7 @@ export const CONTENT_L05: LearnContent = {
         },
       ],
       practice: {
-        title: "실습 B-2 — 커밋과 기록 확인",
+        title: "실습 B-2: 커밋과 기록 확인",
         steps: [
           "git add report.txt 로 변경을 스테이징합니다. (이미 했다면 생략)",
           "git commit -m \"보고서 수정\" 을 입력합니다. ('[main xxxxxx] 보고서 수정' 같은 완료 메시지가 나옵니다)",
@@ -277,8 +277,8 @@ export const CONTENT_L05: LearnContent = {
     },
     {
       id: "l5-u4",
-      title: "원격 저장소와 함께 일하기 — clone, push, pull",
-      shortTitle: "원격 저장소 — clone, push, pull",
+      title: "원격 저장소와 함께 일하기: clone, push, pull",
+      shortTitle: "원격 저장소: clone, push, pull",
       estimatedMinutes: 12,
       goal: "clone·push·pull의 관계를 설명하고 원격 저장소와 변경을 주고받을 수 있다.",
       concepts: [
@@ -345,7 +345,7 @@ export const CONTENT_L05: LearnContent = {
         },
       ],
       practice: {
-        title: "실습 C — 원격 변경 가져오기",
+        title: "실습 C: 원격 변경 가져오기",
         steps: [
           "clone된 'team-docs' 저장소에서 git log 로 현재 기록을 확인합니다.",
           "git status 로 '원격보다 뒤처져 있다'는 안내가 있는지 봅니다.",
@@ -444,7 +444,7 @@ export const CONTENT_L05: LearnContent = {
         },
       ],
       practice: {
-        title: "실습 D — 실패 상황 다루기",
+        title: "실습 D: 실패 상황 다루기",
         steps: [
           "cd .. 를 입력해 저장소 밖(상위 폴더)으로 나갑니다.",
           "저장소가 아닌 폴더에서 git status 를 실행해 'Git 저장소가 아닙니다.' 오류를 확인합니다.",
