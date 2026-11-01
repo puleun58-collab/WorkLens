@@ -35,6 +35,8 @@ export interface TaskEvidenceItem {
   detail?: string;
   /** Source-grounded, reader-facing answer (never a retrieval-status sentence). */
   answer?: string;
+  /** Short, source-grounded overview; full answer remains in the folded evidence. */
+  summary?: string;
   /** Facts or original text still needed before applying the rule to a case. */
   uncertainty?: string;
   /** Provisions behind the item, in detail order: the aggregate's own
@@ -69,6 +71,11 @@ export interface TaskEvidenceArticle {
   relation: "direct" | "twoWay" | "citation" | "other" | "unidentified" | "related";
   /** The actual citing or delegation wording, when one was matched. */
   expression?: string;
+  /** Confirmed parent of a directly delegated provision; never inferred from a title alone. */
+  parentJo?: string;
+  parentParagraph?: string;
+  /** Subject shared by the parent delegation and the subordinate operative text. */
+  subject?: string;
 }
 
 export interface TaskEvidence {
