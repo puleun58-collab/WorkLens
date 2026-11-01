@@ -1,5 +1,5 @@
 /* AI·AX 학습센터 — WorkLens B2B 디자인 유지, 차분한 학습 화면 */
-.learn-view { color: var(--foreground); padding: 0 0 40px; font-size: var(--font-size-sm); line-height: 1.7; word-break: keep-all; overflow-wrap: anywhere; text-wrap: pretty; }
+.learn-view { --learn-card-blue: #d6e6ff; color: var(--foreground); padding: 0 0 40px; font-size: var(--font-size-sm); line-height: 1.7; word-break: keep-all; overflow-wrap: anywhere; text-wrap: pretty; }
 .learn-view h2 { font-size: 21px; font-weight: 650; margin: 20px 0 12px; }
 .learn-view h3 { font-size: 17px; font-weight: 650; margin: 0 0 12px; }
 .learn-view h4 { font-weight: 600; margin: 12px 0 6px; }
@@ -115,8 +115,8 @@
 
 /* 결과 */
 .learn-result-score { font-size: 40px; font-weight: 700; }
-.learn-result-pass { color: var(--primary); font-weight: 700; }
-.learn-result-fail { color: var(--destructive); font-weight: 700; }
+.learn-result-pass { color: var(--primary); font-weight: 400; }
+.learn-result-fail { color: var(--destructive); font-weight: 400; }
 .learn-review-item { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin: 8px 0; }
 .learn-review-item.is-wrong { border-left: 3px solid var(--destructive); }
 .learn-review-item.is-correct { border-left: 3px solid var(--primary); }
@@ -129,8 +129,8 @@
 .learn-completion-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 24px 0; text-align: left; }
 .learn-completion-stat { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 10px; }
 .learn-completion-stat svg { width: 22px; height: 22px; color: var(--primary); flex: none; }
-.learn-completion-stat-label { display: block; font-size: var(--font-size-xs); color: var(--muted-foreground); }
-.learn-completion-stat strong { font-size: 17px; }
+.learn-completion-stat-text { font-size: 17px; font-weight: 400; min-width: 0; }
+.learn-completion-stat-text strong, .learn-completion-stat-text span { display: inline; font-size: inherit; }
 .learn-completion-note { background: color-mix(in srgb, var(--primary) 7%, transparent); border-radius: 10px; padding: 12px 16px; margin: 0 0 20px; font-size: 14px; }
 
 /* 사전 진단 영역별 학습 연결 */
@@ -139,8 +139,9 @@
 .learn-diagnostic-area-label { font-weight: 600; font-size: 14px; }
 
 .learn-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0; }
-.learn-command-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
-.learn-command-row code { flex: 1; background: var(--muted); border-radius: 6px; padding: 6px 10px; font-family: ui-monospace, Consolas, monospace; font-size: 13px; overflow-x: auto; white-space: nowrap; }
+.learn-command-row { display: flex; align-items: center; gap: 8px; margin: 0; min-width: 0; }
+.learn-command-row code { flex: 1; min-width: 0; background: color-mix(in srgb, var(--muted) 25%, var(--card)); border-radius: 6px; padding: 4px 8px; font-family: ui-monospace, Consolas, monospace; font-size: 13px; overflow-x: auto; white-space: nowrap; }
+.learn-command-row button { flex: none; height: 30px; min-width: 52px; padding: 0 8px; }
 .learn-kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 16px 0; }
 .learn-kv-item { padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; }
 .learn-kv-item strong { display: block; font-size: 20px; }
@@ -180,8 +181,10 @@
 /* 콘텐츠 카드 — 선명한 소프트 블루 헤더(#D6E6FF) + 흰 본문, 은은한 그림자는 디자인 토큰 재사용 */
 .learn-card { border: 1px solid var(--border); border-radius: 12px; background: var(--card); margin: 0 0 14px; overflow: hidden; box-shadow: var(--elevation-surface); }
 .learn-card > .learn-card-title { margin: 0; }
-.learn-card-title { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 700; line-height: 1.4; margin: 0; padding: 9px 18px; background: #d6e6ff; border-bottom: 1px solid #b8d2fa; color: #164b9b; }
+.learn-card-title { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 700; line-height: 1.4; margin: 0; padding: 9px 18px; background: var(--learn-card-blue); border-bottom: 1px solid #b8d2fa; color: #164b9b; }
 .learn-card-title svg { width: 17px; height: 17px; color: #1d4ed8; flex: none; }
+.learn-card-title:has(> strong) { display: block; font-weight: 400; }
+.learn-card-title:has(> strong) svg { display: inline; vertical-align: -3px; margin-right: 8px; }
 .learn-card-body { padding: 14px 20px; }
 .learn-card-body > :first-child { margin-top: 0; }
 .learn-card-body > :last-child { margin-bottom: 0; }
@@ -189,7 +192,7 @@
 .learn-card-body ul, .learn-card-body ol { padding-left: 20px; margin: 8px 0; }
 .learn-card-body li { margin: 6px 0; }
 
-.learn-concept-lead { font-weight: 650; margin: 0 0 10px; }
+.learn-concept-lead { font-weight: 400; margin: 0 0 10px; }
 .learn-bullet-list { list-style: none; padding-left: 0 !important; margin: 8px 0; }
 .learn-bullet-list li { position: relative; padding-left: 18px; margin: 8px 0; }
 .learn-bullet-list li::before { content: "•"; position: absolute; left: 2px; color: var(--primary); font-weight: 700; }
@@ -209,17 +212,17 @@
 .learn-mistake-card p { margin: 6px 0; }
 .learn-mistake-title { font-weight: 700; color: #78350f; }
 
-/* 핵심 요약 — 전체 연한 파란 배경, 헤더 띠 없이 하나의 영역 */
-.learn-card-info { background: #eaf2fd; border-color: #d4e3f9; }
-.learn-card-info .learn-card-title { background: transparent; border-bottom: 0; color: #1e3a5f; padding: 12px 18px 0; }
-.learn-card-info .learn-card-title svg { color: #2563eb; }
+/* 핵심 요약 — 실무 사례 헤더와 같은 기존 블루 값 재사용 */
+.learn-card-info { background: var(--learn-card-blue); border-color: #b8d2fa; }
+.learn-card-info .learn-card-title { background: transparent; border-bottom: 0; color: #164b9b; padding: 12px 18px 0; }
+.learn-card-info .learn-card-title svg { color: #1d4ed8; }
 .learn-card-info .learn-card-body { padding-top: 10px; }
 
 .learn-case-block { padding: 2px 0; margin: 12px 0; }
 .learn-case-block:first-child { margin-top: 0; }
 .learn-case-block:last-child { margin-bottom: 0; }
-.learn-case-title { font-weight: 700; margin: 0 0 4px; }
-.learn-command-box { background: color-mix(in srgb, var(--muted) 30%, transparent); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; margin: 12px 0; }
+.learn-command-box { display: grid; gap: 6px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; margin: 10px 0; min-width: 0; }
+.learn-command-box > p { margin: 0 0 2px; }
 
 /* 학습 상세 하단 이동 버튼 — 레퍼런스처럼 카드 아래 여백만 (구분선 없음) */
 .learn-lesson .learn-quiz-nav { border-top: 0; margin-top: 18px; padding-top: 0; }
@@ -233,7 +236,7 @@
 .learn-question-card { border: 1px solid var(--border); border-radius: 12px; background: var(--card); padding: 20px; margin: 12px 0; overflow: hidden; }
 .learn-question-card > :first-child { margin-top: 0; }
 .learn-question-card > :last-child { margin-bottom: 0; }
-.learn-question-meta { font-size: 13px; font-weight: 600; color: var(--primary); margin: 0 0 8px; }
+.learn-question-meta { font-size: 13px; font-weight: 400; color: var(--primary); margin: 0 0 8px; }
 .learn-question-prompt { font-size: 17px; font-weight: 700; margin: 0 0 12px; }
 .learn-question-card .learn-choice { margin: 10px 0; }
 
@@ -261,7 +264,35 @@
 .learn-state { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; text-align: center; padding: 64px 20px; }
 
 /* 가상 터미널 실습 주변 */
-.learn-terminal-block ol.learn-terminal-steps { margin: 8px 0 12px; }
+.learn-terminal-block ol.learn-terminal-steps { margin: 4px 0 12px; padding-left: 0; list-style-position: outside; }
+.learn-terminal-footer { display: flex; align-items: center; justify-content: flex-end; gap: 16px; margin-top: 12px; min-width: 0; }
+.learn-terminal-footer .learn-terminal-hint { flex: 1; min-width: 0; margin: 0; }
+.learn-terminal-actions { display: flex; flex: none; align-items: center; gap: 8px; margin-left: auto; }
+.learn-terminal-actions button { height: 36px; min-width: 64px; }
+.learn-card-aligned .learn-bullet-list > li { padding-left: 0; }
+.learn-card-aligned .learn-bullet-list > li::before { left: -16px; }
+.learn-card-body ol.learn-practice-steps { padding-left: 0; }
+.learn-practice-guidance { margin: 8px 0; }
+.learn-practice-guidance p { margin: 4px 0; }
+.learn-practice-form, .learn-writing-fields { display: grid; gap: 14px; min-width: 0; }
+.learn-practice-job, .learn-writing-fields fieldset { border: 1px solid var(--border); border-radius: 8px; padding: 12px; min-width: 0; margin: 0; }
+.learn-practice-job { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.learn-practice-job legend { font-weight: 650; padding: 0 4px; }
+.learn-writing-fields legend { font-weight: 400; padding: 0 4px; }
+.learn-practice-field { display: grid; align-content: start; gap: 4px; min-width: 0; }
+.learn-practice-frequency { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px; border: 0; padding: 0; min-width: 0; margin: 0; }
+.learn-practice-form :is(input:not([type="radio"]), select), .learn-writing-fields textarea { box-sizing: border-box; width: 100%; min-width: 0; border: 1px solid var(--border); border-radius: 6px; background: var(--background); color: var(--foreground); padding: 8px 10px; font: inherit; }
+.learn-practice-form :is(input, select):focus-visible, .learn-writing-fields textarea:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.learn-practice-form [aria-invalid="true"] { border-color: var(--destructive); }
+.learn-writing-fields textarea { display: block; resize: vertical; min-height: 96px; }
+.learn-practice-error { color: var(--destructive); margin: 0; }
+.learn-practice-comparison { max-width: 100%; overflow-x: auto; }
+.learn-practice-comparison table { width: 100%; border-collapse: collapse; text-align: left; }
+.learn-practice-comparison :is(th, td) { padding: 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.learn-practice-result { padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: color-mix(in srgb, var(--muted) 8%, var(--card)); }
+.learn-practice-candidate { display: inline-flex; align-items: center; gap: 6px; margin: 4px 16px 8px 0; }
+.learn-practice-form > button { justify-self: start; }
+.learn-note-prompt { font-weight: 400; }
 
 @media (max-width: 700px) {
   .learn-assess-head { flex-direction: column; align-items: flex-start; gap: 8px; }
@@ -270,6 +301,9 @@
   .learn-question-card { padding: 16px; }
   .learn-note-item { padding: 14px; }
   .learn-empty { padding: 36px 16px; }
+  .learn-terminal-footer { flex-direction: column; align-items: stretch; gap: 8px; }
+  .learn-terminal-actions { align-self: flex-end; }
+  .learn-practice-job { grid-template-columns: 1fr; }
 }
 
 /* 사전 진단 간격 */

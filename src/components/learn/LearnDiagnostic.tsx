@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { DIAGNOSTIC_AREAS, DIAGNOSTIC_AREA_TARGETS, type DiagnosticAreaId } from "@/lib/learn/curriculum";
 import { levelContent } from "@/lib/learn/content";
 import type { LearnLevelNo, LearnQuestion, LearnerAnswer } from "@/lib/learn/types";
+import { LearnSeparatedText } from "./LearnSeparatedText";
 
 interface LearnDiagnosticProps {
   questions: LearnQuestion[];
@@ -94,7 +95,7 @@ export function LearnDiagnostic({ questions, onComplete, onSkip, onOpenLesson }:
                         <div className="learn-diagnostic-area-label">{label}</div>
                         {target && unit ? (
                           <div className="learn-muted">
-                            <small>연결 학습: LEVEL {target.level} · {unit.title}</small>
+                            <small><strong>연결 학습:</strong> LEVEL {target.level} · {unit.title}</small>
                           </div>
                         ) : null}
                       </div>
@@ -165,7 +166,7 @@ export function LearnDiagnostic({ questions, onComplete, onSkip, onOpenLesson }:
         <p className="learn-question-meta">
           {idx + 1} / {questions.length} · {q.category}
         </p>
-        <h3 className="learn-question-prompt">{q.prompt}</h3>
+        <h3 className="learn-question-prompt"><LearnSeparatedText text={q.prompt} /></h3>
         {q.choices?.map((c) => {
           const cur = answers[q.id];
           const selected = cur?.kind === "choices" && cur.selectedChoiceIds.includes(c.id);
@@ -178,7 +179,7 @@ export function LearnDiagnostic({ questions, onComplete, onSkip, onOpenLesson }:
               aria-pressed={selected}
             >
               <span className="learn-choice-id">{c.id.toUpperCase()}</span>
-              <span>{c.text}</span>
+              <span><LearnSeparatedText text={c.text} /></span>
             </button>
           );
         })}
