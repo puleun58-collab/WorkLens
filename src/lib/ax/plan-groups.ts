@@ -1,7 +1,7 @@
-/** 자동화 구현 계획 화면의 그룹 표시 전용 분류.
- * 계획 원본(plan.implementation)의 항목·순서·검토 키·올인원 지시문은 바꾸지 않고, 각 단계를
- * 4개 업무 흐름 그룹 중 정확히 한 곳에 배치한다 (누락·중복 없음). 그룹 안에서는 원본 실행
- * 순서를 유지하고, 각 단계는 원본 순번(index)을 함께 가진다. */
+/** 자동화 구현 계획의 표시 전용 업무 분류.
+ * 반환 배열은 분류 정의 순서이므로 화면 실행 목록으로 직접 렌더링하지 않는다.
+ * 화면은 원본 plan.implementation 순서로 렌더링하며, index로 분류 라벨만 찾는다.
+ * 원본 항목·순번·검토 키·올인원 지시문은 변경하지 않는다. */
 export type PlanGroupId = "collect" | "process" | "report" | "operate";
 
 export const PLAN_GROUPS: readonly { id: PlanGroupId; title: string; description: string }[] = [

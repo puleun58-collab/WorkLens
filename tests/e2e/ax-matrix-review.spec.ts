@@ -103,7 +103,7 @@ for (const viewport of VIEWPORTS) {
 
     await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
     const plan = page.getByRole("region", { name: "구현 계획", exact: true });
-    await plan.getByRole("button", { name: "전체 펼치기" }).click();
+    await expect(plan.getByRole("button", { name: "전체 접기", exact: true })).toHaveAttribute("aria-expanded", "true");
     await plan.locator(".ax-plan-step").first().getByRole("button", { name: "검토" }).click();
     await expectAligned(plan.locator(".ax-hitl-panel-v2"));
     await plan.locator(".ax-hitl-panel-v2").screenshot({ path: `artifacts/ax/hitl-plan-review-${viewport.width}.png` });

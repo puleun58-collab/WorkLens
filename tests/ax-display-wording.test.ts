@@ -47,11 +47,11 @@ describe("AX 표시 문구 개선 — 표시 전용 라벨", () => {
     ]);
   });
 
-  it("패널 라벨은 지시문 §10.5에 따라 D번호 없이 상태/대조 기준으로 쓴다 (#365 문구의 의도적 대체)", () => {
+  it("패널 라벨은 D번호 없이 카드별 기준을 쓴다", () => {
     expect(decisionPanelLabel("D1", "상태")).toBe("상태");
-    expect(decisionPanelLabel("D1", "상세")).toBe("대조 기준");
-    expect(decisionPanelLabel("D4", "상세")).toBe("대조 기준");
-    expect(decisionPanelLabel("D5", "상세")).toBe("대조 기준");
+    expect((["D1", "D2", "D3", "D4", "D5", "D6", "D7"] as const).map(id => decisionPanelLabel(id, "상세"))).toEqual([
+      "대조 기준", "중복 처리 기준", "예외 처리 기준", "상태 구분 기준", "판단 불가 처리 기준", "빈 파일 처리 기준", "계산 기준",
+    ]);
   });
 
   it("지시문 생성용 DEFS 제목은 표시 변경과 무관하게 기존 값을 유지한다", () => {

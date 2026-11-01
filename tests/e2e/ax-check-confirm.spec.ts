@@ -35,27 +35,36 @@ test("AX 확인 필요 항목: 근거와 함께 확인 완료를 저장하면 �
   await expect(page.locator(".ax-judgement-foot")).toContainText("확인 필요 · 2건");
   await expect(card.locator(".ax-gate-badge")).toHaveText("확인 후 진행");
   const row = card.locator(".ax-diag-checks li").filter({ hasText: "파일 저장소 접근 권한" });
-  await row.getByRole("button", { name: "확인 결과 기록" }).click();
+  await row.getByRole("button", { name: "결과 입력" }).click();
   const form = row.getByRole("group", { name: "파일 저장소 접근 권한 확인 결과 입력" });
+  await expect(form.getByRole("combobox", { name: "확인 결과" })).toHaveText("미확인");
+  await expect(form).not.toContainText("확인이 필요한 내용");
+  const textareaBox = await form.getByLabel("확인 내용").boundingBox();
+  const inputButtonBox = await row.getByRole("button", { name: "결과 입력" }).boundingBox();
+  expect(textareaBox).not.toBeNull();
+  expect(inputButtonBox).not.toBeNull();
+  expect(Math.abs(textareaBox!.x + textareaBox!.width - inputButtonBox!.x - inputButtonBox!.width), JSON.stringify({ textareaBox, inputButtonBox })).toBeLessThanOrEqual(1);
   // 근거 없이 확인 완료는 저장되지 않는다.
   await form.getByRole("combobox", { name: "확인 결과" }).click();
-  await page.getByRole("option", { name: "확인 완료", exact: true }).click();
-  await form.getByRole("button", { name: "확인 결과 저장" }).click();
-  await expect(form.getByRole("alert")).toHaveText("확인 근거가 되는 확인 내용을 입력하세요");
+  await expect(page.getByRole("option")).toHaveText(["확인", "불가", "미확인"]);
+  await page.getByRole("option", { name: "확인", exact: true }).click();
+  await expect(page.getByRole("option")).toHaveCount(0);
+  await form.getByRole("button", { name: "저장", exact: true }).click();
+  await expect(form.getByRole("alert")).toHaveText("확인한 내용과 근거를 입력하세요");
   await expect(page.locator(".ax-judgement-foot")).toContainText("확인 필요 · 2건");
   // 미확인 기록은 상태를 바꾸지 않는다.
   await form.getByRole("combobox", { name: "확인 결과" }).click();
   await page.getByRole("option", { name: "미확인", exact: true }).click();
   await form.getByLabel("확인 내용").fill("IT팀에 권한 요청함");
-  await form.getByRole("button", { name: "확인 결과 저장" }).click();
+  await form.getByRole("button", { name: "저장", exact: true }).click();
   await expect(form.getByRole("status")).toHaveText("확인 내용 저장 완료 · 추가 확인 필요");
   await expect(row.locator(".ax-check-badge")).toHaveText("확인 내용 등록");
   await expect(page.locator(".ax-judgement-foot")).toContainText("확인 필요 · 2건");
   // 근거와 함께 확인 완료 → 확인 필요 건수 감소, 확인 완료 목록으로 이동
   await form.getByRole("combobox", { name: "확인 결과" }).click();
-  await page.getByRole("option", { name: "확인 완료", exact: true }).click();
+  await page.getByRole("option", { name: "확인", exact: true }).click();
   await form.getByLabel("확인 내용").fill("IT팀이 서비스 계정에 읽기·쓰기 권한 부여 확인");
-  await form.getByRole("button", { name: "확인 결과 저장" }).click();
+  await form.getByRole("button", { name: "저장", exact: true }).click();
   await expect(page.locator(".ax-judgement-foot")).toContainText("확인 필요 · 1건");
   await card.getByRole("button", { name: "확인 완료 항목 보기 (1건)" }).click();
   const doneRow = card.locator(".ax-checks-done li").filter({ hasText: "파일 저장소 접근 권한" });
@@ -65,6 +74,7 @@ test("AX 확인 필요 항목: 근거와 함께 확인 완료를 저장하면 �
   await expect.poll(async () => (await stored(page))?.tasks.find(task => task.id === a.id)?.checkConfirmations?.length).toBe(1);
   const record = await stored(page);
   expect(record?.tasks.find(task => task.id === a.id)?.diagnosis?.technicalChecks[0].status).toBe("확인 필요");
+  expect(record?.tasks.find(task => task.id === a.id)?.checkConfirmations?.[0]?.result).toBe("확인 완료");
   expect(record?.tasks.find(task => task.id === b.id)?.checkConfirmations).toBeUndefined();
   // 새로고침 후 유지
   await page.reload();
@@ -77,7 +87,7 @@ test("AX 확인 필요 항목: 근거와 함께 확인 완료를 저장하면 �
   await precheck.getByRole("button", { name: /구현 전 확인/ }).click();
   await expect(precheck).not.toContainText("파일 저장소 접근 권한");
   // 올인원 지시문에 담당자 확인 근거가 반영된다.
-  await plan.getByRole("button", { name: "전체 보기" }).click();
+  await plan.getByRole("region", { name: "올인원 지시문", exact: true }).getByRole("button", { name: "전체 보기", exact: true }).click();
   await expect(plan.locator(".ax-prompt")).toContainText("IT팀이 서비스 계정에 읽기·쓰기 권한 부여 확인");
   const target = precheck.locator(".ax-precheck-row").filter({ hasText: "보고서 템플릿 자동화" });
   // 한 줄 구성(굵은 항목명 + 확인)이며 보조 설명·확인 위치 문구는 없다.
