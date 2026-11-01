@@ -247,7 +247,8 @@ export interface LawResearchData {
    * ordinance_compare keeps `comparison`, procedure_detail keeps
    * `procedure` from PR #326 and is intentionally not duplicated here.
    */
-  followup?: { status: "complete" | "partial" | "failed" | "not-searched"; attempted: number; failed: number; missing: number; limited: boolean };
+  followup?: { status: "complete" | "partial" | "failed" | "not-searched"; attempted: number; failed: number; missing: number; limited: boolean;
+    unavailable?: Array<{ type: "조문" | "법령"; name: string; reason: "failed" | "not-found" | "mismatch" | "incomplete" | "limited" }> };
   annexes?: AnnexEvidence[];
   lawSystem?: TaskEvidence;
   actionBasis?: TaskEvidence;

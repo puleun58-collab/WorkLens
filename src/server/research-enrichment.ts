@@ -1,8 +1,8 @@
 import { lawDisplayText } from "@/lib/law-display";
 import { researchResult } from "@/lib/law-research-parse";
 import {
-  isDefinitionTitle, isLawName, isSubjectTerm, questionTerms, questionTermsRelationLess, questionTermsSubjectLess, rankPrecedent, titleMatches, termInText,
-  type PrecedentRelevance, type ResearchEnrichment, type SupplementArticle,
+  isDefinitionTitle, isLawName, isSubjectTerm, orderByRelevance, questionTerms, questionTermsRelationLess, questionTermsSubjectLess, rankPrecedent, researchDecisionDomain, titleMatches, termInText,
+  type PrecedentRelevance, type ResearchDecisionDomain, type ResearchEnrichment, type SupplementArticle,
 } from "@/lib/research-relevance";
 import { parseExplicitIdentities, type ExplicitIdentity } from "@/lib/law-identity";
 import type { ResearchDecision } from "@/lib/law-research-parse";
@@ -14,10 +14,12 @@ type Context = { requestId: string; signal?: AbortSignal };
 /** The 법제처 lookups enrichment uses; injectable so the rules are testable offline. */
 export interface EnrichmentSources {
   /**
-   * 판시사항 + 판결요지 + 참조조문 of a precedent; lower-court rulings often have
-   * none, and then the opening of the judgment the MCP returns (`excerpt: true`).
+   * Official 판시사항/판결요지, or a judgment opening when no holding is
+   * available (`excerpt: true`). Reference lists alone are not evidence.
    */
   summary(id: string): Promise<{ text: string; excerpt: boolean } | undefined>;
+  /** Official holding/reply/reasons, never the search title or institution metadata. */
+  decisionSummary?(domain: ResearchDecisionDomain, id: string): Promise<{ text: string; excerpt: boolean } | undefined>;
   /** Laws returned by the official index; explicit non-current statuses are excluded. */
   laws(query: string): Promise<Array<{ name: string; mst: string }>>;
   toc(mst: string): Promise<Array<{ jo: string; title: string }>>;
@@ -28,21 +30,30 @@ export interface EnrichmentSources {
   precedents(query: string): Promise<ResearchDecision[]>;
 }
 
-const SUMMARY_HEADINGS = new Set(["판시사항", "판결요지", "결정요지", "참조조문"]);
+const SUMMARY_HEADINGS: Record<string, true> = { 판시사항: true, 판결요지: true, 결정요지: true, 재결요지: true, 회답: true, 회신내용: true };
 /** `주문` lines some sources file under 판결요지: they decide the case but say nothing about the issue. */
 const DISPOSITION_LINE = /(?:각하한다|기각한다|인용한다|취소한다|환송한다|부담한다|지급하라|이행하라)\.?\s*$/u;
 const isDisposition = (text: string) => text.split(/\r?\n/u).filter((line) => line.trim()).every((line) => DISPOSITION_LINE.test(line));
 
 /**
- * What a precedent's text offers as relevance evidence: its summary sections,
- * or — when there are none, or only a filed 주문 — the judgment opening.
+ * Only holding/reply/reasons carry relevance. References and a 질의요지
+ * without an answer cannot establish a judgment or interpretation.
  */
-export function precedentEvidence(result: { text: string; sections?: Array<{ heading: string; text: string }> }): { text: string; excerpt: boolean } | undefined {
-  const text = (result.sections ?? [])
-    .filter((section) => SUMMARY_HEADINGS.has(section.heading) && !isDisposition(section.text))
-    .map((section) => section.text).join("\n");
-  if (text.trim()) return { text: lawDisplayText(text), excerpt: false };
-  return result.text.trim() ? { text: lawDisplayText(result.text), excerpt: true } : undefined;
+export function precedentEvidence(
+  result: { text: string; sections?: Array<{ heading: string; text: string }> },
+  domain: ResearchDecisionDomain = "precedent",
+): { text: string; excerpt: boolean } | undefined {
+  const substantive = (result.sections ?? [])
+    .filter((section) => Object.hasOwn(SUMMARY_HEADINGS, section.heading) && section.text.trim() && !isDisposition(section.text));
+  if (substantive.length) {
+    return { text: lawDisplayText(substantive.map((section) => section.text).join("\n")), excerpt: false };
+  }
+  const body = result.sections?.filter((section) => section.heading === "이유" || section.heading === "전문")
+    .map((section) => section.text).join("\n") ?? result.text;
+  if (!body.trim() || isDisposition(body)) return undefined;
+  // A court's opening is still only an excerpt. An interpretation/tribunal
+  // reason section is the official rationale, not an inferred conclusion.
+  return { text: lawDisplayText(body), excerpt: domain === "precedent" || !result.sections?.length };
 }
 
 export function mcpEnrichmentSources(context: Context): EnrichmentSources {
@@ -50,6 +61,10 @@ export function mcpEnrichmentSources(context: Context): EnrichmentSources {
     async summary(id) {
       const result = await getDecisionText("precedent", id, undefined, context);
       return result.found ? precedentEvidence(result) : undefined;
+    },
+    async decisionSummary(domain, id) {
+      const result = await getDecisionText(domain === "tribunal" ? "admin_appeal" : domain, id, undefined, context);
+      return result.found ? precedentEvidence(result, domain) : undefined;
     },
     async laws(query) {
       const result = await searchLaw(query, context);
@@ -105,6 +120,9 @@ export function sharedSources(sources: EnrichmentSources, limit = CONCURRENCY): 
   };
   return {
     summary: (id) => call(`summary\0${id}`, () => sources.summary(id)),
+    ...(sources.decisionSummary ? {
+      decisionSummary: (domain: ResearchDecisionDomain, id: string) => call(`decisionSummary\0${domain}\0${id}`, () => sources.decisionSummary!(domain, id)),
+    } : {}),
     laws: (query) => call(`laws\0${query}`, () => sources.laws(query)),
     toc: (mst) => call(`toc\0${mst}`, () => sources.toc(mst)),
     article: (mst, jo) => call(`article\0${mst}\0${jo}`, () => sources.article(mst, jo)),
@@ -150,10 +168,9 @@ export function articleExcerpt(text: string, jo: string): string {
 }
 
 /**
- * Re-ranks the precedents a research answer listed and looks up articles whose
- * titles carry the question's terms. Nothing here invents a citation: every
- * article comes from a 법제처 lookup, and a precedent that could not be read
- * stays `unknown` in its original place.
+ * Re-ranks official court, interpretation and administrative-appeal bodies and
+ * looks up articles whose titles carry the question's terms. Nothing here
+ * invents a citation; unread decisions stay `unknown`.
  */
 export async function enrichResearch(
   task: "full_research" | "action_basis",
@@ -184,31 +201,8 @@ export async function enrichResearch(
   const cited = shownArticles.filter((article) => task !== "full_research" || terms.some((term) => !isLawName(term)
     && (article.title?.includes(term) || article.excerpt.includes(term)))).map((article) => `${article.law} ${article.jo}`);
 
-  // Precedent lists only (not interpretations or tribunal rulings): the case summary is what the MCP can return.
-  const precedentIds = [...new Set(document.sections
-    .filter((section) => section.kind === "decision_search" && /판례/u.test(section.heading ?? ""))
-    .flatMap((section) => section.decisions?.entries ?? [])
-    .map((entry) => entry.id))].slice(0, MAX_PRECEDENTS);
-  if (task === "full_research" && precedentIds.length && !options.skipPrecedentSummaries) {
-    const titles = new Map(document.sections.flatMap((section) => section.decisions?.entries ?? []).map((entry) => [entry.id, entry.title]));
-    const excerpts: Record<string, string> = {};
-    const relevance: Record<string, PrecedentRelevance> = {};
-    await pool(precedentIds, async (id) => {
-      const summary = await sources.summary(id).catch(() => undefined);
-      relevance[id] = rankPrecedent(terms, { title: titles.get(id), ...(summary ? { summary: summary.text, excerpt: summary.excerpt } : {}) }, cited);
-      if (summary?.text && relevance[id].rank !== "low" && relevance[id].rank !== "unknown") {
-        // Signal truncation like articleExcerpt does: a cut excerpt without
-        // an ellipsis reads as the whole holding.
-        excerpts[id] = summary.text.length > EXCERPT_CHARS ? `${summary.text.slice(0, EXCERPT_CHARS).trimEnd()} …` : summary.text;
-      }
-    }, expired);
-    for (const id of precedentIds) relevance[id] ??= rankPrecedent(terms, { title: titles.get(id) });
-    enrichment.precedents = relevance;
-    enrichment.precedentExcerpts = excerpts;
-  }
-
-  // An empty 법령 해석례 section: retry once with the subject terms only. Titles
-  // remain search candidates, never proof of a legal interpretation.
+  // An empty interpretation section is retried once using the question's own
+  // terms. Search hits stay candidates until their official reply is read.
   const interpretation = document.sections.find((section) => section.status === "not_found" && /해석례/u.test(section.heading ?? ""));
   const retryQuery = terms.join(" ");
   if (interpretation && terms.length && retryQuery !== query.trim() && !expired() && !options.skipInterpretationRetry) {
@@ -216,7 +210,46 @@ export async function enrichResearch(
     const relevant = task === "full_research"
       ? entries.filter((entry) => terms.some((term) => (entry.title ?? "").replace(/\s+/gu, "").includes(term.replace(/\s+/gu, ""))))
       : entries;
-    if (relevant.length) enrichment.interpretations = { query: retryQuery, entries: relevant.slice(0, 5) };
+    if (relevant.length) enrichment.interpretations = { query: retryQuery, entries: orderByRelevance(relevant, undefined).slice(0, 5) };
+  }
+
+  if (task === "full_research" && !options.skipPrecedentSummaries) {
+    const candidates = document.sections.filter((section) => section.kind === "decision_search")
+      .flatMap((section) => {
+        const domain = researchDecisionDomain(section.heading);
+        return domain ? (section.decisions?.entries ?? []).map((entry) => ({ domain, entry })) : [];
+      });
+    candidates.push(...(enrichment.interpretations?.entries ?? []).map((entry) => ({ domain: "interpretation" as const, entry })));
+    const selected = (["precedent", "interpretation", "tribunal"] as const).flatMap((domain) => {
+      const unique = new Map(candidates.filter((candidate) => candidate.domain === domain).map(({ entry }) => [entry.id, entry]));
+      return [...unique.values()].slice(0, MAX_PRECEDENTS).map((entry) => ({ domain, entry }));
+    });
+    if (selected.length) {
+      const relevance: Record<string, PrecedentRelevance> = {};
+      const excerpts: Record<string, string> = {};
+      await pool(selected, async ({ domain, entry }) => {
+        const summary = await (domain === "precedent" ? sources.summary(entry.id)
+          : sources.decisionSummary?.(domain, entry.id) ?? Promise.resolve(undefined)).catch(() => undefined);
+        const key = `${domain}:${entry.id}`;
+        relevance[key] = rankPrecedent(terms, { title: entry.title,
+          ...(summary ? { summary: summary.text, excerpt: summary.excerpt } : {}) }, cited, { query });
+        if (summary?.text && (relevance[key].rank === "direct" || relevance[key].rank === "related")) {
+          excerpts[key] = summary.text.length > EXCERPT_CHARS ? `${summary.text.slice(0, EXCERPT_CHARS).trimEnd()} …` : summary.text;
+        }
+      }, expired);
+      for (const { domain, entry } of candidates) {
+        const key = `${domain}:${entry.id}`;
+        relevance[key] ??= rankPrecedent(terms, { title: entry.title });
+      }
+      enrichment.decisions = relevance;
+      enrichment.decisionExcerpts = excerpts;
+      const precedents = Object.entries(relevance).filter(([key]) => key.startsWith("precedent:"));
+      if (precedents.length) {
+        enrichment.precedents = Object.fromEntries(precedents.map(([key, value]) => [key.slice("precedent:".length), value]));
+        enrichment.precedentExcerpts = Object.fromEntries(Object.entries(excerpts).filter(([key]) => key.startsWith("precedent:"))
+          .map(([key, value]) => [key.slice("precedent:".length), value]));
+      }
+    }
   }
 
   const keywords = terms.filter((term) => !isLawName(term));
