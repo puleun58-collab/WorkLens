@@ -3,6 +3,7 @@ import { researchResult } from "@/lib/law-research-parse";
 import { lawNameCandidates, parseExplicitIdentities } from "@/lib/law-identity";
 import { compactLaw, lawRoot, sameLawFamily } from "@/lib/research-scope";
 import { isLawName, isSubjectTerm, questionTerms, researchEvidenceSources, type ResearchEnrichment, type SupplementArticle } from "@/lib/research-relevance";
+import { actionTerms, concernsAction } from "@/lib/action-basis-evidence";
 import { articleExcerpt, explicitArticlePairs, type EnrichmentSources } from "@/server/research-enrichment";
 
 export interface FollowupReport {
@@ -82,9 +83,23 @@ export async function retrieveResearchFollowup(
   const pairs = parsedPairs.length ? parsedPairs : explicitArticlePairs(terms);
   if (!pairs.length && names.length === 1) for (const jo of asked) pairs.push({ law: names[0], jo });
   const adopted = researchEvidenceSources(text, query, enrichment).articles;
+  // Source retrieval and adoption are distinct. An official body containing
+  // the asked disposition can seed the criteria lookup even if whole-query
+  // relevance ranking omitted it; it is still fetched and assessed again.
+  const actions = mode === "action_basis" ? actionTerms(query) : [];
   const seeds = [...(enrichment?.supplement?.articles ?? []),
     ...researchResult(text).sections.flatMap((s) => s.articles ?? []).map((a) => ({ ...a, title: a.title ?? "", matched: [] }))]
-    .filter((a) => adopted.some((b) => b.law === a.law && b.jo === a.jo));
+    .filter((a) => adopted.some((b) => b.law === a.law && b.jo === a.jo)
+      || (actions.length > 0 && !/과징금|과태료/u.test(a.title) && concernsAction(a.excerpt, actions)));
+  // A question may name the regulated activity rather than its statute.
+  // Follow the official action-bearing article already supplied upstream;
+  // its law is only a lookup candidate until the full article is fetched.
+  if (!names.length && mode === "action_basis") {
+    names = [...new Set(seeds
+      .filter((article) => isLawName(article.law) && actions.length > 0
+        && !/과징금|과태료/u.test(article.title) && concernsAction(article.excerpt, actions))
+      .map((article) => lawRoot(article.law)))].slice(0, 2);
+  }
   for (const name of names) {
     const laws = await safe(() => sources.laws(name));
     let exact = laws?.find((law) => compactLaw(law.name) === compactLaw(name));

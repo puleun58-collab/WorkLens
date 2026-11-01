@@ -5,25 +5,14 @@ import { isLawName, questionTerms } from "@/lib/research-relevance";
 import { capForFailure, detailArticles, hasAvailableContent, hasFailedSection, hasNoUsableSection, type DetailArticle, type TaskEvidence, type TaskEvidenceArticle } from "@/lib/task-evidence";
 
 /**
- * 법체계 확인: only delegation links the MCP text itself shows count.
- * - 법률: the chain's own law (its title header) or a law-tier article body.
- * - 시행령 / 시행규칙: a detailed-format sub-law article whose body quotes
- *   the parent law ("법 제N조…에 따라 / …정하는") — a mere listing of a
- *   sub-law article, or a sub-law article body without that anchor, is
- *   retrieval (`viewed`), not a confirmed link.
- * - When the question (or an explicit `articles` input) names article
- *   numbers, an anchor counts as a *direct* delegation only when the
- *   article it cites is one of the asked numbers. An anchor citing any
- *   other number is reported separately as "위임 관련 표현 발견" — never as a
- *   direct link to the asked article — and does not confirm its tier.
- *   A delegation phrase with no `법 제N조` prefix is likewise never a
- *   direct link; it is counted separately so it is not silently dropped.
- * - Two-way check, as far as the chain text allows: a direct link also
- *   notes whether the parent-law side carries delegation wording for the
- *   same article (in the law-tier core/detail text). The chain often does
- *   not include the parent article's body, so absence of that wording is
- *   reported ("질문한 조항 인용 확인"), never silently treated as confirmed
- *   from both sides, and never as proof that no delegation exists.
+ * 법체계 확인 separates retrieval, citation and actual delegation:
+ * a lower provision citing a parent article is a citation, not a direct
+ * delegation by itself. Direct delegation needs the parent provision's
+ * operative delegation clause, the matching paragraph (when supplied),
+ * a subject present in that clause and an operative lower-law citation.
+ * A citation in a numbered example or exception is not an operative link.
+ * Missing parent or lower-law text means unconfirmed, never nonexistent.
+ * Other parent citations remain in the retrieved related material.
  * A law with no evidenced sub-law tier is never "fully confirmed": law-only
  * is `viewed`. Only the tiers the question asks about are required
  * (askedTiers): a question about the decree alone is `matched` once the
@@ -133,15 +122,33 @@ export function assessLawSystem(text: string, question?: string, articles?: stri
   const asked = askedArticles(question, articles);
   const requiredTiers = askedTiers(question);
   // Parent-law side text only: law-tier detail articles plus the core body.
-  // Sub-law bodies are excluded so an anchor cannot confirm itself.
-  const parentDelegates = (jo: string) => {
-    if (details.some((a) => a.tier === "law" && a.jo === jo && UNPREFIXED_DELEGATION.test(withoutTruncationMarkers(a.body)))) return true;
+  // A cited article is not necessarily a delegation. Confirm both the
+  // parent's operative delegation and the subject it delegates. In
+  // particular, a citation buried in an exception or a numbered list does
+  // not turn that list into a directly delegated provision.
+  const parentClauses = (jo: string): string[] => {
+    const body = details.find((a) => a.tier === "law" && a.jo === jo && a.body)?.body;
     const head = new RegExp(`^${jo}(?:\\s|\\()`, "mu");
     const start = coreBody.search(head);
-    if (start < 0) return false;
-    const block = coreBody.slice(start).split(/\n(?=제\d+조(?:의\d+)?(?:\s|\())/u)
-      .filter((part, i) => i === 0 || head.test(part)).join("\n");
-    return UNPREFIXED_DELEGATION.test(withoutTruncationMarkers(block));
+    const core = start < 0 ? "" : coreBody.slice(start).split(/\n(?=제\d+조(?:의\d+)?(?:\s|\())/u)[0];
+    return (body || core).split(/(?=[①-⑳])/u).filter((clause) => /(?:대통령령|시행령|총리령|부령|시행규칙)으로\s*정/u.test(withoutTruncationMarkers(clause)));
+  };
+  const delegatedSubject = (article: DetailArticle, jo: string): boolean => {
+    const operative = article.body.match(/[①-⑳]\s*([^\n.]+)/u)?.[1] ?? article.body.split(/[.\n]/u)[0];
+    const citation = new RegExp(`법\\s*${jo.replace("조의", "조의\\s*")}(?:제(\\d+)항)?`, "u").exec(operative);
+    if (!citation || !/^법\s*제\d+조/u.test(operative.trim())) return false;
+    const askedParagraph = new RegExp(`${jo}제(\\d+)항`, "u").exec(question ?? "")?.[1];
+    const clauses = parentClauses(jo).filter((clause) => {
+      const relevantParagraph = askedParagraph ?? citation[1];
+      if (!relevantParagraph) return true;
+      const mark = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳"[Number(relevantParagraph) - 1];
+      return Boolean(mark) && clause.trim().startsWith(mark);
+    });
+    // Meaningful nouns in the subordinate title must occur in the parent's
+    // delegation clause. "기준/방법/범위/절차" alone identify no subject.
+    const subject = article.title.replace(/등$/u, "").split(/의|및|·|\s+/u)
+      .filter((word) => word.length >= 2 && !/^(?:방법|절차|기준|범위|사항|금액|행정처분)$/u.test(word));
+    return subject.length > 0 && clauses.some((clause) => subject.some((word) => clause.includes(word)));
   };
   const tiers = (["decree", "rule"] as const).map((tier) => {
     const found = details.filter((article) => article.tier === tier);
@@ -149,35 +156,37 @@ export function assessLawSystem(text: string, question?: string, articles?: stri
       const match = DELEGATION_ANCHOR.exec(article.body);
       return match ? { article, cited: `제${match[1]}조${match[2] ? `의${match[2]}` : ""}` } : undefined;
     }).filter((item): item is { article: (typeof found)[number]; cited: string } => Boolean(item));
-    const direct = asked.length ? found.filter((a) => asked.some((jo) => citesParent(a.body, jo)))
+    const citations = asked.length ? found.filter((a) => asked.some((jo) => citesParent(a.body, jo)))
       .map((article) => ({ article, cited: asked.find((jo) => citesParent(article.body, jo))! })) : anchored;
-    const anchorOnly = asked.length ? anchored.filter(({ article }) => !direct.some((d) => d.article === article)) : [];
+    const direct = citations.filter(({ article, cited }) => delegatedSubject(article, cited));
+    const anchorOnly = asked.length ? anchored.filter(({ article }) => !citations.some((d) => d.article === article)) : [];
     const unprefixed = found.filter((article) => !DELEGATION_ANCHOR.test(article.body) && UNPREFIXED_DELEGATION.test(withoutTruncationMarkers(article.body)));
     // One display relation per provision, most-confirmed first: a
     // provision can carry several signals (a direct citation and an
     // unprefixed phrase), but the list shows each provision once.
     const relationOf = (article: (typeof found)[number]): TaskEvidenceArticle["relation"] => {
       const directEntry = direct.find((d) => d.article === article);
-      if (directEntry) return parentDelegates(directEntry.cited) ? "twoWay" : "direct";
-      if (anchorOnly.some((a) => a.article === article)) return "other";
+      if (directEntry) return "twoWay";
+      if (citations.some((entry) => entry.article === article)) return "citation";
+      if (anchorOnly.some((entry) => entry.article === article)) return "other";
       if (unprefixed.some((a) => a === article)) return "unidentified";
       return "related";
     };
     const expressionOf = (article: (typeof found)[number]): string | undefined => {
-      if (direct.some((d) => d.article === article)) return citingExpression(article.body, asked) ?? DELEGATION_ANCHOR.exec(article.body)?.[0]?.trim();
+      if (citations.some((d) => d.article === article)) return citingExpression(article.body, asked) ?? DELEGATION_ANCHOR.exec(article.body)?.[0]?.trim();
       if (anchorOnly.some((a) => a.article === article)) return DELEGATION_ANCHOR.exec(article.body)?.[0]?.trim();
       if (unprefixed.some((a) => a === article)) return UNPREFIXED_DELEGATION.exec(withoutTruncationMarkers(article.body))?.[0]?.trim();
       return undefined;
     };
     const articles: TaskEvidenceArticle[] = found.map((article) => ({ law: article.law, jo: article.jo, title: article.title,
       relation: relationOf(article), ...(expressionOf(article) ? { expression: expressionOf(article)! } : {}) }));
-    return { tier, found, anchored, direct, anchorOnly, unprefixed, articles };
+    return { tier, found, anchored, citations, direct, anchorOnly, unprefixed, articles };
   });
   const labels = { law: "법률", decree: "시행령", rule: "시행규칙" } as const;
   const items: TaskEvidence["items"] = [
     { label: labels.law, status: lawFound ? "found" : hasAvailableContent(text) ? "viewed" : "none",
       ...(lawTitle ? { detail: lawTitle } : {}) },
-    ...tiers.flatMap(({ tier, found, anchored, direct, anchorOnly, unprefixed, articles }) => {
+    ...tiers.flatMap(({ tier, found, anchored, citations, direct, anchorOnly, unprefixed, articles }) => {
       const name = tier === "decree" ? "시행령" : "시행규칙";
       const requested = requiredTiers.includes(tier);
       // An unasked tier is out of scope: shown only when it directly cites an asked article.
@@ -190,10 +199,8 @@ export function assessLawSystem(text: string, question?: string, articles?: stri
       }
       parts.push(`${name} ${found.length}건`);
       if (asked.length) {
-        const twoWayDirects = direct.filter(({ cited }) => parentDelegates(cited));
-        const citationOnly = direct.length - twoWayDirects.length;
-        if (twoWayDirects.length) parts.push(`그 중 법률에서 위임한 사항 확인 ${twoWayDirects.length}건`);
-        if (citationOnly) parts.push(`그 중 질문한 조항 인용 확인 ${citationOnly}건`);
+        if (direct.length) parts.push(`그 중 양쪽 원문으로 직접 위임 확인 ${direct.length}건`);
+        if (citations.length > direct.length) parts.push(`그 중 인용·준용만 확인 ${citations.length - direct.length}건`);
         if (anchorOnly.length) parts.push(`그 중 위임 관련 표현 발견 ${anchorOnly.length}건(질문한 조항과 참조 조항이 다름)`);
       } else if (anchored.length) {
         parts.push(`그 중 위임 연결 ${anchored.length}건`);

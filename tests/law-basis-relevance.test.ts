@@ -6,13 +6,14 @@ import type { ResearchEnrichment } from "@/lib/research-relevance";
 import { retrieveAnnexes, type AnnexReader } from "@/server/research-annex";
 import type { FollowupArticle } from "@/server/research-followup";
 import food from "./fixtures/law-action-basis-food-suspension.json";
+import foodAnnex from "./fixtures/law-annex-food-23.json";
 import privacy from "./fixtures/law-system-privacy-38.json";
 
 const refs = (item: { basisRefs?: { law: string; jo: string; note?: string }[]; requirementRefs?: { law: string; jo: string; note?: string }[] } | undefined, kind: "basisRefs" | "requirementRefs") =>
   [...new Set((item?.[kind] ?? []).map((ref) => `${ref.law} ${ref.jo}${ref.note ? " (보충)" : ""}`))];
 
 describe("처분 근거·적용 요건: live 식품위생법 영업정지 응답", () => {
-  const annexes = (food.annexes as AnnexEvidence[]).map((annex) => ({ ...annex, relevance: "direct" as const }));
+  const annexes = (food.annexes as AnnexEvidence[]).map((annex) => ({ ...annex, text: foodAnnex.text, relevance: "direct" as const }));
   const result = assessActionBasis(food.query, food.text, food.enrichment as ResearchEnrichment, annexes);
   const basis = result.items.find((item) => item.label === "처분·허가 근거");
   const requirement = result.items.find((item) => item.label === "적용 요건");
@@ -37,7 +38,7 @@ describe("처분 근거·적용 요건: live 식품위생법 영업정지 응답
   it("shows the verified 별표 23 as optional detailed criteria that never sets the verdict", () => {
     const criteria = result.items.find((item) => item.label === "세부 기준(별표)");
     expect(criteria).toMatchObject({ title: "세부 처분 기준", optional: true, status: "found" });
-    expect(criteria?.detail).toContain("식품위생법 시행규칙 별표 23");
+    expect(criteria?.answer).toContain("식품위생법 시행규칙 제89조가 인용한 별표 23");
     expect(result.status).toBe("matched");
     // Without the annex, the verdict is unchanged (it never depended on it).
     expect(assessActionBasis(food.query, food.text, food.enrichment as ResearchEnrichment, []).status).toBe("matched");

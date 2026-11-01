@@ -33,13 +33,14 @@ describe("research source presentation", () => {
     expect(rows[0].links.map(({ label, status }) => [label, status])).toEqual([["처분·허가 근거", "found"], ["적용 요건", "viewed"]]);
   });
 
-  it("keeps different laws, provisions, versions, sources and nonoverlapping ranges distinct", () => {
+  it("keeps different laws, provisions, versions and sources distinct while combining excerpt ranges", () => {
     const original = { law: "식품위생법", jo: "제75조", excerpt: "① 영업정지", effective: "20261008",
       source: "https://www.law.go.kr/법령/식품위생법/제75조" };
     const rows = taskSources([], [original, { ...original }, { ...original, law: "다른 법" },
       { ...original, jo: "제76조" }, { ...original, effective: "20270901" },
       { ...original, source: "https://other.example/" }, { ...original, excerpt: "② 영업 폐쇄" }]);
-    expect(rows).toHaveLength(6);
+    expect(rows).toHaveLength(5);
+    expect(rows[0].excerpt).toContain("① 영업정지\n…\n② 영업 폐쇄");
   });
 
   it("does not mistake a list-only source or a failed read for a confirmed link", () => {

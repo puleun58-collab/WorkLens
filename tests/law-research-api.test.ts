@@ -121,7 +121,8 @@ describe("fixed legal_research API", () => {
         ...(input.task === "law_system" || input.task === "action_basis" || input.task === "procedure_detail"
           ? { followup: { attempted: 0, failed: 0, limited: false, missing: 0, status: "not-searched" } } : {}),
         ...(input.task === "action_basis" ? { actionBasis: { status: "viewed", items: [
-          { label: "처분·허가 근거", status: "none", basisRefs: [] }, { label: "적용 요건", status: "none", requirementRefs: [] }] } } : {}),
+          { label: "처분·허가 근거", status: "none", basisRefs: [], uncertainty: "직접 근거 원문 미확보 — 조회 실패나 제목 일치만으로 근거가 없다고 단정할 수 없습니다." },
+          { label: "적용 요건", status: "none", requirementRefs: [], uncertainty: "위반행위와 영업 종류가 특정되지 않으면 개별 적용 여부를 판단할 수 없습니다. 업종·위반행위·예외 사실을 대조해야 합니다." }] } } : {}),
         ...(input.task === "dispute_prep" ? { dispute: { status: "viewed", items: [
           { label: "관련 법령", status: "none" }, { label: "판례·결정례·재결례", status: "none" }] } } : {}),
         ...(input.task === "amendment_track" ? { amendment: { status: "viewed", items: [

@@ -9,11 +9,11 @@ const item = (articles: TaskEvidenceArticle[]): TaskEvidenceItem =>
 
 describe("lawSystemTopSummary", () => {
   it("names only directly linked provisions, never a count, and never lists a non-direct provision as linked", () => {
-    expect(lawSystemTopSummary(item([article("direct", "제1조")]))).toBe("직접 연결: 제1조(위임 조항)");
-    expect(lawSystemTopSummary(item([article("direct", "제1조"), article("twoWay", "제5조"), article("unidentified", "제3조")]))).toBe("직접 연결: 제1조(위임 조항) · 제5조(위임 조항)");
-    expect(lawSystemTopSummary(item([article("other", "제2조")]))).toBe("질문한 조항과의 직접 연결 미확인");
-    expect(lawSystemTopSummary(item([article("related", "제4조")]))).toBe("질문한 조항과의 직접 연결 미확인");
-    expect(lawSystemTopSummary(item([]))).toBeUndefined();
+    expect(lawSystemTopSummary(item([article("direct", "제1조")]))).toContain("직접 위임관계 미확인");
+    expect(lawSystemTopSummary(item([article("direct", "제1조"), article("twoWay", "제5조"), article("unidentified", "제3조")]))).toBe("직접 위임관계: 제5조(위임 조항)");
+    expect(lawSystemTopSummary(item([article("other", "제2조")]))).toContain("직접 위임관계 미확인");
+    expect(lawSystemTopSummary(item([article("related", "제4조")]))).toContain("직접 위임관계 미확인");
+    expect(lawSystemTopSummary(item([]))).toContain("직접 위임관계 미확인");
   });
 });
 
@@ -26,9 +26,9 @@ describe("groupLawSystemArticles", () => {
       article("unidentified", "제3조"),
       article("twoWay", "제5조"),
     ]);
-    expect(groups.map((group) => group.key)).toEqual(["direct", "other", "unidentified", "related"]);
-    expect(groups[0].articles.map((entry) => entry.jo)).toEqual(["제1조", "제5조"]);
-    expect(groupLawSystemArticles([article("direct", "제1조")]).map((group) => group.key)).toEqual(["direct"]);
+    expect(groups.map((group) => group.key)).toEqual(["direct", "citation", "other", "unidentified", "related"]);
+    expect(groups[0].articles.map((entry) => entry.jo)).toEqual(["제5조"]);
+    expect(groupLawSystemArticles([article("direct", "제1조")]).map((group) => group.key)).toEqual(["citation"]);
     expect(groupLawSystemArticles([])).toEqual([]);
   });
 });

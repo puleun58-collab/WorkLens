@@ -404,6 +404,7 @@ p.research-meta { margin: 0; }
 /* A detail line under an assessed entry (PR #327's "확인한 항목" detail)
    drops to its own row instead of flowing after the status. */
 .legal-research .research-issues.is-assessed li > .research-meta { flex: 1 1 100%; }
+.legal-research .research-issues.is-assessed li > .research-task-answer { color: var(--ink); font-size: var(--font-size-base); line-height: 1.55; overflow-wrap: anywhere; }
 
 /* Full research keeps the existing source/status model, with independently readable issue sections. */
 .legal-research .research-issue-nav { display: grid; gap: 8px; min-width: 0; }
@@ -452,16 +453,9 @@ p.research-meta { margin: 0; }
 .legal-research .research-selected > .research-issue-evidence .research-core-sources > li {
   padding-block: 10px;
 }
-/* 상세 검증(처분·허가 근거·적용 요건·법령 단계별 관계): the toggle, its notes,
-   provision headings, excerpts and 법제처 links start on the item title's own
-   line — no inline inset on the disclosure (an inset here pushed every row
-   14px right of the title). Only the bottom spacing stays. */
-.legal-research .research-task-details .research-more {
-  padding-bottom: 12px;
-}
-.legal-research .research-task-details .research-extra { margin-top: 4px; padding-bottom: 0; }
-/* The two assessed law tasks use one left edge for tier headings, the
-   disclosure control and its three short findings, and the source rows. */
+/* Law-system and action-basis originals have one home in detailed sources;
+   other tasks retain their established disclosure and left edge. */
+.legal-research .research-task-details .research-more { padding-bottom: 12px; }
 .legal-research .research-task-details > .legal-analysis-section,
 .legal-research .research-task-details .research-more,
 .legal-research .research-task-sources > .research-hits { margin-inline: 0; padding-inline: 0; }

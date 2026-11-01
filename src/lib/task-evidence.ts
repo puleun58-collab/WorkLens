@@ -33,6 +33,10 @@ export interface TaskEvidenceItem {
   status: TaskEvidenceItemStatus;
   /** Counts or citations behind the item, e.g. "시행령 4건 · 위임 연결 2건". */
   detail?: string;
+  /** Source-grounded, reader-facing answer (never a retrieval-status sentence). */
+  answer?: string;
+  /** Facts or original text still needed before applying the rule to a case. */
+  uncertainty?: string;
   /** Provisions behind the item, in detail order: the aggregate's own
    * membership, so the screen can show each provision with its relation
    * and expression instead of re-deriving the counts from a string. */
@@ -62,7 +66,7 @@ export interface TaskEvidenceArticle {
   law: string;
   jo: string;
   title: string;
-  relation: "direct" | "twoWay" | "other" | "unidentified" | "related";
+  relation: "direct" | "twoWay" | "citation" | "other" | "unidentified" | "related";
   /** The actual citing or delegation wording, when one was matched. */
   expression?: string;
 }
