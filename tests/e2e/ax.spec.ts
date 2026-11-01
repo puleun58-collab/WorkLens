@@ -264,7 +264,7 @@ test("AX registration → diagnosis → correction → matrix → plans → relo
   const summary = packageSection.getByRole("region", { name: "구현 범위·완료 기준", exact: true });
   const precheck = packageSection.getByRole("region", { name: "구현 전 확인", exact: true });
   // 범위 카드는 실제 개수·요약을 표시하고, 상세 업무 항목은 그룹을 펼쳐 확인한다.
-  await expect(summary.locator('[data-scope-group="scope"] .ax-scope-section [data-slot="accordion-trigger"]')).toContainText([/^구현 대상 \(\d+개\)/, /^담당자 수행 \(\d+개\)/, /^보류·제외 \(\d+개\)/, /^적용 방식 \(\d+개\)/, /^산출물 \(\d+개\)/]);
+  await expect(summary.locator('[data-scope-group="scope"] .ax-scope-section [data-slot="accordion-trigger"]')).toContainText([/^구현 대상 \(\d+개\)/, /^담당자 수행 \(\d+개\)/, /^보류·제외 \(\d+개\)/, /^적용 방식 \(\d+개\)/]);
   // 추가 확인 조건은 요약 배지로만 표시되고, 상세 문구는 기본 화면에 반복되지 않는다.
   await expect(precheck.locator(".ax-precheck-head")).toContainText(/미해결 \d+건/);
   await expect(precheck).not.toContainText("API와 권한 실제 확인");
@@ -1340,10 +1340,13 @@ for (const width of [1440, 390]) {
       const scopeRow = summary.locator('[data-scope-group="scope"]');
       await expect(scopeRow).toContainText("담당자 수행");
       await expect(scopeRow).toContainText("보류·제외");
-      await scopeRow.getByRole("button", { name: "전체 보기", exact: true }).click();
+      const scopeTriggers = scopeRow.locator('.ax-scope-section [data-slot="accordion-trigger"]');
+      for (const trigger of await scopeTriggers.all()) {
+        if (await trigger.getAttribute("aria-expanded") === "false") await trigger.click();
+      }
       await expect(scopeRow).toContainText(plan.humanInLoop[0]);
       for (const item of plan.outOfScope) await expect(scopeRow).toContainText(item);
-      await scopeRow.getByRole("button", { name: "전체 접기", exact: true }).click();
+      for (const trigger of await scopeTriggers.all()) await trigger.click();
       const criteria = summary.locator('[data-scope-group="criteria"]');
       await expect(criteria.locator(".ax-criteria-item").first().getByRole("button", { name: "검토" })).toBeVisible();
       const raw = buildAllInOnePrompt(plan, target, { taskName: task.name, prerequisites: ["시스템 접근 — API와 권한 실제 확인", "권한 확인 후 진행"], diagnosis: diagnosisFixture, context: task.description });
@@ -1401,7 +1404,9 @@ for (const level of [0, 1, 2, 3]) {
       await expect(scopeRow.locator(".ax-scope-section [data-slot='accordion-trigger']").first()).toContainText(/^구현 대상 \(\d+개\)/);
       await expect(scopeRow).toContainText("담당자 수행");
       await expect(scopeRow).toContainText("보류·제외");
-      await scopeRow.getByRole("button", { name: "전체 보기", exact: true }).click();
+      for (const trigger of await scopeRow.locator('.ax-scope-section [data-slot="accordion-trigger"]').all()) {
+        if (await trigger.getAttribute("aria-expanded") === "false") await trigger.click();
+      }
       await expect(scopeRow).toContainText("담당자 승인");
       if (gate === "blocked") {
         // 요약 전용: 차단 사유 상세 문구는 기본 화면에 반복되지 않는다.
@@ -1428,7 +1433,7 @@ for (const level of [0, 1, 2, 3]) {
         }
       }
       // 범위 그룹을 펼치면 적용 대상의 원본 항목을 확인할 수 있다.
-      await expect(summary.locator('[data-scope-group="scope"] li')).not.toHaveCount(0);
+      await expect(summary.locator('[data-scope-group="scope"] tbody tr')).not.toHaveCount(0);
       await expect(section.getByRole("region", { name: "올인원 지시문", exact: true })).toBeVisible();
     });
   }
@@ -1784,7 +1789,9 @@ for (const width of [1440, 390]) {
     const scope = summary.locator('[data-scope-group="scope"]');
     await expect(scope).toContainText("구현 대상");
     await expect(scope).toContainText("담당자 수행");
-    await scope.getByRole("button", { name: "전체 보기", exact: true }).click();
+    for (const trigger of await scope.locator('.ax-scope-section [data-slot="accordion-trigger"]').all()) {
+      if (await trigger.getAttribute("aria-expanded") === "false") await trigger.click();
+    }
     await expect(scope).toContainText("가동률 계산 AI 후보·초안 생성");
     for (const tool of ["Codex", "Claude Code"]) {
       await plan.getByRole("tab", { name: tool, exact: true }).click();

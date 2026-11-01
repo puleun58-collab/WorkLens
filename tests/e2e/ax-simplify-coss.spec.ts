@@ -100,7 +100,7 @@ test("AX 간소화·COSS 통일: 판단 하단 문구 제거·매트릭스 버�
 
   // E. 구현 계획은 원본 실행 순서의 단계별 검토에서 직접 확인한다.
   await page.getByRole("button", { name: "Codex용 구현 계획 생성" }).click();
-  await expect(page.getByRole("heading", { name: /^구현 계획 \(\d+개\)$/ })).toBeVisible();
+  await expect(page.locator("#ax-plan-review .ax-hitl-table-heading")).toHaveText(/^구현 계획 \(\d+개\)$/);
   const planReview = page.getByRole("region", { name: "구현 계획", exact: true });
   await expect(planReview).toContainText("검토 필요");
   await expect(planReview.locator(".ax-plan-group")).toHaveCount(0);
@@ -110,9 +110,10 @@ test("AX 간소화·COSS 통일: 판단 하단 문구 제거·매트릭스 버�
 
   // E. HITL 검토·결정 지점·예시는 업무 진단 단계에서 도달한다.
   await page.getByRole("tab", { name: "업무 진단", exact: true }).click();
-  // 단계 전환의 RAF·150ms 최상단 복원과 수동 스크롤을 경쟁시키지 않는다.
-  // 실제 검토 버튼의 자동 대기·스크롤로 도달한 뒤 동일한 뷰포트 계약을 확인한다.
+  // 단계 전환의 최상단 복원 이후에도 펼친 검토 패널에 직접 도달할 수 있다.
   await page.locator("#ax-step-review").getByRole("button", { name: "검토", exact: true }).first().click();
+  await expect(page.locator("#ax-step-review .ax-hitl-panel-v2")).toBeVisible();
+  await page.locator("#ax-step-review").scrollIntoViewIfNeeded();
   await expect(page.locator("#ax-step-review")).toBeInViewport();
   await page.locator("#ax-decision-D4 .ax-decision-row-head").click();
   await expect(page.locator("#ax-decision-D4 .ax-decision-row-head")).toHaveAttribute("aria-expanded", "true");
