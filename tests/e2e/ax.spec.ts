@@ -626,9 +626,9 @@ test("AX summary next action links to the checks area when needs-check has check
   await page.goto("/"); await ax(page); await register(page); await page.getByRole("button", { name: "다음 단계" }).click(); await page.locator(".ax-diag-card").getByRole("button", { name: "업무 진단 실행" }).click();
   await expect(page.locator(".ax-diag-badges")).toContainText("정보 확인 필요");
   await expect(page.locator(".ax-diag-summary-head")).not.toContainText("핵심 정보 확인 필요");
-  await expect(page.locator(".ax-judgement-foot")).toHaveText(/확인 필요 · 1건\s*확인 필요 항목 보기/u);
+  await expect(page.locator(".ax-judgement-foot")).toHaveText(/확인 필요 · 1건\s*항목 보기/u);
   await expect(page.locator(".ax-diag-card")).not.toContainText("잠정");
-  await page.getByRole("button", { name: "확인 필요 항목 보기", exact: true }).click();
+  await page.getByRole("button", { name: "항목 보기", exact: true }).click();
   await expect(page.locator(".ax-diag-checks")).toBeVisible();
   await expect.poll(async () => (await page.locator(".ax-diag-checks").boundingBox())?.y ?? 9999).toBeLessThan(200);
 });
@@ -637,7 +637,7 @@ test("AX summary next action links to the block reasons for blocked gates", asyn
   await page.goto("/"); await ax(page); await register(page); await page.getByRole("button", { name: "다음 단계" }).click(); await page.locator(".ax-diag-card").getByRole("button", { name: "업무 진단 실행" }).click();
   // 보류 사유도 미확인 항목으로 집계되고, 같은 바로가기로 구현 전 확인 사항에 이동한다.
   await expect(page.locator(".ax-judgement-foot")).toContainText("확인 필요 · 2건");
-  await page.getByRole("button", { name: "확인 필요 항목 보기", exact: true }).click();
+  await page.getByRole("button", { name: "항목 보기", exact: true }).click();
   await expect(page.locator(".ax-diag-checks")).toContainText("필수 시스템 접근 불가");
   await expect.poll(async () => (await page.locator(".ax-diag-checks").boundingBox())?.y ?? 9999).toBeLessThan(200);
 });
