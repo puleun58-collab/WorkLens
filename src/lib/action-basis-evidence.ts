@@ -131,7 +131,7 @@ function operativeClause(body: string): string {
 }
 
 function legalAnswer(ref: BodyRef, query?: string): string {
-  const clause = operativeClause(ref.body);
+  const clause = query ? overviewClause(ref, actionTerms(query)).clause : operativeClause(ref.body);
   const tokens = query ? questionSubjectTerms(query).filter((term) => term.length >= 3 && !isLawName(term)
     && !/정지|허가|처분|기준|요건|위반|영업|별표/u.test(term)) : [];
   const numbered = tokens.length ? [...ref.body.matchAll(/(?:^|[.\n])\s*(\d+)\.\s*([^.\n]{5,250})/gu)]
@@ -139,14 +139,53 @@ function legalAnswer(ref: BodyRef, query?: string): string {
   return `${ref.law} ${ref.jo}${ref.title ? `(${ref.title})` : ""}: ${clause}${numbered ? ` 해당 위반 항목: ${numbered[1]}. ${numbered[2].trim()}` : ""}`;
 }
 
+/** Choose the paragraph that grants the asked act; a later registration
+ * exception must never be attributed to the preceding permit paragraph. */
+function overviewClause(ref: BodyRef, acts: readonly ActionTerm[]): { paragraph: string; clause: string; act?: ActionTerm } {
+  const paragraphs = ref.body.split(/(?=[①-⑳])/u);
+  for (const paragraph of paragraphs) {
+    const clause = operativeClause(paragraph);
+    const act = acts.find((candidate) => concernsAction(clause, [candidate])
+      || (/허가|등록|인가|신고/u.test(candidate.core) && clause.includes(candidate.core)
+        && (!candidate.head || clause.includes(candidate.head))));
+    if (act && /할 수 있다|하여야 한다|해야 한다|받아야 한다|등록하여야 한다|신고하여야 한다/u.test(clause)) {
+      return { paragraph, clause, act };
+    }
+  }
+  return { paragraph: paragraphs.find((entry) => /^[①-⑳]/u.test(entry)) ?? ref.body, clause: operativeClause(ref.body) };
+}
+
+/** Overview only: quote an identified provision and its actual act/limit,
+ * not its whole enumerated text. The full answer and original remain intact. */
+function authoritySummary(ref: BodyRef, acts: readonly ActionTerm[]): string {
+  const { paragraph, clause, act } = overviewClause(ref, acts);
+  const limit = /(\d+\s*(?:개월|년|일)\s*이내)/u.exec(clause)?.[1];
+  return [`${ref.law} ${ref.jo}`, act ? `${act.term} ${/허가|등록|인가|신고/u.test(act.core) ? "권한" : "등 처분"}` : "",
+    limit ? `법정 상한 ${limit}` : "", /다만[,，]?/u.test(paragraph) ? "예외 단서 있음" : ""].filter(Boolean).join(" · ");
+}
+
+function requirementSummary(ref: BodyRef, query: string, permission: boolean): string {
+  const { paragraph, clause } = overviewClause(ref, actionTerms(query));
+  const paragraphNo = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳".indexOf(paragraph.trim()[0]) + 1;
+  const external = /제\d+조(?:의\d+)?제\d+항 각 호/u.exec(clause)?.[0];
+  const condition = /다음 각 호/u.test(clause)
+    ? `${ref.jo}${paragraphNo > 0 ? ` 제${paragraphNo}항` : ""} 각 호의 ${permission ? "신청 요건" : "위반행위"} 해당 여부`
+    : external ? `${external}에 따른 ${permission ? "영업 범위" : "위반 요건"} 해당 여부`
+      : `${ref.jo}의 ${permission ? "허가·등록" : "처분"} 요건`;
+  const matched = [...ref.body.matchAll(/(?:^|\n)\s*(\d+(?:의\d+)?)\.\s*([^\n]+)/gu)]
+    .find((entry) => questionSubjectTerms(query).some((term) => term.length >= 3 && !isLawName(term)
+      && !/영업|정지|처분|위반|기준|요건|허가|등록/u.test(term) && entry[2].includes(term)));
+  return `${matched ? `${ref.jo} 제${matched[1]}호: ${matched[2].trim().slice(0, 65)}` : condition} · 개별 적용 미확정${/다만[,，]?/u.test(paragraph) ? " · 예외 단서 원문 확인 필요" : ""}`;
+}
+
 /** The requirements and the authority may share a provision, but never the
  * same answer sentence. Only the provision's operative paragraph and its own
  * numbered subitems can establish a condition; a search preview cannot fill
  * in a missing violation or exception. */
 function requirementAnswer(ref: BodyRef, query: string): string {
-  const first = ref.body.indexOf("①");
-  const paragraph = first < 0 ? ref.body : ref.body.slice(first + 1).split(/[②-⑳]/u)[0];
-  const sentence = operativeClause(ref.body);
+  const selected = overviewClause(ref, actionTerms(query));
+  const paragraph = selected.paragraph;
+  const sentence = selected.clause;
   const subject = /([^\s,。]{2,28}(?:자|인|업체))(?:가|는|이)\s+다음 각 호/u.exec(sentence)?.[1];
   const conditionEnd = /경우에는|경우에|해당하면|하려는 자는|하려는 사람은|하는 자는/u.exec(sentence);
   const condition = conditionEnd
@@ -160,7 +199,7 @@ function requirementAnswer(ref: BodyRef, query: string): string {
   const heading = `${ref.law} ${ref.jo}${ref.title ? `(${ref.title})` : ""}`;
   const parts = [`${heading} 적용 대상·조건: ${condition || "원문에서 개별 요건을 분리하지 못했습니다"}.`];
   if (violations.length) {
-    parts.push(`${first >= 0 ? "제1항 " : ""}원문에서 확인한 위반행위 ${violations.length}개 호(삭제 호 제외): ${examples.map((entry) => `${entry[1]}. ${entry[2].trim()}`).join(" · ")}${scoped.length !== 1 && violations.length > examples.length ? " · 나머지 호는 하단 조문 원문에서 확인" : ""}.`);
+    parts.push(`${paragraph.trim().startsWith("①") ? "제1항 " : ""}원문에서 확인한 위반행위 ${violations.length}개 호(삭제 호 제외): ${examples.map((entry) => `${entry[1]}. ${entry[2].trim()}`).join(" · ")}${scoped.length !== 1 && violations.length > examples.length ? " · 나머지 호는 하단 조문 원문에서 확인" : ""}.`);
   }
   const exception = /다만,?[^\n]{10,400}?(?:할 수 있다|하여야 한다|해야 한다|된다)\./u.exec(paragraph);
   if (exception) parts.push(`예외 단서: ${exception[0]}`);
@@ -299,6 +338,7 @@ export function assessActionBasis(query: string, text: string, enrichment?: Rese
     { label: "처분·허가 근거", ...(basisTitle !== "처분·허가 근거" ? { title: basisTitle } : {}),
       status: authorityRefs.length ? "found" : basisRefs.length || bodies.length ? "viewed" : "none",
       ...(authorityRefs[0] ? { answer: legalAnswer(authorityRefs[0], query) } : {}),
+      ...(authorityRefs[0] ? { summary: authoritySummary(authorityRefs[0], acts) } : {}),
       uncertainty: authorityRefs.length
         ? asksPermission ? "법정 허가·등록 권한 확인은 신청인의 개별 요건 충족이나 허가·등록 확정이 아닙니다."
           : "법정 권한 확인은 개별 위반행위의 성립이나 실제 처분 확정이 아닙니다."
@@ -323,6 +363,7 @@ export function assessActionBasis(query: string, text: string, enrichment?: Rese
     requirementSource ??= directRequirementRefs[0];
     items.push({ label: "적용 요건", status: directRequirementRefs.length ? "found" : bodies.length ? "viewed" : "none",
       ...(requirementSource ? { answer: requirementAnswer(requirementSource, query) } : {}),
+      ...(requirementSource ? { summary: requirementSummary(requirementSource, query, asksPermission) } : {}),
       uncertainty: asksPermission
         ? "신청 대상 업종·자격·시설 등 필요한 사실과 예외를 대조해야 하며, 원문 확인만으로 허가·등록 가능 여부를 확정할 수 없습니다."
         : "위반행위와 영업 종류가 특정되지 않으면 개별 적용 여부를 판단할 수 없습니다. 업종·위반행위·예외 사실을 대조해야 합니다.",
@@ -342,6 +383,7 @@ export function assessActionBasis(query: string, text: string, enrichment?: Rese
     items.push({ label: "세부 기준(별표)", title: disposition ? "세부 처분 기준" : "세부 기준", ...(asksAnnex ? {} : { optional: true }),
       status: original.length ? "found" : criteria.length || listed.length ? "viewed" : "none",
       ...(selected ? { answer: `${selected.law} ${selected.sourceArticle}가 인용한 ${selected.label}${selected.title ? `(${selected.title})` : ""} — ${selected.citation.trim()}${row ? ` 해당 표의 확인 행: ${row}` : ""}` } : {}),
+      ...(selected ? { summary: `${selected.law} ${selected.sourceArticle}·${selected.label}${original.length ? row ? ` · ${row.slice(0, 85)} · 개별 적용 미확정` : " · 개별 처분기간 미확정" : " · 별표 원문 미확보"}` } : {}),
       uncertainty: original.length ? row ? "표의 행·차수 원문 확인. 위반행위 성립·감경·가중 및 개별 사안 적용 여부는 확인되지 않았습니다." : "별표 원문 확보. 위반 유형·업종·차수 또는 유일한 해당 행을 특정하지 못해 개별 기준은 미확인입니다." : "별표 원문 미확보 — 존재·목록 확인만으로 세부 처분 기준을 확인할 수 없습니다.",
       ...(listed.length ? { detail: `별표 목록 ${listed.length}건 · 원문 ${original.length ? "확보" : "미확보"}` } : {}) });
   }

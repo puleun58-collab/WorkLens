@@ -96,6 +96,37 @@ describe("assessActionBasis", () => {
   });
 });
 
+it("shortens confirmed source answers without upgrading missing annex originals or case application", () => {
+  const text = `═══ 처분 근거 확인: 예시법 ═══
+▶ 법령 체계
+[법률] 예시법 제12조 (영업정지 등)
+① 시장은 영업자가 다음 각 호의 어느 하나에 해당하는 경우 3개월 이내의 기간을 정하여 영업정지 처분을 할 수 있다. 다만, 경미한 위반은 제외한다.
+1. 영업 기준을 위반한 경우
+2. 시설 기준을 위반한 경우`;
+  const result = assessActionBasis("예시법 영업정지 처분 근거와 요건 및 별표 기준", text);
+  expect(result.items.map((entry) => [entry.status, entry.summary])).toEqual([
+    ["found", "예시법 제12조 · 영업정지 등 처분 · 법정 상한 3개월 이내 · 예외 단서 있음"],
+    ["found", "제12조 제1항 각 호의 위반행위 해당 여부 · 개별 적용 미확정 · 예외 단서 원문 확인 필요"],
+    ["none", undefined],
+  ]);
+  expect(result.items[0].answer).toContain("시장은 영업자가");
+  expect(result.items[1].requirementRefs?.[0].excerpt).toContain("2. 시설 기준을 위반한 경우");
+  expect(result.items[2].uncertainty).toContain("별표 원문 미확보");
+});
+
+it("does not transfer a registration exception or another article's enumerated items to a permit answer", () => {
+  const source = `═══ 처분 근거 확인: 식품위생법 ═══
+▶ 법령 체계
+[법률] 식품위생법 제37조 (영업허가 등)
+① 제36조제1항 각 호에 따른 영업 중 대통령령으로 정하는 경우에는 영업을 하려는 자는 시장의 허가를 받아야 한다.
+② 영업을 등록하려는 자는 등록하여야 한다. 다만, 폐업한 때에는 신고하여야 한다.`;
+  const items = assessActionBasis("식품위생법 제37조 영업허가의 근거와 요건", source).items;
+  expect(items[0].summary).toBe("식품위생법 제37조 · 영업허가 권한");
+  expect(items[1].summary).toBe("제36조제1항 각 호에 따른 영업 범위 해당 여부 · 개별 적용 미확정");
+  expect(items[0].status).toBe("found");
+  expect(items[1].status).toBe("found");
+});
+
 it("returns independent structured basis and requirement references without changing detail", () => {
   const result = assessActionBasis(QUERY, BODY, { supplement: SUPPLEMENT });
   const [basis, requirement] = result.items;

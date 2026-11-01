@@ -42,6 +42,20 @@ describe("assessLawSystem", () => {
     ]);
   });
 
+  it("derives parent paragraph and delegated subject from another law's two operative texts", () => {
+    const text = `═══ 법체계 확인: 근로기준법 ═══
+▶ 3단 비교 (법률·시행령·시행규칙)
+[법률] 근로기준법 제26조 (해고 예고)
+① 근로자의 귀책사유로 해고를 예고하지 않아도 되는 경우는 고용노동부령으로 정한다.
+[시행규칙] 근로기준법 시행규칙 제4조 (근로자의 귀책사유)
+① 법 제26조제1항에 따른 근로자의 귀책사유는 별표 1과 같다.`;
+    const result = assessLawSystem(text, "근로기준법 제26조와 시행규칙의 관계");
+    expect(result.status).toBe("matched");
+    expect(result.items.find((entry) => entry.label === "시행규칙")?.articles).toMatchObject([
+      { jo: "제4조", relation: "twoWay", parentJo: "제26조", parentParagraph: "1", subject: "근로자의 귀책사유" },
+    ]);
+  });
+
   it("is partial when only one sub-law tier is delegation-anchored", () => {
     const oneTier = LIVE_SHAPE.replace(/\[시행규칙\][\s\S]*?(?=\n▶ 핵심 조문)/u, "");
     const result = assessLawSystem(oneTier);

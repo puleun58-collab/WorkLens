@@ -178,8 +178,23 @@ export function assessLawSystem(text: string, question?: string, articles?: stri
       if (unprefixed.some((a) => a === article)) return UNPREFIXED_DELEGATION.exec(withoutTruncationMarkers(article.body))?.[0]?.trim();
       return undefined;
     };
+    const delegationContext = (article: DetailArticle): Pick<TaskEvidenceArticle, "parentJo" | "parentParagraph" | "subject"> => {
+      const entry = direct.find((candidate) => candidate.article === article);
+      if (!entry) return {};
+      const operative = article.body.match(/[①-⑳]\s*([^\n.]+)/u)?.[1] ?? article.body.split(/[.\n]/u)[0];
+      const citedParagraph = new RegExp(`법\\s*${entry.cited}제(\\d+)항`, "u").exec(operative)?.[1];
+      const subjectWord = article.title.replace(/(?:의)?\s*(?:범위|방법|절차|금액|사항)(?:\s*등)?$/u, "").replace(/\s*등$/u, "").trim();
+      const matching = parentClauses(entry.cited).filter((clause) => subjectWord && clause.includes(subjectWord));
+      const paragraph = citedParagraph ?? (matching.length === 1
+        ? String("①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳".indexOf(matching[0].trim()[0]) + 1) : undefined);
+      const combinedSubject = subjectWord && new RegExp(`${subjectWord.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}(?:와|과|·| 및 )\\s*([가-힣]{2,10})`, "u").exec(operative);
+      const subject = combinedSubject ? `${subjectWord}·${combinedSubject[1].replace(/의$/u, "")}` : subjectWord;
+      return { parentJo: entry.cited, ...(paragraph && paragraph !== "0" ? { parentParagraph: paragraph } : {}),
+        ...(subject && matching.length ? { subject } : {}) };
+    };
     const articles: TaskEvidenceArticle[] = found.map((article) => ({ law: article.law, jo: article.jo, title: article.title,
-      relation: relationOf(article), ...(expressionOf(article) ? { expression: expressionOf(article)! } : {}) }));
+      relation: relationOf(article), ...(expressionOf(article) ? { expression: expressionOf(article)! } : {}),
+      ...delegationContext(article) }));
     return { tier, found, anchored, citations, direct, anchorOnly, unprefixed, articles };
   });
   const labels = { law: "법률", decree: "시행령", rule: "시행규칙" } as const;
