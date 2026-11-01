@@ -23,10 +23,13 @@ export function axes(diagnosis: AxDiagnosis) {
 }
 export function automationLevel(d: AxDiagnosis) {
   const a = axes(d);
-  const level = a.value <= 2 || (a.judgment >= 4 && a.risk >= 4) ? 0
+  const lowValue = a.value <= 2, judgmentRisk = a.judgment >= 4 && a.risk >= 4;
+  const level = lowValue || judgmentRisk ? 0
     : a.value >= 4 && a.feasibility >= 4 && a.judgment <= 2 && a.risk <= 2 ? 3
     : a.value >= 3 && a.feasibility >= 3 && a.judgment <= 3 ? 2 : 1;
-  return { level, label: LEVEL_LABELS[level], provisional: d.informationSufficiency === "needs-check" };
+  // Level 0에 도달한 실제 조건 (표시 전용; 계산식은 위와 동일).
+  const level0Reasons = level === 0 ? { lowValue, judgmentRisk } : undefined;
+  return { level, label: LEVEL_LABELS[level], provisional: d.informationSufficiency === "needs-check", level0Reasons };
 }
 /** Level 배지 툴팁 문구 (표시 전용). guide의 LEVEL_CONSTRAINTS와 prompt의 LEVEL_SCOPE가 정한 Level별 허용 범위를
  * 한 줄로 축약한 것으로, 판정 로직에는 사용하지 않는다. */
@@ -36,9 +39,22 @@ export const LEVEL_DESCRIPTIONS = [
   "반복·규칙 기반 단계는 자동화하고 주요 예외와 승인은 담당자가 맡습니다",
   "넓게 자동화하되 승인·안전·법률·권한 관련 단계는 담당자가 유지합니다",
 ] as const;
-/** UI 표시 전용 Level 표기 ("AI 보조 (Level 1)"). AI 프롬프트 생성 경로는 자체 표기를 쓰므로 이 함수를 사용하지 않는다. */
-export function levelDisplayLabel(l: { level: number; label: string }): string {
+type LevelView = { level: number; label: string; level0Reasons?: { lowValue: boolean; judgmentRisk: boolean } };
+/** UI 표시 전용 Level 표기 ("AI 보조 (Level 1)"). Level 0은 판정 원인별로 구분하며, 판단·위험 제약이 있으면 우선한다.
+ * AI 프롬프트 생성 경로는 자체 표기를 쓰므로 이 함수를 사용하지 않는다. */
+export function levelDisplayLabel(l: LevelView): string {
+  if (l.level === 0 && l.level0Reasons) return `${l.level0Reasons.judgmentRisk ? "판단·위험 제약" : "수동 유지 권장"} (Level 0)`;
   return `${l.label.replace(/^L\d+ /, "")} (Level ${l.level})`;
+}
+/** Level 배지 툴팁 (표시 전용): Level 0은 실제 판정 원인을 모두 안내한다. */
+export function levelDescription(l: LevelView): string {
+  if (l.level === 0 && l.level0Reasons) {
+    return [
+      l.level0Reasons.judgmentRisk ? "담당자 판단 필요도와 운영 위험이 높아 현재 자동화 수준이 제한됩니다" : "",
+      l.level0Reasons.lowValue ? "자동화 가치가 낮아 현재는 담당자 수행을 유지하는 것이 권장됩니다" : "",
+    ].filter(Boolean).join(". ");
+  }
+  return LEVEL_DESCRIPTIONS[l.level as 0 | 1 | 2 | 3];
 }
 export function matrixPosition(d: AxDiagnosis) {
   const a = axes(d), p = AX_POLICY;

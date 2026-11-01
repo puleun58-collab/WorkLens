@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { diagnosisCheckItems, diagnosisSummaryParts, diagnosisSummarySentences, matrixRationaleBullets, visibleDiagnosisCheckItems } from "../src/components/ax/AxReport";
-import { LEVEL_DESCRIPTIONS, LEVEL_LABELS, levelDisplayLabel } from "../src/lib/ax/policy";
+import { LEVEL_DESCRIPTIONS, LEVEL_LABELS, levelDescription, levelDisplayLabel } from "../src/lib/ax/policy";
 import { uiText } from "../src/lib/ax/display-text";
 import { outputFixture } from "./fixtures/ax";
 
@@ -162,13 +162,19 @@ describe("diagnosis display helpers", () => {
 });
 
 describe("level display label and tooltip descriptions", () => {
-  test("label is unified as 명칭 (Level N) for all levels", () => {
-    expect(LEVEL_LABELS.map((label, level) => levelDisplayLabel({ level, label }))).toEqual([
-      "수동 유지 (Level 0)",
+  test("label is unified as 명칭 (Level N); Level 0 shows its actual reason", () => {
+    expect(LEVEL_LABELS.slice(1).map((label, i) => levelDisplayLabel({ level: i + 1, label }))).toEqual([
       "AI 보조 (Level 1)",
       "부분 자동화 (Level 2)",
       "고도 자동화 (Level 3)",
     ]);
+    const l0 = (lowValue: boolean, judgmentRisk: boolean) => ({ level: 0, label: LEVEL_LABELS[0], level0Reasons: { lowValue, judgmentRisk } });
+    expect(levelDisplayLabel(l0(true, false))).toBe("수동 유지 권장 (Level 0)");
+    expect(levelDisplayLabel(l0(false, true))).toBe("판단·위험 제약 (Level 0)");
+    expect(levelDisplayLabel(l0(true, true))).toBe("판단·위험 제약 (Level 0)");
+    expect(levelDescription(l0(true, true))).toContain("자동화 가치가 낮아");
+    expect(levelDescription(l0(true, true))).toContain("운영 위험이 높아");
+    expect(levelDescription(l0(false, true))).not.toContain("자동화 가치가 낮아");
   });
   test("every level has a one-line description and Level 1 matches the policy wording", () => {
     expect(LEVEL_DESCRIPTIONS).toHaveLength(4);
