@@ -4,9 +4,9 @@ import { diagnosisFixture, outputFixture, taskFixture } from "../fixtures/ax";
 import { emptyAxState } from "../../src/lib/ax/types";
 import { addInlineRule, chooseOption } from "./ax-rules";
 
-async function registerAndDiagnose(page: import("@playwright/test").Page, name: string, description: string) {
+async function registerAndDiagnose(page: import("@playwright/test").Page, name: string, description: string, diagnosis = outputFixture()) {
   await page.route("**/api/ai", async route => {
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { kind: "ax-diagnosis", diagnosis: outputFixture() } }) });
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { kind: "ax-diagnosis", diagnosis } }) });
   });
   await page.goto("/");
   await navigateWorkspace(page, "업무 자동화 진단");
@@ -259,10 +259,11 @@ test("AX D규칙 과거 '해당 없음' 저장값은 미적용으로 그대로 �
   await page.keyboard.press("Escape");
 });
 
-test("AX 진단 결과 요약: 판정 분포 3카드는 실제 단계 판정 건수, 핵심 판단 패널·확인 필요 항목 목록을 표시한다", async ({ page }) => {
+test("AX 진단 결과 요약: 판정 3카드는 실제 건수, 확인 필요 · N건과 바로가기, 구현 전 확인 사항은 미확인 우선·확인 완료 접힘", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  await registerAndDiagnose(page, "운송장 검증", "운송장 데이터를 입력받아 누락·중복을 검사하고 검증 결과를 출력한다.");
-  const steps = outputFixture().stepAssessments;
+  const diagnosis = { ...outputFixture(), technicalChecks: [...outputFixture().technicalChecks, { topic: "계산 로직 구현 환경", status: "확인됨" as const, note: "Python 스크립트 사용 가능" }] };
+  await registerAndDiagnose(page, "운송장 검증", "운송장 데이터를 입력받아 누락·중복을 검사하고 검증 결과를 출력한다.", diagnosis);
+  const steps = diagnosis.stepAssessments;
   const cards = page.locator(".ax-diag-card .ax-verdict-card");
   await expect(cards).toHaveCount(3);
   for (const [index, verdict, label] of [[0, "자동화", "자동화 적합"], [1, "AI 보조", "AI 보조 적합"], [2, "사람 유지", "담당자 수행"]] as const) {
@@ -271,14 +272,29 @@ test("AX 진단 결과 요약: 판정 분포 3카드는 실제 단계 판정 건
   }
   // 상세 헤더: Gate 배지가 Level 배지보다 먼저다.
   await expect(page.locator(".ax-diag-badges > *").first()).toHaveClass(/ax-gate-badge/);
-  const judgement = page.getByRole("group", { name: "핵심 판단" });
-  await expect(judgement).toContainText("핵심 판단");
-  await expect(judgement).toContainText("확인 필요");
-  await expect(judgement).toContainText("다음 단계");
+  const card = page.locator(".ax-diag-card");
+  await expect(card).not.toContainText("사용자 등록 정보 기반 진단");
+  await expect(card).not.toContainText("다음 단계");
   const checks = page.locator(".ax-diag-checks");
-  const total = await checks.locator("li").count();
-  const need = await checks.locator('.ax-check-badge[data-kind="need"]').count();
-  await expect(checks.locator(".ax-diag-checks-head")).toContainText(`총 ${total}건 · 확인 필요 ${need}건`);
+  await expect(checks.getByRole("heading", { name: "구현 전 확인 사항" })).toBeVisible();
+  // 미확인 목록에는 확인됨 항목이 없고, 상단·목록 제목 건수는 미확인 행 수와 같다.
+  const pending = checks.locator(":scope > ul > li");
+  const pendingCount = await pending.count();
+  expect(pendingCount).toBeGreaterThan(0);
+  await expect(pending.locator('.ax-check-badge[data-kind="done"]')).toHaveCount(0);
+  await expect(page.locator(".ax-judgement-foot")).toContainText(`확인 필요 · ${pendingCount}건`);
+  await expect(checks.locator(".ax-diag-checks-head")).toContainText(`· ${pendingCount}건`);
+  // 확인 완료 항목은 기본 접힘이고, 펼치면 기존 정보가 그대로 보인다.
+  const done = checks.getByRole("button", { name: "확인 완료 항목 보기 (1건)" });
+  await expect(done).toHaveAttribute("aria-expanded", "false");
+  await expect(checks.getByText("계산 로직 구현 환경")).toBeHidden();
+  await done.click();
+  await expect(checks.getByText("계산 로직 구현 환경")).toBeVisible();
+  await expect(checks.getByText("Python 스크립트 사용 가능")).toBeVisible();
+  // 바로가기: 구현 전 확인 사항 제목이 고정 헤더 아래에 보이도록 이동한다.
+  await page.getByRole("button", { name: "확인 필요 항목 보기", exact: true }).click();
+  await expect.poll(async () => (await checks.getByRole("heading", { name: "구현 전 확인 사항" }).boundingBox())?.y ?? 9999).toBeLessThan(200);
+  await expect.poll(async () => (await checks.getByRole("heading", { name: "구현 전 확인 사항" }).boundingBox())?.y ?? 0).toBeGreaterThan(60);
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
 });

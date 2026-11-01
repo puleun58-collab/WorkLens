@@ -957,6 +957,18 @@ export function scopeSummaryRows(summary: AxPlanSummary): {
     criteriaNotices: [...new Set(orderedCriteriaRows.map(row => row.notice).filter((notice): notice is string => !!notice))],
   };
 }
+/** 업무 진단(3카드)·자동화 구현 계획(4카드) 공통 요약 카드: 흰색 원형 아이콘 + 항목명 + 큰 숫자·"개".
+ * 열 수는 카드 개수로 정해지고(3열·4열), 카드 디자인은 동일하다. 숫자는 호출부가 각 화면의 집계로 넘긴다. */
+export interface AxStatCard { key: string; label: string; tone: "blue" | "violet" | "green" | "yellow"; icon: LucideIcon; count: number }
+export function AxStatCards({ cards }: { cards: readonly AxStatCard[] }) {
+  return <dl className="ax-verdict-cards" data-cols={cards.length}>
+    {cards.map(card => <div key={card.key} className="ax-verdict-card" data-tone={card.tone}>
+      <span className="ax-verdict-icon" aria-hidden="true"><card.icon size={18} /></span>
+      <dt>{card.label}</dt>
+      <dd><strong>{card.count}</strong>개</dd>
+    </div>)}
+  </dl>;
+}
 /** 자동화 구현 계획 상단 4개 요약 카드: 단계 판정 건수(진단 stepAssessments)와 구현 전 확인의
  * 고유 미해결 항목 수(precheckListItems — 구현 전 확인 목록과 같은 집계)를 그대로 쓴다. */
 const PLAN_OVERVIEW_CARDS = [
@@ -965,15 +977,6 @@ const PLAN_OVERVIEW_CARDS = [
   { key: "사람 유지", label: "담당자 수행 단계", tone: "green", icon: UserRound },
   { key: "check", label: "확인 필요 항목", tone: "yellow", icon: ClipboardCheck },
 ] as const;
-function AxPlanOverview({ diagnosis, checkCount }: { diagnosis: AxDiagnosis; checkCount: number }) {
-  return <dl className="ax-plan-overview">
-    {PLAN_OVERVIEW_CARDS.map(card => <div key={card.key} className="ax-plan-stat" data-tone={card.tone}>
-      <span className="ax-plan-stat-icon" aria-hidden="true"><card.icon size={22} /></span>
-      <dt>{card.label}</dt>
-      <dd><strong>{card.key === "check" ? checkCount : diagnosis.stepAssessments.filter(step => step.verdict === card.key).length}</strong>개</dd>
-    </div>)}
-  </dl>;
-}
 /** 계획 검토 행 공통: 상태 표시(검토 완료·재확인 필요·보완 중·검토 전)와 검토 버튼, 펼치면 HITL 검토 패널. */
 interface PlanReviewControls {
   reviews: HitlReview[];
@@ -1315,7 +1318,7 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
   // 바깥 래퍼는 기존 "자동화 구현 계획" 영역 이름과 이동 대상 id를 그대로 유지한다.
   return <div className="ax-plan-stack" id="ax-plan-section" role="region" aria-label="자동화 구현 계획"><section className="ax-surface ax-plan-overview-surface">
     <div className="ax-plan-head"><BarChart3 size={24} aria-hidden="true" className="ax-plan-head-icon" /><h3>자동화 구현 계획</h3></div>
-    <AxPlanOverview diagnosis={diagnosis} checkCount={precheckListItems(summary).length} />
+    <AxStatCards cards={PLAN_OVERVIEW_CARDS.map(card => ({ ...card, count: card.key === "check" ? precheckListItems(summary).length : diagnosis.stepAssessments.filter(step => step.verdict === card.key).length }))} />
     <AxPrecheckSection summary={summary} />
   </section>
   <section className="ax-surface ax-plan-groups-surface" id="ax-plan-review" aria-labelledby={`${instructionsId}-plan`}>

@@ -602,15 +602,13 @@ test("AX follows up on missing information and recalculates provisional decision
   const calls: Record<string, unknown>[] = [];
   await page.route("**/api/ai", async route => { calls.push(route.request().postDataJSON()); await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { kind: "ax-diagnosis", diagnosis: calls.length === 1 ? { ...outputFixture(), informationSufficiency: "needs-check", followUpQuestions: ["최종 승인자는 누구인가요?"] } : outputFixture() } }) }); });
   await page.goto("/"); await ax(page); await register(page); await page.getByRole("button", { name: "다음 단계" }).click(); await page.getByRole("button", { name: "업무 진단 실행" }).click();
-  await expect(page.getByRole("button", { name: "추가 질문 답변", exact: true })).toBeVisible();
+  await expect(page.locator("#ax-answer-section")).toBeVisible();
   await expect(page.locator(".ax-diag-card")).not.toContainText("잠정");
   // 핵심 정보 부족 상태에서는 상단 배지가 정보를 전담하고 요약 제목 옆 배지는 중복 표시하지 않는다
   await expect(page.locator(".ax-diag-badges")).toContainText("정보 확인 필요");
   await expect(page.locator(".ax-diag-summary-head")).not.toContainText("핵심 정보 확인 필요");
-  // 다음 행동을 누르면 추가 질문 영역으로 스크롤된다
-  await page.getByRole("button", { name: "추가 질문 답변", exact: true }).click();
-  await expect(page.locator("#ax-answer-section")).toBeVisible();
-  await expect.poll(async () => (await page.locator("#ax-answer-section").boundingBox())?.y ?? 9999).toBeLessThan(200);
+  // 추가 질문 영역은 진단 카드 아래에 바로 표시된다 (요약의 별도 '다음 단계' 버튼은 없다).
+  await expect(page.locator(".ax-judgement-foot")).not.toContainText("다음 단계");
   await page.getByLabel("최종 승인자는 누구인가요?", { exact: true }).fill("업무 담당 팀장");
   const rediagnose = page.getByRole("button", { name: "답변 반영 후 재진단", exact: true });
   await expect(rediagnose).toHaveAttribute("data-slot", "button"); await expect(rediagnose).toHaveClass(/bg-primary/);
@@ -630,17 +628,18 @@ test("AX summary next action links to the checks area when needs-check has check
   await page.goto("/"); await ax(page); await register(page); await page.getByRole("button", { name: "다음 단계" }).click(); await page.locator(".ax-diag-card").getByRole("button", { name: "업무 진단 실행" }).click();
   await expect(page.locator(".ax-diag-badges")).toContainText("정보 확인 필요");
   await expect(page.locator(".ax-diag-summary-head")).not.toContainText("핵심 정보 확인 필요");
-  await expect(page.locator(".ax-diag-card")).toContainText("구현 전 확인 1건");
+  await expect(page.locator(".ax-judgement-foot")).toHaveText(/확인 필요 · 1건\s*확인 필요 항목 보기/u);
   await expect(page.locator(".ax-diag-card")).not.toContainText("잠정");
-  await page.getByRole("button", { name: "확인할 사항 검토", exact: true }).click();
+  await page.getByRole("button", { name: "확인 필요 항목 보기", exact: true }).click();
   await expect(page.locator(".ax-diag-checks")).toBeVisible();
   await expect.poll(async () => (await page.locator(".ax-diag-checks").boundingBox())?.y ?? 9999).toBeLessThan(200);
 });
 test("AX summary next action links to the block reasons for blocked gates", async ({ page }) => {
   await page.route("**/api/ai", route => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { kind: "ax-diagnosis", diagnosis: { ...outputFixture(), decisionGate: { verdict: "no-go", reasons: ["필수 시스템 접근 불가"] } } } }) }));
   await page.goto("/"); await ax(page); await register(page); await page.getByRole("button", { name: "다음 단계" }).click(); await page.locator(".ax-diag-card").getByRole("button", { name: "업무 진단 실행" }).click();
-  await expect(page.locator(".ax-diag-card")).toContainText("차단 사유를 해결한 뒤 재진단이 필요합니다.");
-  await page.getByRole("button", { name: "차단 사유 확인", exact: true }).click();
+  // 보류 사유도 미확인 항목으로 집계되고, 같은 바로가기로 구현 전 확인 사항에 이동한다.
+  await expect(page.locator(".ax-judgement-foot")).toContainText("확인 필요 · 2건");
+  await page.getByRole("button", { name: "확인 필요 항목 보기", exact: true }).click();
   await expect(page.locator(".ax-diag-checks")).toContainText("필수 시스템 접근 불가");
   await expect.poll(async () => (await page.locator(".ax-diag-checks").boundingBox())?.y ?? 9999).toBeLessThan(200);
 });
