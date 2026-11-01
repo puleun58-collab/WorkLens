@@ -8,6 +8,7 @@ import { levelMeta } from "@/lib/learn/curriculum";
 import { checkTerminalSuccess, deserializeTerminalState } from "@/lib/learn/terminal";
 import type { LearnLevelNo, LearnQuestion, LearnerAnswer, TerminalStateSnapshot } from "@/lib/learn/types";
 import { VirtualTerminal } from "./VirtualTerminal";
+import { LearnSeparatedText } from "./LearnSeparatedText";
 
 interface LearnQuizProps {
   level: LearnLevelNo;
@@ -138,7 +139,7 @@ export function LearnQuiz({ level, questions, initialAnswers, initialIndex, init
           {idx + 1} / {questions.length} · {q.category} ·{" "}
           {q.difficulty === "concept" ? "개념 이해" : q.difficulty === "application" ? "응용" : "상황 판단"}
         </p>
-        <h3 className="learn-question-prompt">{q.prompt}</h3>
+        <h3 className="learn-question-prompt"><LearnSeparatedText text={q.prompt} /></h3>
 
         {(q.type === "single" || q.type === "multiple" || q.type === "command-result" || q.type === "error-cause" || q.type === "case-judgment") && q.choices ? (
           <div role="group" aria-label={q.type === "multiple" ? "복수 선택" : "단일 선택"}>
@@ -156,7 +157,7 @@ export function LearnQuiz({ level, questions, initialAnswers, initialIndex, init
                 >
                   {/* 표시는 위치 기준 문자(A·B·C·D) — 선택지 순서가 섞여도 채점은 선택지 ID로 판정한다 */}
                   <span className="learn-choice-id">{String.fromCharCode(65 + choiceIdx)}</span>
-                  <span>{c.text}</span>
+                  <span><LearnSeparatedText text={c.text} /></span>
                 </button>
               );
             })}
@@ -186,7 +187,7 @@ export function LearnQuiz({ level, questions, initialAnswers, initialIndex, init
         {q.type === "terminal-task" && q.terminalTask ? (
           <>
             <p className="learn-muted">
-              <small><strong>공식 평가</strong> — 이 실습 과제의 결과는 점수에 반영됩니다.</small>
+              <small><strong>공식 평가:</strong> 이 실습 과제의 결과는 점수에 반영됩니다.</small>
             </p>
             <VirtualTerminal
               key={q.id}

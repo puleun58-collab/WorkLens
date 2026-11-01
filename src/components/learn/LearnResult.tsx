@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { levelMeta } from "@/lib/learn/curriculum";
 import { findQuestion, linkedUnitForQuestion, orderedChoicesForAttempt } from "@/lib/learn/questions";
 import type { LearnLevelNo, QuizAttempt } from "@/lib/learn/types";
+import { LearnSeparatedText } from "./LearnSeparatedText";
 
 interface LearnResultProps {
   attempt: QuizAttempt;
@@ -30,6 +31,7 @@ export function LearnResult({ attempt, onRetry, onNext, onDashboard, onReviewWro
       <div className="learn-surface">
         <div className="learn-result-score">{attempt.score}점</div>
         <p className={attempt.passed ? "learn-result-pass" : "learn-result-fail"}>
+          <strong>결과:</strong>{" "}
           {attempt.passed ? `통과! (기준 ${passScore}점)` : `미통과 (기준 ${passScore}점)`}
         </p>
         <div className="learn-kv">
@@ -88,14 +90,14 @@ export function LearnResult({ attempt, onRetry, onNext, onDashboard, onReviewWro
           <section key={g.questionId} className="learn-note-item">
             <p className="learn-question-meta">
               {i + 1}번 문항 · {q.category}
-              {unit ? <> · 관련 학습: {unit.title}</> : null}
+              {unit ? <> · <strong>관련 학습:</strong> {unit.title}</> : null}
             </p>
             <p className="learn-note-prompt">
               <strong>
-                {i + 1}번. {g.correct ? "정답" : "오답"}
-              </strong>
+                {i + 1}번. {g.correct ? "정답" : "오답"}:
+              </strong>{" "}
+              <LearnSeparatedText text={q.prompt} />
             </p>
-            <p>{q.prompt}</p>
             {choices ? (
               <ul className="learn-note-choices">
                 {choices.map((c, choiceIdx) => {
@@ -104,7 +106,7 @@ export function LearnResult({ attempt, onRetry, onNext, onDashboard, onReviewWro
                   return (
                     <li key={c.id} className={isCorrect ? "is-correct" : isSelected ? "is-mine" : undefined}>
                       <span className="learn-choice-id">{String.fromCharCode(65 + choiceIdx)}</span>
-                      <span className="learn-note-choice-text">{c.text}</span>
+                      <span className="learn-note-choice-text"><LearnSeparatedText text={c.text} /></span>
                       {isCorrect ? <span className="learn-tag is-correct">정답</span> : null}
                       {isSelected ? <span className="learn-tag is-mine">내 답</span> : null}
                     </li>
@@ -114,16 +116,16 @@ export function LearnResult({ attempt, onRetry, onNext, onDashboard, onReviewWro
             ) : null}
             {q.type === "ox" ? (
               <p>
-                정답: <strong>{q.oxAnswer ? "O" : "X"}</strong>
+                <strong>정답:</strong> {q.oxAnswer ? "O" : "X"}
                 {answer?.kind === "ox" ? (
                   <>
-                    {" · "}내 답: <strong>{answer.answer ? "O" : "X"}</strong>
+                    {" · "}<strong>내 답:</strong> {answer.answer ? "O" : "X"}
                   </>
                 ) : null}
               </p>
             ) : null}
             <div className="learn-explanation">
-              <strong>해설:</strong> {q.explanation}
+              <strong>해설:</strong> <LearnSeparatedText text={q.explanation} />
             </div>
             {unit ? (
               <div className="learn-actions">

@@ -4,6 +4,7 @@ import { navigateWorkspace } from "./navigation";
 import { DIAGNOSTIC_QUESTIONS } from "../../src/lib/learn/questions-diagnostic";
 import { questionBank } from "../../src/lib/learn/questions";
 import { questionFingerprint } from "../../src/lib/learn/scoring";
+import { allContents } from "../../src/lib/learn/content";
 import {
   executeCommand,
   initialStateForScenario,
@@ -764,11 +765,11 @@ test("학습센터: 퀴즈 터미널 실습 상태 저장·복구와 복원 상�
   const questions = [terminalQ!, ...others];
   // 실습 중간 상태: mkdir + cd까지 수행한 상태
   let termState = initialStateForScenario("folder-nav");
-  const transcript: { cmd: string; out: string[] }[] = [];
+  const transcript: { cmd: string; out: string[]; cwd?: string }[] = [];
   for (const cmd of ["mkdir WorkLens", "cd WorkLens"]) {
     const r = executeCommand(termState, cmd);
+    transcript.push({ cmd, out: r.output, cwd: termState.cwd });
     termState = r.state;
-    transcript.push({ cmd, out: r.output });
   }
   const questionChecks: Record<string, number> = {};
   const choiceOrder: Record<string, string[]> = {};
@@ -796,14 +797,44 @@ test("학습센터: 퀴즈 터미널 실습 상태 저장·복구와 복원 상�
   await resumeCard.getByRole("button", { name: "이어서 응시하기", exact: true }).click();
   // 터미널 상태가 복원된다 — 현재 경로가 WorkLens 안
   const terminalInput = page.getByLabel("가상 터미널 명령어 입력");
+  // 하단 도구는 터미널 밖: 데스크톱 힌트 좌측·실행/확인 우측 한 줄, 모바일 두 줄.
+  const footer = page.locator(".learn-terminal-footer");
+  const hint = footer.locator(".learn-terminal-hint");
+  const actions = footer.locator(".learn-terminal-actions");
+  await expect(hint).toBeVisible();
+  await expect(actions.getByRole("button")).toHaveText(["실행", "확인"]);
+  await expect(page.locator(".learn-terminal").locator(".learn-terminal-footer")).toHaveCount(0);
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await footer.scrollIntoViewIfNeeded();
+    const h = (await hint.boundingBox())!;
+    const a = (await actions.boundingBox())!;
+    const f = (await footer.boundingBox())!;
+    if (width === 1440) {
+      expect(h.x + h.width).toBeLessThanOrEqual(a.x);
+      expect(Math.abs(h.y + h.height / 2 - a.y - a.height / 2)).toBeLessThanOrEqual(2);
+    } else {
+      expect(h.y + h.height).toBeLessThanOrEqual(a.y);
+    }
+    expect(Math.abs(a.x + a.width - f.x - f.width)).toBeLessThanOrEqual(2);
+    const buttons = await actions.getByRole("button").all();
+    const runBox = (await buttons[0].boundingBox())!;
+    const checkBox = (await buttons[1].boundingBox())!;
+    expect(runBox.y).toBe(checkBox.y);
+    expect(runBox.height).toBe(checkBox.height);
+    await page.screenshot({ path: `artifacts/learn/terminal-footer-${width}.png` });
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
   await terminalInput.fill("pwd");
   await terminalInput.press("Enter");
   await expect(page.locator(".learn-terminal-output")).toContainText("C:\\Users\\학습자\\WorkLens");
   // 나머지 지시를 수행하고 완료 확인 → 성공
   await terminalInput.fill("cd ..");
   await terminalInput.press("Enter");
-  await page.getByRole("button", { name: "과제 완료 확인", exact: true }).click();
+  await page.getByRole("button", { name: "확인", exact: true }).click();
   await expect(page.getByText(/과제 성공/, { exact: false })).toBeVisible();
+  await expect(page.locator(".learn-terminal-output .learn-terminal-prompt").first()).toHaveText("PS C:\\Users\\학습자>");
+  await expect(page.locator(".learn-terminal-output .learn-terminal-prompt").last()).toHaveText("PS C:\\Users\\학습자\\WorkLens>");
   // 마지막 문항으로 이동해 제출하면 결과가 표시된다
   const dots = page.getByRole("navigation", { name: "문항 이동" }).getByRole("button");
   await dots.nth(questions.length - 1).click();
@@ -1011,4 +1042,176 @@ test("학습센터: JSON 백업 내보내기·가져오기와 손상 파일 거�
       { timeout: 15_000 },
     )
     .toEqual(["l1-u1"]);
+});
+
+test("학습센터: 반복 업무 3개 작성·검증·비교·후보 선택은 터미널과 점수 없이 동작한다", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
+  await page.goto("/");
+  await learn(page);
+  await openFirstLesson(page);
+  await page.getByRole("navigation", { name: "학습 단위" }).getByRole("button", { name: /^3\. / }).click();
+  const practice = page.getByRole("region", { name: "실습: 내 주변의 반복 업무 찾아보기", exact: true });
+  await expect(practice).toContainText("반복되는 업무 3개를 작성하고, 자동화할 업무를 하나 선택해 보세요.");
+  await expect(practice.getByRole("region", { name: "가상 터미널" })).toHaveCount(0);
+  await expect(practice).not.toContainText("Windows PowerShell");
+  const jobs = practice.locator("fieldset.learn-practice-job");
+  await expect(jobs).toHaveCount(3);
+  for (const input of await practice.locator("input, select").all()) await expect(input).toHaveValue("");
+  await practice.getByRole("button", { name: "업무 비교하기", exact: true }).click();
+  await expect(practice.getByRole("alert")).toContainText("업무 1");
+  await expect(practice.getByRole("region", { name: "업무 비교", exact: true })).toHaveCount(0);
+  const names = ["주간 보고서 취합", "거래처 정산 확인", "회의 일정 안내"];
+  for (let i = 0; i < 3; i++) {
+    await jobs.nth(i).getByLabel("업무명", { exact: true }).fill(names[i]);
+    await jobs.nth(i).getByRole("combobox", { name: "반복 주기", exact: true }).selectOption({ label: "일주일" });
+    await jobs.nth(i).getByLabel("반복 횟수 (회)", { exact: true }).fill(String(i + 1));
+    await jobs.nth(i).getByLabel("1회 소요 시간 (분)", { exact: true }).fill(String((i + 1) * 10));
+  }
+  await jobs.nth(1).getByLabel("업무명", { exact: true }).fill("  주간   보고서 취합  ");
+  await practice.getByRole("button", { name: "업무 비교하기", exact: true }).click();
+  await expect(practice.getByRole("alert")).toContainText("서로 다른");
+  await jobs.nth(1).getByLabel("업무명", { exact: true }).fill(names[1]);
+  await jobs.nth(0).getByLabel("1회 소요 시간 (분)", { exact: true }).fill("0");
+  await practice.getByRole("button", { name: "업무 비교하기", exact: true }).click();
+  await expect(practice.getByRole("alert")).toBeVisible();
+  await jobs.nth(0).getByLabel("1회 소요 시간 (분)", { exact: true }).fill("10");
+  await practice.getByRole("button", { name: "업무 비교하기", exact: true }).click();
+  await expect(practice.getByRole("alert")).toHaveCount(0);
+  await expect(practice.getByRole("table")).toContainText(names[1]);
+  const resultButton = practice.getByRole("button", { name: "선택 결과 보기", exact: true });
+  await expect(resultButton).toBeDisabled();
+  await practice.getByRole("radio", { name: names[1], exact: true }).check();
+  await resultButton.click();
+  await expect(practice.getByRole("status")).toContainText(`선택한 자동화 후보: ${names[1]}`);
+  await expect(practice.getByRole("status")).toContainText("자동화 가능 여부를 확정하는 평가가 아닙니다.");
+  await expect(practice.getByRole("status")).toContainText("점수에 반영되지 않습니다.");
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await practice.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `artifacts/learn/repetitive-form-${width}.png`, fullPage: true });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  }
+  await jobs.nth(0).getByLabel("업무명", { exact: true }).fill("월간 자료 취합");
+  await expect(practice.getByRole("status")).toHaveCount(0);
+  await expect(practice.getByRole("radio")).toHaveCount(0);
+  const unitNav = page.getByRole("navigation", { name: "학습 단위" });
+  await unitNav.getByRole("button", { name: /^2\. / }).click();
+  await unitNav.getByRole("button", { name: /^3\. / }).click();
+  await expect(jobs.first().getByLabel("업무명", { exact: true })).toHaveValue("");
+  await page.getByRole("button", { name: "학습센터로 돌아가기", exact: true }).click();
+  await expect(page.getByText(/0 \/ 10 단계 \(0%\)/)).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test("학습센터: LEVEL 1~10 실습 입력 방식·요약 색상·정렬·명령 복사 전수 점검", async ({ page, context }) => {
+  test.setTimeout(180_000);
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.goto("/");
+  const levels = Object.fromEntries(Array.from({ length: 10 }, (_, index) => [String(index + 1), passedLevelRecord(index + 1, Date.UTC(2026, 9, 10, 12))]));
+  await seedLearnRecord(page, "current", { version: 1, levels, wrongAnswers: [], updatedAt: Date.now() });
+  await learn(page);
+  for (const content of allContents()) {
+    await page.locator(".learn-dash-row").nth(content.level - 1).getByRole("button", { name: "복습하기", exact: true }).click();
+    for (let i = 0; i < content.units.length; i++) {
+      const unit = content.units[i];
+      await page.getByRole("navigation", { name: "학습 단위" }).getByRole("button").nth(i).click();
+      const cases = page.getByRole("region", { name: "실무 사례", exact: true });
+      const summary = page.getByRole("region", { name: "핵심 요약", exact: true });
+      const headerColor = await cases.locator(".learn-card-title").evaluate((element) => getComputedStyle(element).backgroundColor);
+      expect(await summary.evaluate((element) => getComputedStyle(element).backgroundColor), unit.id).toBe(headerColor);
+      for (const card of [cases, summary]) {
+        const indentation = await card.locator(".learn-card-body").evaluate((element) => parseFloat(getComputedStyle(element).paddingLeft));
+        expect(indentation, `${unit.id} 기본 카드 여백만 유지`).toBeLessThanOrEqual(20);
+      }
+      const concept = page.locator(".learn-concept-lead");
+      await expect(concept.locator("strong")).toContainText(":");
+      expect(await concept.evaluate((element) => getComputedStyle(element).fontWeight)).toBe("400");
+      if (!unit.practice) continue;
+      const practice = page.getByRole("region", { name: `실습: ${unit.practice.title}`, exact: true });
+      await expect(practice.locator("strong").filter({ hasText: /^실습 방법:$/ })).toBeVisible();
+      await expect(practice.getByRole("heading", { name: "실습 방법", exact: true })).toHaveCount(0);
+      expect(await practice.locator(".learn-card-title").evaluate((element) => getComputedStyle(element).fontWeight)).toBe("400");
+      if (unit.practice.commands?.length) {
+        await expect(practice.getByLabel("가상 터미널 명령어 입력")).toBeVisible();
+        await expect(practice.locator("strong").filter({ hasText: /^실행 환경:$/ })).toBeVisible();
+        await expect(practice.getByRole("heading", { name: "실행 환경", exact: true })).toHaveCount(0);
+        await expect(practice.getByRole("button", { name: "확인", exact: true })).toHaveCount(0);
+        const command = unit.practice.commands[0];
+        await practice.getByRole("button", { name: `${command} 복사`, exact: true }).click();
+        await expect(practice.getByRole("button", { name: `${command} 복사`, exact: true })).toHaveText("복사됨");
+        expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(command);
+      } else {
+        await expect(practice.getByLabel("가상 터미널 명령어 입력")).toHaveCount(0);
+        if (unit.id === "l1-u3") await expect(practice.locator(".learn-practice-job")).toHaveCount(3);
+        else {
+          await expect(practice.getByRole("textbox")).toHaveCount(unit.practice.steps.length);
+          await practice.getByRole("textbox").first().fill("실습 안내에 맞춰 검토한 내용");
+        }
+      }
+    }
+    await page.getByRole("button", { name: "학습센터로 돌아가기", exact: true }).click();
+  }
+  expect(errors).toEqual([]);
+});
+
+test("학습센터: 퀴즈 선택지·정답·오답·해설·결과는 같은 행 라벨 형식을 유지한다", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
+  const bank = questionBank(4);
+  const command = bank.find((q) => q.type === "multiple" && q.choices?.some((choice) => choice.text.includes(" — ")))!;
+  const ox = bank.find((q) => q.type === "ox")!;
+  const single = bank.find((q) => q.type === "single")!;
+  const questions = [command, ox, single];
+  await page.goto("/");
+  const levels = Object.fromEntries([1, 2, 3].map((level) => [String(level), passedLevelRecord(level, Date.UTC(2026, 9, 10, 12))]));
+  await seedLearnRecord(page, "current", { version: 1, levels, wrongAnswers: [], updatedAt: Date.now() });
+  await seedLearnRecord(page, "in-progress", {
+    attemptId: "inline-feedback-attempt", level: 4, startedAt: Date.now() - 1000,
+    questionIds: questions.map((q) => q.id),
+    choiceOrder: Object.fromEntries(questions.filter((q) => q.choices).map((q) => [q.id, q.choices!.map((choice) => choice.id)])),
+    answers: {}, currentIndex: 0, passScore: 80,
+    questionChecks: Object.fromEntries(questions.map((q) => [q.id, questionFingerprint(q)])),
+    savedAt: Date.now(), status: "in-progress",
+  });
+  await learn(page);
+  await page.getByRole("region", { name: "진행 중인 퀴즈", exact: true }).getByRole("button", { name: "이어서 응시하기", exact: true }).click();
+  await expect(page.locator(".learn-choice strong").first()).toHaveText("dir:");
+  await expect(page.locator(".learn-choice").first()).not.toContainText("—");
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.locator(".learn-question-card").scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `artifacts/learn/quiz-choices-${width}.png`, fullPage: true });
+  }
+  for (const id of command.correctChoiceIds!) {
+    await page.locator(".learn-choice").nth(command.choices!.findIndex((choice) => choice.id === id)).click();
+  }
+  await page.getByRole("button", { name: "다음", exact: true }).click();
+  await page.locator(".learn-ox").nth(ox.oxAnswer ? 1 : 0).click();
+  await page.getByRole("button", { name: "다음", exact: true }).click();
+  await page.locator(".learn-choice").nth(single.choices!.findIndex((choice) => !single.correctChoiceIds!.includes(choice.id))).click();
+  await page.getByRole("button", { name: "제출하기", exact: true }).click();
+  await page.getByRole("button", { name: "제출하고 채점하기", exact: true }).click();
+  const resultLabels = page.locator(".learn-note-prompt > strong");
+  await expect(resultLabels).toHaveText(["1번. 정답:", "2번. 오답:", "3번. 오답:"]);
+  await expect(page.locator(".learn-explanation > strong")).toHaveText(["해설:", "해설:", "해설:"]);
+  await expect(page.locator(".learn-result-fail > strong")).toHaveText("결과:");
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.locator(".learn-note-item").first().scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `artifacts/learn/quiz-feedback-${width}.png`, fullPage: true });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    for (const paragraph of await page.locator(".learn-note-prompt").all()) {
+      const style = await paragraph.evaluate((element) => ({ weight: getComputedStyle(element).fontWeight, labelDisplay: getComputedStyle(element.querySelector("strong")!).display }));
+      expect(style).toEqual({ weight: "400", labelDisplay: "inline" });
+    }
+  }
+  await page.getByRole("button", { name: "오답 노트 보기", exact: true }).click();
+  await expect(page.locator(".learn-note-prompt > strong")).toHaveText(["오답:", "오답:"]);
+  expect(errors).toEqual([]);
 });

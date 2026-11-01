@@ -9,8 +9,8 @@ export const CONTENT_L04: LearnContent = {
   units: [
     {
       id: "l4-u1",
-      title: "터미널 첫걸음 — PowerShell과 mkdir",
-      shortTitle: "터미널 첫걸음 — mkdir",
+      title: "터미널 첫걸음: PowerShell과 mkdir",
+      shortTitle: "터미널 첫걸음: mkdir",
       estimatedMinutes: 10,
       goal: "PowerShell이 무엇인지 설명하고 mkdir로 새 폴더를 만들 수 있다.",
       concepts: [
@@ -94,8 +94,8 @@ export const CONTENT_L04: LearnContent = {
     },
     {
       id: "l4-u2",
-      title: "폴더 사이를 이동하기 — cd와 경로",
-      shortTitle: "폴더 이동 — cd와 경로",
+      title: "폴더 사이를 이동하기: cd와 경로",
+      shortTitle: "폴더 이동: cd와 경로",
       estimatedMinutes: 12,
       goal: "cd와 cd ..로 폴더를 이동하고, 상대경로와 절대경로를 구분할 수 있다.",
       concepts: [
@@ -159,11 +159,11 @@ export const CONTENT_L04: LearnContent = {
             "깊은 폴더 구조에서는 클릭 이동이 번거롭고, 가끔 비슷한 이름의 다른 월 폴더로 잘못 들어가기도 했습니다.",
           lesson:
             "cd 명령과 경로를 알면 'cd 영업자료\\2026\\10월'처럼 한 번에 이동할 수 있습니다. " +
-            "상대경로는 짧게, 절대경로는 정확하게 — 상황에 맞게 고르는 것이 요령입니다.",
+            "상대경로는 짧게, 절대경로는 정확하게: 상황에 맞게 고르는 것이 요령입니다.",
         },
       ],
       practice: {
-        title: "실습 A — 폴더 생성과 이동",
+        title: "실습 A: 폴더 생성과 이동",
         steps: [
           "mkdir WorkLens 로 폴더를 만듭니다.",
           "cd WorkLens 로 그 안으로 이동합니다.",
@@ -199,8 +199,8 @@ export const CONTENT_L04: LearnContent = {
     },
     {
       id: "l4-u3",
-      title: "위치와 내용 확인 — pwd, Get-Location, dir, ls",
-      shortTitle: "위치·내용 확인 — pwd, dir, ls",
+      title: "위치와 내용 확인: pwd, Get-Location, dir, ls",
+      shortTitle: "위치·내용 확인: pwd, dir, ls",
       estimatedMinutes: 10,
       goal: "pwd(Get-Location)로 현재 경로를 확인하고 dir(ls)로 폴더 내용을 볼 수 있다.",
       concepts: [
@@ -285,7 +285,7 @@ export const CONTENT_L04: LearnContent = {
     },
     {
       id: "l4-u4",
-      title: "공백이 있는 이름 다루기 — 따옴표",
+      title: "공백이 있는 이름 다루기: 따옴표",
       shortTitle: "공백 있는 이름 다루기",
       estimatedMinutes: 10,
       goal: "공백이 포함된 폴더·파일 이름을 따옴표로 감싸 정확히 다룰 수 있다.",
@@ -414,7 +414,7 @@ export const CONTENT_L04: LearnContent = {
         },
       ],
       practice: {
-        title: "실습 D — 실패 상황에서 배우기",
+        title: "실습 D: 실패 상황에서 배우기",
         steps: [
           "cd 문서보고서 를 입력해 오류 메시지를 확인합니다. (없는 경로이므로 실패합니다)",
           "메시지를 천천히 읽고, dir 로 현재 폴더 목록을 확인합니다.",

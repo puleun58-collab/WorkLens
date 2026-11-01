@@ -64,7 +64,7 @@ export const CONTENT_L10: LearnContent = {
         },
       ],
       practice: {
-        title: "내 업무 5단계로 분해해 보기",
+        title: "내 업무 5~8단계로 분해해 보기",
         steps: [
           "반복되는 업무 하나를 골라 시작부터 끝까지의 단계를 순서대로 5~8개로 적는다.",
           "각 단계 옆에 판단 기준 4가지(빈도·규칙 명확성·판단 필요성·실패 리스크)를 간단히 메모한다.",
@@ -461,7 +461,7 @@ export const CONTENT_L10: LearnContent = {
     {
       id: "l10-u6",
       title: "종합 사례: 거래처별 운임 정산 자동화",
-      shortTitle: "종합 사례 — 운임 정산 자동화",
+      shortTitle: "종합 사례: 운임 정산 자동화",
       estimatedMinutes: 30,
       goal: "복합 실무 사례에 5단계 분석을 적용해 자동화 기획 수준의 판단 결과를 만들 수 있다.",
       concepts: [

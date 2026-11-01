@@ -12,6 +12,7 @@ import {
 } from "@/lib/learn/terminal";
 import type { TerminalStateSnapshot, TerminalSuccessCheck, TerminalTaskSpec } from "@/lib/learn/types";
 
+import { LearnSeparatedText } from "./LearnSeparatedText";
 interface VirtualTerminalProps {
   scenario: TerminalTaskSpec["scenario"];
   instructions: string[];
@@ -37,7 +38,7 @@ export function VirtualTerminal({ scenario, instructions, successChecks, hint, o
     }
     return initialStateForScenario(scenario);
   });
-  const [transcript, setTranscript] = useState<{ cmd: string; out: string[] }[]>(() => {
+  const [transcript, setTranscript] = useState<TerminalStateSnapshot["transcript"]>(() => {
     if (initialSnapshot) {
       const restored = deserializeTerminalState(initialSnapshot);
       if (restored) return restored.transcript;
@@ -59,7 +60,7 @@ export function VirtualTerminal({ scenario, instructions, successChecks, hint, o
     const cmd = raw.trim();
     if (!cmd) return;
     const { state, output } = executeCommand(termState, cmd);
-    const nextTranscript = [...transcript, { cmd, out: output }];
+    const nextTranscript = [...transcript, { cmd, out: output, cwd: termState.cwd }];
     setTermState(state);
     setTranscript(nextTranscript);
     setChecked(null);
@@ -78,22 +79,28 @@ export function VirtualTerminal({ scenario, instructions, successChecks, hint, o
   return (
     <div className="learn-terminal-block">
       {practiceMode ? (
-        <p className="learn-muted">
-          <small><strong>연습 모드</strong> — 여기서 연습한 결과는 점수에 반영되지 않습니다.</small>
+        <p className="learn-practice-guidance learn-muted">
+          <strong>연습 모드:</strong> 여기서 연습한 결과는 점수에 반영되지 않습니다.
         </p>
       ) : null}
-      <ol className="learn-terminal-steps">
-        {instructions.map((step, i) => (
-          <li key={i}>{step}</li>
-        ))}
-      </ol>
+      <div className="learn-practice-guidance">
+        {practiceMode ? (
+          <p><strong>학습 안내:</strong> {instructions.join(" ")}</p>
+        ) : (
+          <ol className="learn-terminal-steps">
+            {instructions.map((step, i) => (
+              <li key={i}>{i === 0 ? <><strong>실습 방법:</strong> </> : null}<LearnSeparatedText text={step} /></li>
+            ))}
+          </ol>
+        )}
+      </div>
       <div className="learn-terminal" role="region" aria-label="가상 터미널">
         <div className="learn-terminal-output" ref={outputRef} aria-live="polite">
           {transcript.map((entry, i) => (
             <div key={i}>
               {entry.cmd ? (
                 <div>
-                  <span className="learn-terminal-prompt">PS {termState.cwd}&gt;</span> {entry.cmd}
+                  <span className="learn-terminal-prompt">{entry.cwd ? `PS ${entry.cwd}>` : "PS>"}</span> {entry.cmd}
                 </div>
               ) : null}
               {entry.out.map((line, j) => (
@@ -118,20 +125,22 @@ export function VirtualTerminal({ scenario, instructions, successChecks, hint, o
           />
         </div>
       </div>
-      {hint ? <p className="learn-muted"><small>힌트: {hint}</small></p> : null}
-      <div className="learn-actions">
-        <Button type="button" variant="outline" onClick={() => run(input)} disabled={!input.trim()}>
-          실행
-        </Button>
-        {practiceMode ? null : (
-          <Button type="button" variant="default" onClick={check}>
-            과제 완료 확인
+      <div className="learn-terminal-footer">
+        {hint ? <p className="learn-terminal-hint learn-muted"><small><strong>힌트:</strong> {hint}</small></p> : null}
+        <div className="learn-terminal-actions">
+          <Button type="button" variant="outline" onClick={() => run(input)} disabled={!input.trim()}>
+            실행
           </Button>
-        )}
+          {practiceMode ? null : (
+            <Button type="button" variant="default" onClick={check}>
+              확인
+            </Button>
+          )}
+        </div>
       </div>
       {checked !== null ? (
         <p role="status" className={checked ? "learn-result-pass" : "learn-result-fail"}>
-          {checked ? "과제 성공! 요구한 상태가 모두 확인되었습니다." : "아직 성공 조건을 만족하지 못했습니다. instructions를 다시 확인해 보세요."}
+          {checked ? <><strong>과제 성공:</strong> 요구한 상태가 모두 확인되었습니다.</> : <><strong>확인 결과:</strong> 아직 성공 조건을 만족하지 못했습니다. 실습 방법을 다시 확인해 보세요.</>}
         </p>
       ) : null}
     </div>

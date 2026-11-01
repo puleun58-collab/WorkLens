@@ -20,8 +20,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { levelMeta } from "@/lib/learn/curriculum";
 import { levelContent } from "@/lib/learn/content";
+import { practiceInputKind } from "@/lib/learn/practice";
 import type { LearnLevelNo, LearnProgress, TerminalStateSnapshot, TerminalTaskSpec } from "@/lib/learn/types";
 import { VirtualTerminal } from "./VirtualTerminal";
+import { RepetitiveJobsPractice, WritingPractice } from "./LearnPractice";
+import { LearnSeparatedText } from "./LearnSeparatedText";
 
 /** 명령어 복사 버튼 — 클립보드 API 실패 시 폴백 */
 function CopyCommandButton({ command }: { command: string }) {
@@ -73,6 +76,7 @@ export function LearnLesson({ level, initialUnitId, progress, onPersistUnit, pra
   const unit = content.units[unitIdx];
   const totalUnits = content.units.length;
   const passed = progress.levels[level]?.passed ?? false;
+  const inputKind = unit ? practiceInputKind(unit) : "writing";
 
   const goUnit = (idx: number) => {
     if (idx < 0 || idx >= totalUnits) return;
@@ -164,25 +168,25 @@ export function LearnLesson({ level, initialUnitId, progress, onPersistUnit, pra
           <Clock3 /> 예상 소요 {unit.estimatedMinutes}분
         </span>
         <span>
-          <Target /> 학습 목표: {unit.goal}
+          <Target /> <strong>학습 목표:</strong> {unit.goal}
         </span>
       </p>
 
-      <section className="learn-card" aria-label="핵심 개념">
+      <section className="learn-card learn-card-aligned" aria-label="핵심 개념">
         <h4 className="learn-card-title">
           <BookOpen /> 핵심 개념
         </h4>
         <div className="learn-card-body">
           {unit.concepts.length > 0 ? (
             <p className="learn-concept-lead">
-              <strong>{unit.concepts[0].term}</strong> — {unit.concepts[0].definition}
+              <strong>{unit.concepts[0].term}:</strong> {unit.concepts[0].definition}
             </p>
           ) : null}
           {unit.concepts.length > 1 ? (
             <ul className="learn-bullet-list">
               {unit.concepts.slice(1).map((c) => (
                 <li key={c.term}>
-                  <strong>{c.term}</strong> — {c.definition}
+                  <strong>{c.term}:</strong> {c.definition}
                 </li>
               ))}
             </ul>
@@ -190,7 +194,7 @@ export function LearnLesson({ level, initialUnitId, progress, onPersistUnit, pra
         </div>
       </section>
 
-      <section className="learn-card" aria-label="왜 알아야 할까요?">
+      <section className="learn-card learn-card-aligned" aria-label="왜 알아야 할까요?">
         <h4 className="learn-card-title">
           <Lightbulb /> 왜 알아야 할까요?
         </h4>
@@ -199,7 +203,7 @@ export function LearnLesson({ level, initialUnitId, progress, onPersistUnit, pra
         </div>
       </section>
 
-      <section className="learn-card" aria-label="실제 사용 상황">
+      <section className="learn-card learn-card-aligned" aria-label="실제 사용 상황">
         <h4 className="learn-card-title">
           <Users /> 실제 사용 상황
         </h4>
@@ -210,7 +214,7 @@ export function LearnLesson({ level, initialUnitId, progress, onPersistUnit, pra
                 <span className="learn-check" aria-hidden="true">
                   <Check />
                 </span>
-                <span>{s}</span>
+                <span><LearnSeparatedText text={s} /></span>
               </li>
             ))}
           </ul>
@@ -218,7 +222,7 @@ export function LearnLesson({ level, initialUnitId, progress, onPersistUnit, pra
       </section>
 
       {unit.comparisons && unit.comparisons.length > 0 ? (
-        <section className="learn-card" aria-label="비슷한 개념과 차이">
+        <section className="learn-card learn-card-aligned" aria-label="비슷한 개념과 차이">
           <h4 className="learn-card-title">
             <GitCompare /> 비슷한 개념과 차이
           </h4>
@@ -227,9 +231,11 @@ export function LearnLesson({ level, initialUnitId, progress, onPersistUnit, pra
               {unit.comparisons.map((c, i) => (
                 <li key={i}>
                   <strong>
-                    {c.a} vs {c.b}
+                    {c.a} vs {c.b}:
                   </strong>{" "}
-                  — {c.difference}
+                  {c.difference.split(/ (?=명확한 지시: |좋은 보고: |올바른 사용: )/u).map((part, index) => (
+                    <span key={index}>{index > 0 ? " " : null}<LearnSeparatedText text={part} /></span>
+                  ))}
                 </li>
               ))}
             </ul>
@@ -238,16 +244,15 @@ export function LearnLesson({ level, initialUnitId, progress, onPersistUnit, pra
       ) : null}
 
       {unit.cases && unit.cases.length > 0 ? (
-        <section className="learn-card" aria-label="실무 사례">
+        <section className="learn-card learn-card-aligned" aria-label="실무 사례">
           <h4 className="learn-card-title">
             <Briefcase /> 실무 사례
           </h4>
           <div className="learn-card-body">
             {unit.cases.map((c, i) => (
               <div className="learn-case-block" key={i}>
-                <p className="learn-case-title">{c.title}</p>
-                <p>{c.situation}</p>
-                <p className="learn-muted">{c.lesson}</p>
+                <p><strong>{c.title}:</strong> {c.situation}</p>
+                <p className="learn-muted"><LearnSeparatedText text={c.lesson} /></p>
               </div>
             ))}
           </div>
@@ -255,26 +260,31 @@ export function LearnLesson({ level, initialUnitId, progress, onPersistUnit, pra
       ) : null}
 
       {unit.practice ? (
-        <section className="learn-card" aria-label={`실습 — ${unit.practice.title}`}>
+        <section className="learn-card learn-card-aligned" aria-label={`실습: ${unit.practice.title}`}>
           <h4 className="learn-card-title">
-            <SquareTerminal /> 실습 — {unit.practice.title}
+            {inputKind === "terminal" ? <SquareTerminal /> : <NotebookPen />} <strong>실습:</strong> {unit.practice.title}
           </h4>
           <div className="learn-card-body">
-            <p className="learn-muted">
-              <small>
-                실행 환경: Windows PowerShell · 실제 시스템에는 영향을 주지 않는 가상 터미널입니다. 명령어를
-                가상 터미널에 직접 입력해 연습해 보세요.
-              </small>
-            </p>
-            <ol>
-              {unit.practice.steps.map((s, i) => (
-                <li key={i}>{s}</li>
-              ))}
-            </ol>
+            {inputKind === "terminal" ? (
+              <div className="learn-practice-guidance">
+                <p><strong>실행 환경:</strong> Windows PowerShell <span className="learn-muted">실제 시스템에는 영향을 주지 않는 가상 터미널입니다. 명령어를 가상 터미널에 직접 입력해 연습해 보세요.</span></p>
+              </div>
+            ) : (
+              <div className="learn-practice-guidance">
+                <p className="learn-muted"><strong>연습 모드:</strong> 작성형 연습이며, 점수에 반영되지 않습니다.</p>
+              </div>
+            )}
+            {inputKind !== "writing" ? (
+              <div className="learn-practice-guidance">
+                <ol className="learn-practice-steps">
+                  {unit.practice.steps.map((step, index) => <li key={index}>{index === 0 ? <><strong>실습 방법:</strong>{" "}</> : null}<LearnSeparatedText text={step} /></li>)}
+                </ol>
+              </div>
+            ) : null}
             {unit.practice.commands && unit.practice.commands.length > 0 ? (
               <div className="learn-command-box">
                 <p>
-                  <small className="learn-muted">명령어 예시 (복사해서 가상 터미널에 붙여넣을 수 있습니다)</small>
+                  <small className="learn-muted"><strong>명령어 예시:</strong> 복사해서 가상 터미널에 붙여넣을 수 있습니다</small>
                 </p>
                 {unit.practice.commands.map((cmd, i) => (
                   <div key={i} className="learn-command-row">
@@ -284,18 +294,26 @@ export function LearnLesson({ level, initialUnitId, progress, onPersistUnit, pra
                 ))}
               </div>
             ) : null}
-            <PracticeTerminal
-              level={level}
-              unitId={unit.id}
-              practiceTitle={unit.practice.title}
-              practiceStates={practiceStates}
-              onPracticeStateChange={onPracticeStateChange}
-            />
+            {inputKind === "terminal" ? (
+              <PracticeTerminal
+                level={level}
+                unitId={unit.id}
+                practiceTitle={unit.practice.title}
+                practiceStates={practiceStates}
+                onPracticeStateChange={onPracticeStateChange}
+              />
+            ) : inputKind === "repetitive-jobs" ? (
+              <RepetitiveJobsPractice key={unit.id} />
+            ) : (
+              <div className="learn-practice-guidance">
+                <WritingPractice key={unit.id} steps={unit.practice.steps} />
+              </div>
+            )}
           </div>
         </section>
       ) : null}
 
-      <section className="learn-card learn-card-danger" aria-label="자주 발생하는 실수">
+      <section className="learn-card learn-card-danger learn-card-aligned" aria-label="자주 발생하는 실수">
         <h4 className="learn-card-title">
           <TriangleAlert /> 자주 발생하는 실수
         </h4>
@@ -303,8 +321,7 @@ export function LearnLesson({ level, initialUnitId, progress, onPersistUnit, pra
           <div className="learn-mistake-grid">
             {unit.mistakes.map((m, i) => (
               <div className="learn-mistake-card" key={i}>
-                <p className="learn-mistake-title">{m.mistake}</p>
-                <p>{m.why}</p>
+                <p><strong>{m.mistake}:</strong> {m.why}</p>
                 <p>
                   <strong>이렇게 이해하세요:</strong> {m.fix}
                 </p>
@@ -314,14 +331,14 @@ export function LearnLesson({ level, initialUnitId, progress, onPersistUnit, pra
         </div>
       </section>
 
-      <section className="learn-card learn-card-info" aria-label="핵심 요약">
+      <section className="learn-card learn-card-info learn-card-aligned" aria-label="핵심 요약">
         <h4 className="learn-card-title">
           <NotebookPen /> 핵심 요약
         </h4>
         <div className="learn-card-body">
           <ul className="learn-bullet-list">
             {unit.summary.map((s, i) => (
-              <li key={i}>{s}</li>
+              <li key={i}><LearnSeparatedText text={s} /></li>
             ))}
           </ul>
         </div>
@@ -364,7 +381,7 @@ function PracticeTerminal({
 }) {
   // l5-u4 실습(원격 변경 가져오기)은 원격보다 뒤처진 저장소 상태에서 시작해야 지시대로 수행할 수 있다
   const scenario: TerminalTaskSpec["scenario"] =
-    level === 5 ? (unitId === "l5-u4" ? "git-remote" : "git-basic") : "folder-nav";
+    level === 5 ? (unitId === "l5-u1" ? "folder-nav" : unitId === "l5-u4" ? "git-remote" : "git-basic") : "folder-nav";
   const stateKey = `${level}:${unitId}`;
   const instructions = [
     `아래 가상 터미널에서 '${practiceTitle}' 단계를 직접 연습해 보세요.`,

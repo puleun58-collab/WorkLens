@@ -1113,12 +1113,14 @@ export function ResearchResult({ data, request, expandSources = false, onExpandS
   const criteriaArticles = (data.enrichment?.supplement?.articles ?? []).filter((article) =>
     criteriaAnnexes.some((annex) => annex.sourceArticle === article.jo && sameLawFamily(annex.law, article.law)));
   const criteriaOriginalConfirmed = criteriaAnnexes.some((annex) => annex.status === "verified" && Boolean(annex.text));
+  const selectedCriteriaAnnex = criteriaAnnexes.find((annex) => annex.status === "verified" && annex.text) ?? criteriaAnnexes[0];
   const taskItems: Array<TaskEvidenceItem & { references: (TaskEvidenceArticle | TaskEvidenceBodyRef)[] }> = [
     ...(taskEvidence?.items.map((item) => ({ ...item, references: taskEvidenceReferences(item) })) ?? []),
     ...(data.task === "action_basis" && criteriaAnnexes.length > 0
       && !taskEvidence?.items.some((item) => item.label === "세부 기준(별표)") ? [{
         label: "세부 기준(별표)", title: taskEvidence?.items.some((item) => item.label === "처분·허가 근거" && item.title?.includes("처분")) ? "세부 처분 기준" : "세부 기준", optional: true,
         status: criteriaOriginalConfirmed ? "found" as const : "viewed" as const,
+        summary: `${selectedCriteriaAnnex.law} ${selectedCriteriaAnnex.sourceArticle}·${selectedCriteriaAnnex.label} · ${criteriaOriginalConfirmed ? "개별 적용 미확정" : "별표 원문 미확보"}`,
         references: criteriaArticles.map((article) => ({ law: article.law, jo: article.jo, title: article.title, excerpt: article.excerpt })),
       }] : []),
   ];
@@ -1237,6 +1239,37 @@ export function ResearchResult({ data, request, expandSources = false, onExpandS
         <a className="research-meta" href={lawSourceUrl(article.law, article.jo)} target="_blank" rel="noreferrer">법제처 원문 보기</a></>}
     </li>
   );
+  const directEvidence = evidenceRows.filter((row) => sourceRole(row) === "직접 관련 근거");
+  const otherEvidence = evidenceRows.filter((row) => sourceRole(row) !== "직접 관련 근거");
+  const directAnnexes = (data.annexes ?? []).filter((annex) => annex.relevance === "direct");
+  const otherAnnexes = (data.annexes ?? []).filter((annex) => annex.relevance !== "direct");
+  const evidenceRow = (article: (typeof evidenceRows)[number], index: number) => {
+    const excerpt = readerText(article.excerpt);
+    const expression = article.links.find((link) => link.expression)?.expression;
+    return <li key={`${article.law}-${article.jo}-${article.effective ?? ""}-${index}`}>
+      <span className="research-meta">{sourceRole(article)}</span>
+      <strong>{articleHeadingText(article.law, article.jo, article.title)}</strong>
+      {article.links.length > 0 && <span className="research-meta">{[...new Set(article.links.map((link) => link.label))].join(" · ")}</span>}
+      {expression && expression !== excerpt && <span className="research-meta">{expression}</span>}
+      {(article.effective || article.source) && <span className="research-meta">{article.effective ? `시행 ${formatDate(article.effective)}` : ""}{article.effective && article.source ? " · " : ""}
+        {article.source && <a href={article.source} target="_blank" rel="noreferrer">법제처 원문 보기</a>}</span>}
+      {excerpt && <details className="law-detail-source research-more">
+        <SourceToggleSummary label="조문 원문 보기" openLabel="조문 원문 접기" />
+        <LawTextBlock className="legal-analysis-lines" text={excerpt} />
+        {mcpTruncated(excerpt) && <p className="research-meta">중략된 발췌입니다. 조문 전문은 법제처에서 확인하세요.</p>}
+      </details>}
+    </li>;
+  };
+  const annexRow = (annex: NonNullable<typeof data.annexes>[number], index: number) => <li key={`${annex.law}-${annex.label}-${index}`}>
+    <strong>{annex.law} {annex.label}{annex.title ? ` (${annex.title})` : ""}</strong>
+    <span className="research-meta">{annex.relevance === "direct" ? "세부 처분 기준" : "참고 별표 · 직접 관련성 미확인"} · {annex.status === "verified" && annex.text ? "원문 확보" : annex.status === "failed" ? "조회 실패" : annex.status === "identified" ? "원문 일부 확인" : "세부 기준 원문 미확인"} · {annex.sourceArticle} 인용</span>
+    {annex.citation && !annex.text && <span className="research-meta">{annex.citation}</span>}
+    {annex.url && <a className="research-meta" href={annex.url} target="_blank" rel="noreferrer">법제처 원문 보기</a>}
+    {annex.text && <details className="law-detail-source research-more">
+      <SourceToggleSummary label="별표 원문 보기" openLabel="별표 원문 접기" />
+      <AnnexOriginal text={annex.text} />
+    </details>}
+  </li>;
   return <div ref={resultRef} className="legal-analysis-output" data-task={data.task}>
     <ResearchResultSummary label={LAW_RESEARCH_TASKS.find((item) => item.value === data.task)?.label} badge={confirmationGap ? { tone: "warning", label: confirmationGap.badge } : STATUS_BADGE[status]} status={status} title={confirmationGap?.title ?? STATUS_TITLE[status]}
       caution={status === "matched" || status === "partial" || status === "viewed" || (status === "weak" && !full && !comparison)
@@ -1326,7 +1359,7 @@ export function ResearchResult({ data, request, expandSources = false, onExpandS
               <span className="research-issue-label"><span className="research-issue-number">{String(index + 1).padStart(2, "0")}</span>{item.label}{item.optional ? <span className="research-meta"> (참고)</span> : null}</span>
               <span className="research-issue-status" data-status={item.status}>{(lawTier ? LAW_TIER_LABEL : LAW_SYSTEM_TIER_LABEL)[item.status]}</span>
               {lawTier && <span className="research-meta">{[item.detail, ...askedLawArticles].filter(Boolean).join(" · ")}{askedLawRefs.length === 0 && askedLawArticles.length > 0 ? " · 해당 조항 원문 미확인" : ""}</span>}
-              {!lawTier && <span className="research-meta">{summary}{item.articles?.some((article) => article.relation === "citation") ? ` · 관련 규정: ${item.articles.filter((article) => article.relation === "citation").map((article) => article.jo).join(" · ")}` : ""}</span>}
+              {!lawTier && <span className="research-meta">{summary}{item.articles?.some((article) => article.relation === "citation") ? ` · 단순 관련 규정 (직접 위임 미확인): ${item.articles.filter((article) => article.relation === "citation").map((article) => article.jo).join(" · ")}` : ""}</span>}
             </li>;
           }
           // Same rule for the other tasks: label + status at the top, and
@@ -1335,10 +1368,10 @@ export function ResearchResult({ data, request, expandSources = false, onExpandS
           // not shown next to a provision list that lives below).
           return <li key={`${item.label}-${index}`}>
             <span className="research-issue-label"><span className="research-issue-number">{String(index + 1).padStart(2, "0")}</span>{item.title ?? item.label}{item.optional ? <span className="research-meta"> (참고)</span> : null}</span>
-            <span className="research-issue-status" data-status={item.status}>{item.label === "세부 기준(별표)" && !criteriaOriginalConfirmed ? "별표 원문 미확보" : TASK_EVIDENCE_LABEL[item.status]}</span>
-            {item.answer && <span className="research-meta research-task-answer">{item.answer}</span>}
-            {item.uncertainty && <span className="research-meta">{item.uncertainty}</span>}
-            {!item.answer && item.detail && <span className="research-meta">{item.detail}</span>}
+            <span className="research-issue-status" data-status={item.status}>{item.label === "세부 기준(별표)" && item.status === "viewed" ? "별표 원문 미확보" : TASK_EVIDENCE_LABEL[item.status]}</span>
+            {(data.task === "action_basis" ? item.summary : item.answer) && <span className="research-meta research-task-answer">{data.task === "action_basis" ? item.summary : item.answer}</span>}
+            {(!item.summary || data.task !== "action_basis") && item.uncertainty && <span className="research-meta">{item.uncertainty}</span>}
+            {!item.summary && !item.answer && item.detail && <span className="research-meta">{item.detail}</span>}
           </li>;
         })}</ul>
       </div>}
@@ -1525,38 +1558,11 @@ export function ResearchResult({ data, request, expandSources = false, onExpandS
     </section>}
     {unifiedTask && (evidenceRows.length > 0 || (data.annexes?.length ?? 0) > 0) && <section className="research-group research-task-sources" aria-label="상세 근거">
       <h3>상세 근거</h3>
-      <ul className="research-hits">{evidenceRows.map((article, index) => {
-        const excerpt = readerText(article.excerpt);
-        const brief = article.links.find((link) => link.expression)?.expression
-          ?? (excerpt.length > 180 ? `${excerpt.slice(0, 160).trimEnd()}…` : excerpt);
-        return <li key={`${article.law}-${article.jo}-${article.effective ?? ""}-${index}`}>
-          <span className="research-meta">{sourceRole(article)}</span>
-          <strong>{articleHeadingText(article.law, article.jo, article.title)}</strong>
-          {article.links.length > 0 && <span className="research-meta">관련 검토 항목: {article.links.map((link) =>
-            `${link.label} (${link.role} · ${link.label === "세부 처분 기준" && !criteriaOriginalConfirmed ? "원문 미확보" : isLawSystem && link.role !== "직접 위임관계" && link.status === "found" ? "원문 확인 · 직접 위임관계 미확인" : (isLawSystem ? LAW_SYSTEM_TIER_LABEL : TASK_EVIDENCE_LABEL)[link.status]})`).join(" · ")}</span>}
-          {article.links.length === 0 && sourceRole(article) === "추가 조회 자료" && <span className="research-meta">추가 조회 자료 · 직접 근거 채택 여부 미확인</span>}
-          {brief && <span className="research-meta">확인 문언: {brief}</span>}
-          <span className="research-meta">{article.effective ? `출처 시행일 ${formatDate(article.effective)}` : "시행 기준 미확인"}</span>
-          {mcpTruncated(excerpt) && excerpt.length <= 180 && <span className="research-meta">중략된 발췌입니다. 조문 전문은 법제처에서 확인하세요.</span>}
-          {article.source && <span className="research-meta">공식 출처 · <a href={article.source} target="_blank" rel="noreferrer">법제처 원문 보기</a></span>}
-          {excerpt.length > 180 && <details className="law-detail-source research-more">
-            <SourceToggleSummary label="조문 원문 보기" openLabel="조문 원문 접기" />
-            <LawTextBlock className="legal-analysis-lines" text={excerpt} />
-            {mcpTruncated(excerpt) && <p className="research-meta">중략된 발췌입니다. 조문 전문은 법제처에서 확인하세요.</p>}
-          </details>}
-        </li>;
-      })}
-      {(data.annexes ?? []).map((annex, index) => <li key={`${annex.law}-${annex.label}-${index}`}>
-        <strong>{annex.law} {annex.label}{annex.title ? ` (${annex.title})` : ""}</strong>
-        <span className="research-meta">{annex.relevance === "direct" ? "관련 검토 항목: 세부 처분 기준" : "참고 별표 · 직접 관련성 미확인"} · {annex.status === "verified" && annex.text ? "원문 확보" : annex.status === "failed" ? "조회 실패" : annex.status === "identified" ? "원문 일부 확인" : "세부 기준 원문 미확인"}</span>
-        <span className="research-meta">법적 역할: {annex.sourceArticle}가 인용하는 세부 기준{annex.relevance !== "direct" ? " (직접 관련성 미확인)" : ""}</span>
-        {annex.citation && <span className="research-meta">확인 문언: {annex.citation}</span>}
-        {annex.url && <span className="research-meta">공식 출처 · <a href={annex.url} target="_blank" rel="noreferrer">법제처 원문 보기</a></span>}
-        {annex.text && <details className="law-detail-source research-more">
-          <SourceToggleSummary label="별표 원문 보기" openLabel="별표 원문 접기" />
-          <AnnexOriginal text={annex.text} />
-        </details>}
-      </li>)}</ul>
+      <ul className="research-hits">{directEvidence.map(evidenceRow)}{directAnnexes.map(annexRow)}</ul>
+      {(otherEvidence.length > 0 || otherAnnexes.length > 0) && <details className="law-detail-source research-more research-supporting-sources">
+        <SourceToggleSummary label={`보충·추가 조회 자료 (${otherEvidence.length + otherAnnexes.length}건) 보기`} openLabel="보충·추가 조회 자료 접기" />
+        <ul className="research-hits">{otherEvidence.map(evidenceRow)}{otherAnnexes.map(annexRow)}</ul>
+      </details>}
     </section>}
     {/* "절차 항목별 근거" section removed: step excerpts moved into the
       01 steps block above, step/form refs now jump straight to the

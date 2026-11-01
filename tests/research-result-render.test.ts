@@ -32,7 +32,7 @@ it("shows source-grounded direct answers above one detailed original per provisi
   const summary = html.slice(0, html.indexOf('aria-label="상세 근거"'));
   expect(summary).toContain("식품위생법 제75조");
   expect(summary).toContain("6개월 이내");
-  expect(summary).toContain("위반행위와 영업 종류가 특정되지 않으면");
+  expect(summary).toContain("개별 적용 미확정");
   expect(summary).not.toContain("처분 권한과 법정 사유의 근거 문언을 확인했습니다");
   expect(html).not.toContain("상세 검증 내용 보기");
 });
@@ -41,10 +41,28 @@ it("distinguishes the two directly delegated articles from citations in the summ
   const lawSystem = assessLawSystem(privacy.text, privacy.query);
   const html = render({ found: true, task: "law_system", text: privacy.text, markers: [], lawSystem });
   const summary = html.slice(0, html.indexOf('aria-label="상세 근거"'));
-  expect(summary).toContain("직접 위임관계: 제47조");
-  expect(summary).toContain("제45조");
-  expect(summary).not.toContain("직접 위임관계: 제42조의8");
-  expect(summary).toMatch(/관련 규정:[^<]*제42조의8/u);
+  expect(summary).toContain("법 제38조 제3항 → 시행령 제47조: 수수료·우송료 관련 사항");
+  expect(summary).toContain("법 제38조 제1항 → 시행령 제45조: 대리인 관련 사항");
+  expect(summary).not.toContain("→ 시행령 제42조의8");
+  expect(summary).toMatch(/단순 관련 규정[^<]*제42조의8/u);
+});
+
+it("keeps the overview short and folds supporting sources and originals once", () => {
+  const actionBasis = assessActionBasis(food.query, food.text, food.enrichment as Parameters<typeof assessActionBasis>[2], []);
+  const html = render({ found: true, task: "action_basis", text: food.text, markers: [], actionBasis });
+  const top = html.slice(0, html.indexOf('aria-label="상세 근거"'));
+  const lower = html.slice(html.indexOf('aria-label="상세 근거"'), html.indexOf('class="law-detail-source research-source"'));
+  expect(top).toContain("제75조 제1항 각 호");
+  expect(top).not.toContain("해당 위반 항목:");
+  expect(top).not.toContain("제82조");
+  expect(lower).toContain('class="law-detail-source research-more research-supporting-sources"');
+  expect(lower).toContain("제75조");
+  expect(lower).toContain("제82조");
+  expect(lower).toContain("조문 원문 보기");
+  expect(lower).toContain("법제처 원문 보기");
+  expect(lower).not.toContain("관련 검토 항목:");
+  expect(lower).not.toContain("확인 문언:");
+  expect(lower).not.toContain("공식 출처 ·");
 });
 
 describe("research result source structure", () => {
@@ -61,7 +79,7 @@ describe("research result source structure", () => {
     expect(lower).toContain("영업정지 처분을 할 수 있다.");
     expect(lower).toContain("법제처 원문 보기");
     expect(html).toContain("위반행위와 영업 종류가 특정되지 않으면");
-    expect(lower).toContain("관련 검토 항목: 처분 근거");
+    expect(lower).toContain("직접 관련 근거");
   });
 
   it("separates an identified disposition table from confirmed law and conditions", () => {
@@ -79,8 +97,7 @@ describe("research result source structure", () => {
     expect(top).not.toContain("식품위생법 시행규칙 별표 23");
     expect(top).toContain("별표 원문 미확보");
     expect(sources.match(/식품위생법 제75조/gu)).toHaveLength(1);
-    expect(sources).toContain("처분 근거 (법적 근거 · 근거 확인)");
-    expect(sources).toContain("적용 요건 (요건 문언 · 근거 확인)");
+    expect(sources).toContain("처분 근거 · 적용 요건");
     expect(sources).toContain("별표 23");
     expect(sources).toContain("원문 일부 확인");
     expect(html).toContain("세부 처분 기준");
@@ -163,7 +180,7 @@ describe("research result source structure", () => {
     const lowerStart = html.indexOf(task === "law_system" ? 'aria-label="상세 근거"' : 'aria-label="항목별 법적 근거"');
     const top = html.slice(0, lowerStart);
     expect(top).toContain("직접 위임관계 미확인");
-    expect(top).toContain("관련 규정: 제40조 · 제41조");
+    expect(top).toContain("단순 관련 규정 (직접 위임 미확인): 제40조 · 제41조");
     expect(top).not.toContain("제42조");
     expect(html).toContain("위임관계 확인 필요");
     const lower = html.slice(lowerStart);
@@ -348,7 +365,7 @@ describe("research result source structure", () => {
     const sources = html.slice(html.indexOf('aria-label="상세 근거"'), html.indexOf('class="law-detail-source research-source"'));
     expect(sources.match(/근로기준법 제23조/gu)).toHaveLength(1);
     expect(sources).toContain("근로기준법 제24조");
-    expect(sources).toContain("관련 검토 항목: 처분·허가 근거");
+    expect(sources).toContain("처분·허가 근거");
   });
 
   it("preserves an ellipsis-cut excerpt as unconfirmed source text", () => {
@@ -357,7 +374,7 @@ describe("research result source structure", () => {
     ] } });
     const lower = html.slice(html.indexOf('aria-label="상세 근거"'));
     expect(lower).toContain("① 일부 발췌 …");
-    expect(lower).toContain("자료 조회");
+    expect(lower).toContain("보충 근거");
     expect(lower).not.toContain("원문 확보");
   });
 });
