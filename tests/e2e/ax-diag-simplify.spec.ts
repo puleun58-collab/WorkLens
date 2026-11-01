@@ -95,7 +95,8 @@ test("AX 진단 간소화: 통합 규칙 인라인 추가·아코디언 초안 �
   await expect(newRow.getByText("신규", { exact: true })).toBeVisible();
   await expect(unified.locator(".ax-decision-row").last()).toHaveAttribute("id", "ax-rule-new");
   // 필수 항목 없이 추가하면 기본 입력 영역에서 바로 오류를 표시한다. 확정 상태는 처음부터 미확정이다.
-  await expect(newRow.getByRole("combobox", { name: "확정 상태" })).toHaveText("미확정");
+  await expect(newRow.getByRole("combobox", { name: "확정 상태" })).toHaveCount(0);
+  await expect(newRow.getByRole("button", { name: "이 규칙 확정", exact: true })).toHaveCount(0);
   await expect(newRow.getByRole("combobox", { name: "업무 적용 여부" })).toHaveText("선택하세요");
   await newRow.getByRole("button", { name: "추가", exact: true }).click();
   await expect(newRow.getByText("규칙명을 입력하세요")).toBeVisible();
@@ -168,7 +169,7 @@ test("AX 진단 간소화: 매트릭스 상세 카드 제거·Factor 근거는 �
   await expect(page.getByRole("region", { name: "단계별 자동화 판단", exact: true })).toBeVisible();
 });
 
-test("AX 진단 간소화: 모바일 390에서 인라인 규칙 추가·범용 패널·상세 설정이 1열이고 가로 넘침이 없다", async ({ page }) => {
+test("AX 진단 간소화: 모바일 390에서 인라인 규칙 추가·범용 패널에 가로 넘침이 없다", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await registerAndDiagnose(page, "운송장 검증", "운송장 데이터를 입력받아 누락·중복을 검사하고 검증 결과를 출력한다.");
   const unified = page.locator('section[aria-label="업무 규칙 확인"]');
@@ -181,10 +182,9 @@ test("AX 진단 간소화: 모바일 390에서 인라인 규칙 추가·범용 �
   expect(head).toEqual({ order: true, right: true, narrow: true });
   await unified.getByRole("button", { name: "+ 규칙 추가", exact: true }).click();
   const newRow = unified.locator("#ax-rule-new");
-  await newRow.getByRole("button", { name: "추가 정보 (선택)" }).click();
-  const grid = newRow.locator(".ax-rule-details-grid");
-  await expect(grid).toBeVisible();
-  expect(await grid.evaluate(element => getComputedStyle(element).gridTemplateColumns.split(" ").length)).toBe(1);
+  await expect(newRow.getByRole("button", { name: "추가 정보 (선택)" })).toHaveCount(0);
+  await chooseOption(newRow, "업무 적용 여부", "적용");
+  await expect(newRow.getByRole("button", { name: "이 규칙 확정", exact: true })).toBeDisabled();
   let overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
   await newRow.getByRole("button", { name: "취소", exact: true }).click();

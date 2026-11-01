@@ -1,4 +1,5 @@
-import { expect, type Locator } from "@playwright/test";
+import type { Locator } from "@playwright/test";
+import { expect } from "@playwright/test";
 
 /** 업무 규칙 확인의 COSS 선택창(combobox)에서 항목을 고른다. */
 export async function chooseOption(scope: Locator, label: string | RegExp, option: string) {
@@ -8,8 +9,8 @@ export async function chooseOption(scope: Locator, label: string | RegExp, optio
   await expect(trigger).toContainText(option);
 }
 
-/** "+ 규칙 추가"로 목록 맨 아래 인라인 신규 항목을 열고 규칙명·분류·업무 적용 여부·처리 기준·확정 상태를
- * 채워 "추가"한다. applicability "적용 여부 미확정"은 미선택("선택하세요") 그대로 둔다. */
+/** 인라인 규칙을 추가한다. 적용한 규칙만 처리 기준을 작성하고 버튼으로 확정한다.
+ * 적용 여부 미확정은 미선택("선택하세요") 그대로 둔다. */
 export async function addInlineRule(unified: Locator, rule: { name: string; category: string; applicability: "적용" | "해당 없음" | "적용 여부 미확정"; status: string; detail?: string }) {
   await unified.getByRole("button", { name: "+ 규칙 추가", exact: true }).click();
   const row = unified.locator("#ax-rule-new");
@@ -17,8 +18,8 @@ export async function addInlineRule(unified: Locator, rule: { name: string; cate
   await row.getByLabel("규칙명").fill(rule.name);
   await chooseOption(row, "분류", rule.category);
   if (rule.applicability !== "적용 여부 미확정") await chooseOption(row, "업무 적용 여부", rule.applicability === "적용" ? "적용" : "미적용");
-  if (rule.detail !== undefined) await row.getByLabel("처리 기준").fill(rule.detail);
-  if (rule.applicability !== "해당 없음") await chooseOption(row, "확정 상태", rule.status);
+  if (rule.applicability === "적용" && rule.detail !== undefined) await row.getByLabel("처리 기준").fill(rule.detail);
+  if (rule.applicability === "적용" && rule.status === "확정") await row.getByRole("button", { name: "이 규칙 확정", exact: true }).click();
   await row.getByRole("button", { name: "추가", exact: true }).click();
   await expect(row).toHaveCount(0);
 }

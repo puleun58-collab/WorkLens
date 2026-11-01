@@ -110,8 +110,13 @@ for (const [name, viewport] of [
     }
     const layout = plan.locator(".ax-scope-summary");
     await expect(layout).toHaveCSS("align-items", "start");
-    const scopeBox = (await scope.boundingBox())!;
-    const criteriaBox = (await criteria.boundingBox())!;
+    // Sample both cards in one browser task: separate boundingBox calls can straddle
+    // smooth-scroll/accordion frames and report a false vertical offset.
+    const [scopeBox, criteriaBox] = await layout.evaluate(element =>
+      Array.from(element.querySelectorAll(":scope > .ax-scope-panel")).map(panel => {
+        const { x, y, width, height } = panel.getBoundingClientRect();
+        return { x, y, width, height };
+      }));
     if (name === "desktop") {
       expect(Math.abs(scopeBox.y - criteriaBox.y)).toBeLessThanOrEqual(1);
       expect(criteriaBox.x).toBeGreaterThanOrEqual(scopeBox.x + scopeBox.width);

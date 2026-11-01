@@ -113,7 +113,8 @@ test("AX 간소화·COSS 통일: 판단 하단 문구 제거·매트릭스 버�
   // 단계 전환의 최상단 복원 이후에도 펼친 검토 패널에 직접 도달할 수 있다.
   await page.locator("#ax-step-review").getByRole("button", { name: "검토", exact: true }).first().click();
   await expect(page.locator("#ax-step-review .ax-hitl-panel-v2")).toBeVisible();
-  await page.locator("#ax-step-review").scrollIntoViewIfNeeded();
+  // The review click must win over the tab's delayed (150ms) scroll restoration.
+  await page.waitForTimeout(180);
   await expect(page.locator("#ax-step-review")).toBeInViewport();
   await page.locator("#ax-decision-D4 .ax-decision-row-head").click();
   await expect(page.locator("#ax-decision-D4 .ax-decision-row-head")).toHaveAttribute("aria-expanded", "true");

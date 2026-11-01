@@ -1106,25 +1106,16 @@
 .ax-decision-save { display: flex; align-items: center; justify-content: flex-end; gap: 12px; flex-wrap: wrap; margin-top: 16px; }
 .ax-decision-save p { margin: 0; margin-right: auto; }
 
-/* 범용 업무 규칙 — 규칙명·분류(직접 추가 규칙)·업무 적용 여부·처리 기준·확정 상태 + 추가 정보(선택, 기본 접힘) */
+/* 범용 업무 규칙 — 업무 적용 여부·처리 기준과 명시적 초안 확정 */
 .ax-generic-panel { display: flex; flex-direction: column; gap: 12px; padding: 12px 62px 16px; border-top: 1px solid var(--border); }
 .ax-generic-panel textarea { min-height: 96px; padding: 10px 12px; }
 /* D규칙·범용 규칙 공통 선택창: COSS Select 흰색 배경·같은 높이·테두리·라운드·패딩·화살표. */
 .ax-rule-field .ax-rule-select { max-width: 360px; min-height: 36px; background: var(--card); font-weight: 400; }
-/* 추가 정보 (선택): 기존 결정 항목 연결 선택창은 같은 열의 적용 단계 입력창과 같은 폭이다. */
-.ax-rule-details-grid .ax-rule-field .ax-rule-select { max-width: none; }
+.ax-rule-confirm { display: flex; justify-content: flex-end; margin-top: -2px; }
 .ax-rule-error { font-size: var(--font-size-xs); font-weight: 400; color: #b91c1c; }
-.ax-rule-details { border-top: 1px dashed var(--border); padding-top: 8px; }
-.ax-rule-details-trigger { display: inline-flex; align-items: center; gap: 4px; padding: 4px 0; border: 0; background: transparent; color: var(--muted-foreground); font-size: var(--font-size-sm); font-weight: 600; cursor: pointer; }
-.ax-rule-details-trigger:hover { color: var(--foreground); }
-.ax-rule-details-trigger:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 4px; }
-.ax-rule-details-trigger > svg { transition: transform 150ms ease; }
-.ax-rule-details-trigger > svg.is-open { transform: rotate(180deg); }
-.ax-rule-details-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; padding: 8px 0 2px; }
 .ax-rule-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
 @media (max-width: 700px) {
   .ax-generic-panel, .ax-decision-panel { padding-inline: 14px; }
-  .ax-rule-details-grid { grid-template-columns: minmax(0, 1fr); }
   .ax-rule-field .ax-rule-select { max-width: none; }
   .ax-decision-progress { min-width: 0; width: 100%; text-align: left; }
 }

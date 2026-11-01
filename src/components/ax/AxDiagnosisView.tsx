@@ -370,8 +370,21 @@ export function AxDiagnosisView() {
       // 최종 안전망: RAF 체인 이후에도 복원되는 경우 대비 (한 번만)
       timer = window.setTimeout(() => {
         if (window.scrollY !== 0) doScroll();
+        stopRestoring();
       }, 150);
-      return () => { cancelAnimationFrame(raf); cancelAnimationFrame(raf2); cancelAnimationFrame(raf3); cancelAnimationFrame(raf4); clearTimeout(timer); };
+      // New user input takes precedence over delayed browser-restoration corrections.
+      // Otherwise a review click just after switching tabs can be moved off its target.
+      const interactionEvents = ["pointerdown", "wheel", "touchstart", "keydown"] as const;
+      const stopRestoring = () => {
+        cancelAnimationFrame(raf);
+        cancelAnimationFrame(raf2);
+        cancelAnimationFrame(raf3);
+        cancelAnimationFrame(raf4);
+        clearTimeout(timer);
+        for (const event of interactionEvents) window.removeEventListener(event, stopRestoring);
+      };
+      for (const event of interactionEvents) window.addEventListener(event, stopRestoring, { passive: true });
+      return stopRestoring;
     }
     return undefined;
   }, [state.step, ready]);
