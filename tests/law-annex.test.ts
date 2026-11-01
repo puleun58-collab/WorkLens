@@ -51,4 +51,61 @@ describe("retrieveAnnexes", () => {
     const failed: AnnexReader = async () => { throw new Error("down"); };
     expect((await retrieveAnnexes("식품위생법 영업정지 요건", [article("영업정지 처분은 별표 23에 따른다.")], failed))[0].status).toBe("failed");
   });
+
+  it("retains a partial original separately from a genuinely absent original", async () => {
+    const text = "식품위생법 - 영업정지 기준표\n[별표23] 영업정지 기준\n파일 형식: 표\n1. 위반 시 영업정지 7일\n일부만 표시";
+    const partial = await retrieveAnnexes("식품위생법 영업정지 요건", [article("영업정지 처분은 별표 23에 따른다.")],
+      async () => ({ isError: false, text }));
+    expect(partial[0]).toMatchObject({ status: "identified", text, truncated: true });
+    expect(partial[0].url).toBe(lawAnnexUrl("식품위생법", "별표", "23"));
+    const missing = await retrieveAnnexes("식품위생법 영업정지 요건", [article("영업정지 처분은 별표 23에 따른다.")],
+      async () => ({ isError: false, text: "[NOT_FOUND] 원문 없음" }));
+    expect(missing[0].status).toBe("not-found");
+    expect(missing[0].text).toBeUndefined();
+  });
+
+  it.each(["[별표2]", "[별표999]", "별표 번호 없음"])("does not verify a response with missing or mismatched identity: %s", async (label) => {
+    const result = await retrieveAnnexes("식품위생법 영업정지 요건", [article("영업정지 처분은 별표 23에 따른다.")],
+      async () => ({ isError: false, text: `식품위생법 - 영업정지 기준표\n${label}\n파일 형식: 표\n영업정지 7일` }));
+    expect(result[0].status).toBe("identified");
+    expect(result[0].text).toBeUndefined();
+    expect(result[0].url).toBeUndefined();
+  });
+
+  it("does not verify a response containing only matching identity and metadata", async () => {
+    const result = await retrieveAnnexes("식품위생법 영업정지 요건", [article("영업정지 처분은 별표 23에 따른다.")],
+      async () => ({ isError: false, text: "식품위생법 - 영업정지 기준표\n[별표23] 영업정지 기준\n파일 형식: HWP\n" }));
+    expect(result[0].status).toBe("identified");
+    expect(result[0].text).toBeUndefined();
+  });
+
+  it("keeps the real disposition table as related when an explicitly requested number differs", async () => {
+    const reads: string[] = [];
+    const result = await retrieveAnnexes("식품위생법 영업정지 별표 999 기준", [article("행정처분의 기준은 별표 23과 같다.")],
+      async (_law, number) => {
+        reads.push(number);
+        return { isError: false, text: "식품위생법 - 영업정지 기준표\n[별표23] 영업정지 기준\n파일 형식: HWP\n영업정지 7일" };
+      }, "action_basis");
+    expect(reads).toEqual(["23"]);
+    expect(result[0]).toMatchObject({ label: "별표 23", status: "verified", relevance: "related" });
+  });
+
+  it("does not prefix-match a requested annex number", async () => {
+    const result = await retrieveAnnexes("식품위생법 영업정지 별표 2 기준", [article("행정처분의 기준은 별표 23과 같다.")],
+      async () => ({ isError: false, text: "식품위생법 - 영업정지 기준표\n[별표23] 영업정지 기준\n파일 형식: HWP\n영업정지 7일" }), "action_basis");
+    expect(result[0].relevance).toBe("related");
+  });
+
+  it("keeps a named permit annex direct without fetching unrelated disposition tables", async () => {
+    const reads: string[] = [];
+    const result = await retrieveAnnexes("건축법 건축허가 별표 1 기준", [{
+      law: "건축법 시행규칙", jo: "제6조", title: "건축허가", matched: [],
+      excerpt: "건축허가 기준은 별표 1과 같다.", body: "건축허가 기준은 별표 1과 같다.",
+    }], async (law, number) => {
+      reads.push(`${law} ${number}`);
+      return { isError: false, text: `${law} - 허가 기준\n[별표1]\n파일 형식: HWP\n허가 요건을 충족하여야 한다.` };
+    }, "action_basis");
+    expect(reads).toEqual(["건축법 시행규칙 1"]);
+    expect(result[0]).toMatchObject({ law: "건축법 시행규칙", status: "verified", relevance: "direct" });
+  });
 });

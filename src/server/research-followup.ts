@@ -13,6 +13,8 @@ export interface FollowupReport {
   missing: number;
   /** Unread candidates/budget exhaustion, not evidence of legal absence. */
   limited: boolean;
+  /** Identifiable unmet reads only; a failed lookup is not proof of absence. */
+  unavailable?: Array<{ type: "조문" | "법령"; name: string; reason: "failed" | "not-found" | "mismatch" | "incomplete" | "limited" }>;
 }
 export interface FollowupArticle extends SupplementArticle { body: string }
 export interface ResearchFollowup {
@@ -33,6 +35,10 @@ export async function retrieveResearchFollowup(
   const report: FollowupReport = { status: "not-searched", attempted: 0, failed: 0, missing: 0, limited: false };
   const expired = () => now() - started >= 15_000;
   const articles = new Map<string, FollowupArticle>();
+  const missing = (type: "조문" | "법령", name: string, reason: NonNullable<FollowupReport["unavailable"]>[number]["reason"]) => {
+    report.missing++;
+    (report.unavailable ??= []).push({ type, name, reason });
+  };
   const readKeys = new Set<string>();
   const safe = async <T>(read: () => Promise<T>): Promise<T | undefined> => {
     if (expired()) { report.limited = true; return undefined; }
@@ -44,18 +50,20 @@ export async function retrieveResearchFollowup(
     if (readKeys.has(key)) return articles.get(key);
     if (readKeys.size >= 18 || expired()) { report.limited = true; return undefined; }
     readKeys.add(key);
+    const failedBefore = report.failed;
     const fetched = await safe(() => sources.article(law.mst, jo));
-    if (!fetched) { report.missing++; return undefined; }
-    if (fetched.name && compactLaw(fetched.name) !== compactLaw(law.name)) { report.missing++; return undefined; }
+    const name = `${law.name} ${jo}`;
+    if (!fetched) { missing("조문", name, report.failed > failedBefore ? "failed" : report.limited ? "limited" : "not-found"); return undefined; }
+    if (fetched.name && compactLaw(fetched.name) !== compactLaw(law.name)) { missing("조문", name, "mismatch"); return undefined; }
     const head = new RegExp(`^${jo}(?:\\s|\\()`, "mu");
-    if (!head.test(fetched.text)) { report.missing++; return undefined; }
+    if (!head.test(fetched.text)) { missing("조문", name, "mismatch"); return undefined; }
     const heading = new RegExp(`^${jo}\\s*\\(([^)]+)\\)`, "mu").exec(fetched.text);
     const title = heading?.[1] ?? new RegExp(`^${jo} ([^\\n]+)`, "mu").exec(fetched.text)?.[1] ?? "";
     // Remove only the header prefix (number + optional parenthesized title), not the whole first line: when the body starts on the header line itself, dropping the line loses the first sentence, including the citation the delegation check looks for.
     const body = fetched.text.slice(fetched.text.search(head)).replace(new RegExp(`^${jo}\\s*(?:\\([^)]*\\)\\s*)?`, "u"), "").trim();
     const excerpt = articleExcerpt(fetched.text, jo);
     // \b never fires after a Hangul syllable, so catch a deleted body by prefix.
-    if (!excerpt || /^삭제/u.test(excerpt)) { report.missing++; return undefined; }
+    if (!excerpt || /^삭제/u.test(excerpt)) { missing("조문", name, "incomplete"); return undefined; }
     return { law: law.name, jo, title, body, excerpt, matched: [], stage: "supplement", ...(fetched.effectiveDate ? { effectiveDate: fetched.effectiveDate } : {}) };
   };
   const add = (article: FollowupArticle) => articles.set(`${compactLaw(article.law)}\0${article.jo}`, article);
@@ -101,6 +109,7 @@ export async function retrieveResearchFollowup(
       .map((article) => lawRoot(article.law)))].slice(0, 2);
   }
   for (const name of names) {
+    const failedBefore = report.failed;
     const laws = await safe(() => sources.laws(name));
     let exact = laws?.find((law) => compactLaw(law.name) === compactLaw(name));
     // A joined spaced name that resolves to nothing falls back to its
@@ -110,7 +119,7 @@ export async function retrieveResearchFollowup(
       const alt = await safe(() => sources.laws(fallbackByName.get(compactLaw(name))!));
       exact = alt?.find((law) => compactLaw(law.name) === compactLaw(fallbackByName.get(compactLaw(name))!));
     }
-    if (!exact) { report.missing++; continue; }
+    if (!exact) { missing("법령", name, report.failed > failedBefore ? "failed" : "not-found"); continue; }
     const parents: FollowupArticle[] = [];
     // A law-system followup that names a law-article pair keeps that pair's
     // own article as the parent set: chain-adopted seeds of the same law
@@ -198,8 +207,9 @@ export async function retrieveResearchFollowup(
     const tierPlans: Array<{ lower: { name: string; mst: string }; candidates: Array<{ jo: string; title: string; score: number }>; read: number }> = [];
     for (const tier of tiers) {
       const targetName = `${exact.name} ${tier}`;
+      const failedBefore = report.failed;
       const lower = (await safe(() => sources.laws(targetName)))?.find((law) => compactLaw(law.name) === compactLaw(targetName));
-      if (!lower) { report.missing++; continue; }
+      if (!lower) { missing("법령", targetName, report.failed > failedBefore ? "failed" : "not-found"); continue; }
       const toc = await safe(() => sources.toc(lower.mst));
       const candidates = (toc ?? []).map((entry) => {
         const words = questionTerms(entry.title).filter((t) => !isLawName(t) && isSubjectTerm(t) && !lawNameCompact.includes(compactLaw(t)));

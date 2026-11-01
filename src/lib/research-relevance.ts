@@ -7,10 +7,10 @@ import { researchResult } from "@/lib/law-research-parse";
  * judgement names the question terms (or cited article) it matched.
  *
  * The MCP falls back to full-text search when a title search misses, so a
- * precedent can be listed only because a question word appears somewhere in a
- * long judgment. Case titles are therefore never enough on their own; the
- * 판시사항/판결요지 decide, and a precedent whose summary could not be read is
- * kept as "unknown" instead of being guessed either way.
+ * decision can be listed only because a question word appears somewhere in a
+ * long source. Titles and law names are never enough on their own; official
+ * holdings, replies and reasons decide. Missing bodies stay "unknown", and
+ * judgment openings remain supplementary rather than inferred conclusions.
  */
 
 /** How a precedent relates to the question; `low` ones are folded, never deleted. */
@@ -18,8 +18,20 @@ export type PrecedentRank = "direct" | "related" | "unknown" | "low";
 
 export interface PrecedentRelevance {
   rank: PrecedentRank;
-  /** Question terms or articles found in the title/summary, for the reader and for tests. */
+  /** Question terms or exact articles supported by the official body, never the search title. */
   matched: string[];
+  /** Body-supported dimensions only; absent for legacy term-only callers. */
+  basis?: { issue: string[]; violation: string[]; action: string[]; articles: string[]; standard: string[] };
+}
+
+export type ResearchDecisionDomain = "precedent" | "interpretation" | "tribunal";
+
+/** Section labels, not record IDs, establish the upstream decision domain. */
+export function researchDecisionDomain(heading: string | undefined): ResearchDecisionDomain | undefined {
+  if (/해석례/u.test(heading ?? "")) return "interpretation";
+  if (/행정심판|재결례|심판례/u.test(heading ?? "")) return "tribunal";
+  if (/판례/u.test(heading ?? "")) return "precedent";
+  return undefined;
 }
 
 /** A title that names a definition (용어 정의) rather than a substantive duty, sanction or procedure. */
@@ -53,6 +65,9 @@ export interface ResearchEnrichment {
   precedents?: Record<string, PrecedentRelevance>;
   /** Bounded official holding/opening text used to verify each precedent's topical match. */
   precedentExcerpts?: Record<string, string>;
+  /** All three decision kinds; IDs are scoped because upstream domains can reuse them. */
+  decisions?: Record<string, PrecedentRelevance>;
+  decisionExcerpts?: Record<string, string>;
   /** `none`: looked up and nothing matched; `failed`: lookups failed; `not_searched`: no usable term. */
   supplement?: { status: "found" | "none" | "failed" | "not_searched"; articles: SupplementArticle[];
     /**
@@ -430,51 +445,102 @@ function titleVetoed(title: string, stripTerms: readonly string[]): boolean {
 }
 
 /**
- * The case title is a candidate signal only; relevance evidence is the
- * 판시사항/판결요지/참조조문 (or, for lower courts without one, the judgment
- * opening with the title lines removed).
- *
- * `direct`: every subject term, or a statute article the answer cites, appears
- * in the summary. `related`: a strict majority of the terms including one of
- * the most specific (longest) — under the same anchored standard as `direct`
- * and as citation, so a term that appears only inside another compound (사용자
- * inside 사용자등록) carries neither promotion. Otherwise `low`: the summary
- * was read and does not address the question, whatever the title says. An
- * `excerpt` can at most make a case `related`; without any summary the case
- * stays `unknown`. `matched` lists the evidence terms only.
+ * Title and law-name overlap only nominate candidates. Body text must support
+ * the issue; requested violations, dispositions and judgment standards qualify
+ * a direct match. An opening is supplementary at best, never a holding.
  */
 export function rankPrecedent(
   terms: readonly string[],
   entry: { title?: string; summary?: string; excerpt?: boolean },
   citedArticles: readonly string[] = [],
+  criteria?: { query: string },
 ): PrecedentRelevance {
-  if (!terms.length || entry.summary === undefined) return { rank: "unknown", matched: [] };
-  // A judgment opening repeats the case name (`[id] 사건명`, `=== 사건명 ===`); that is still the title.
-  const evidence = entry.excerpt && entry.title ? entry.summary.split(entry.title).join(" ") : entry.summary;
-  const matched = terms.filter((term) => termOccurs(term, compact(evidence)));
-  const articles = citedArticles.filter((article) => compact(evidence).includes(compact(article)));
-  const longest = Math.max(...terms.map((term) => term.length));
-  // Promotion is the step a stray partial match must not carry: the most
-  // specific term has to be there as a word, not only inside a compound.
-  // Ranking and citation judge by this one standard, so a case the citation
-  // step would reject on compound-internal evidence alone is not shown as
-  // related either; it stays a `low` candidate, never deleted.
-  const anchored = matched.some((term) => term.length === longest && termAnchored(term, terms, evidence));
-  if (!entry.excerpt && ((matched.length === terms.length && anchored) || articles.length)) return { rank: "direct", matched: [...matched, ...articles] };
-  if ((anchored && matched.length >= strictMajority(terms.length)) || (entry.excerpt && articles.length)) {
-    return { rank: "related", matched: [...matched, ...articles] };
+  if (!entry.summary?.trim()) return { rank: "unknown", matched: [] };
+  const evidence = (entry.excerpt && entry.title ? entry.summary.split(entry.title).join(" ") : entry.summary)
+    .split(/\r?\n/u).filter((line) => !/^\s*(?:===|사건번호:|해석례번호:|법원:|재결청:|해석기관:|선고일:|회신일자:)/u.test(line)).join("\n");
+  if (!evidence.trim()) return { rank: "unknown", matched: [] };
+  const compactedEvidence = compact(evidence);
+  const subjects = terms.filter((term) => !isLawName(term) && !JO_TERM.test(term));
+  const matched = subjects.filter((term) => termOccurs(term, compactedEvidence));
+  // Article identities include their law, and close at the actual 조/조의N:
+  // 제7조 must not match 제7조의2, and 제75조 must not match 제750조.
+  const articles = citedArticles.filter((article) => {
+    const needle = compact(article);
+    let at = compactedEvidence.indexOf(needle);
+    while (at !== -1) {
+      if (!/^(?:\d|의\d)/u.test(compactedEvidence.slice(at + needle.length))) return true;
+      at = compactedEvidence.indexOf(needle, at + 1);
+    }
+    return false;
+  });
+  const longest = Math.max(0, ...subjects.map((term) => term.length));
+  const anchored = matched.some((term) => term.length === longest && termAnchored(term, subjects, evidence));
+  const topic = anchored && matched.length >= strictMajority(subjects.length);
+  let dimensions = true;
+  let basis: PrecedentRelevance["basis"];
+  if (criteria) {
+    const queryTerms = questionTerms(criteria.query).filter((term) => !isLawName(term) && !JO_TERM.test(term));
+    const violations = queryTerms.filter((term) => /위반|무신고|미신고|무허가|미허가|미이행|미준수|미지급|불이행|허위|위조|불법|부정/u.test(term));
+    const actions = queryTerms.filter((term) => /정지|취소|부과|징수|폐쇄|말소|해고|징계|과징금|과태료|거부/u.test(term));
+    const standards = queryTerms.filter((term) => /재량|비례|평등|신뢰보호|일탈|남용|정당|위법|적법/u.test(term));
+    const supported = (words: readonly string[]) => words.filter((term) => termAnchored(term, queryTerms, evidence));
+    const violation = supported(violations), action = supported(actions), standard = supported(standards);
+    // Generic "판단 기준" is not an issue term, but still asks for a legal
+    // test rather than a bare fact or a reference list.
+    const asksStandard = /판단\s*(?:기준|방법)|판단기준|요건/u.test(criteria.query);
+    const hasStandard = /판단|요건|기준|책임|해당|정한|고려|종합|인정|보아야|볼\s*수|의미|해석/u.test(evidence);
+    dimensions = violation.length === violations.length && action.length === actions.length
+      && standard.length === standards.length && (!asksStandard || hasStandard);
+    basis = { issue: matched.filter((term) => termAnchored(term, subjects, evidence)), violation, action, articles, standard };
   }
-  return { rank: "low", matched };
+  const result = (rank: PrecedentRank): PrecedentRelevance => ({
+    rank, matched: [...matched, ...articles], ...(basis ? { basis } : {}),
+  });
+  if (!subjects.length && !articles.length) return result("low");
+  if (!entry.excerpt && dimensions && ((matched.length === subjects.length && anchored) || articles.length)) return result("direct");
+  if (topic || articles.length) return result("related");
+  return result("low");
 }
 const ORDER: Record<PrecedentRank, number> = { direct: 0, related: 1, unknown: 2, low: 3 };
 
-/** Stable: within a rank the MCP's own order is the tie-breaker. */
-export function orderByRelevance<T extends { id: string }>(entries: readonly T[], relevance: Record<string, PrecedentRelevance> | undefined): T[] {
-  if (!relevance) return [...entries];
-  return entries
-    .map((entry, index) => ({ entry, index, rank: ORDER[relevance[entry.id]?.rank ?? "unknown"] }))
-    .sort((a, b) => a.rank - b.rank || a.index - b.index)
-    .map(({ entry }) => entry);
+/**
+ * Stable within a rank. One case is shown once by ID or unmasked case number;
+ * every merged source record remains available under duplicateEntries.
+ */
+export function orderByRelevance<T extends { id: string; caseNumber?: string; domain?: string }>(
+  entries: readonly T[], relevance: Record<string, PrecedentRelevance> | undefined,
+): Array<T & { duplicateEntries?: T[] }> {
+  const ordered = entries.map((entry, index) => ({ entry, index, rank: ORDER[relevance?.[entry.id]?.rank ?? "unknown"] }))
+    .sort((a, b) => a.rank - b.rank || a.index - b.index);
+  const groups: Array<{ entry: T; originals: T[]; keys: Set<string> }> = [];
+  for (const { entry } of ordered) {
+    const prefix = `${entry.domain ?? ""}\0`;
+    const keys = [`${prefix}id:${entry.id}`];
+    if (entry.caseNumber?.trim() && !/N\/A|[*＊○]/u.test(entry.caseNumber)) keys.push(`${prefix}number:${compact(entry.caseNumber)}`);
+    const matches = groups.filter((group) => keys.some((key) => group.keys.has(key)));
+    if (!matches.length) {
+      groups.push({ entry, originals: [entry], keys: new Set(keys) });
+      continue;
+    }
+    const first = matches[0];
+    first.originals.push(entry);
+    for (const key of keys) first.keys.add(key);
+    for (const other of matches.slice(1)) {
+      first.originals.push(...other.originals);
+      for (const key of other.keys) first.keys.add(key);
+      groups.splice(groups.indexOf(other), 1);
+    }
+  }
+  return groups.map(({ entry, originals }) => {
+    if (originals.length === 1) return entry;
+    const merged = { ...entry };
+    for (const original of originals) {
+      for (const key of Object.keys(original) as Array<keyof T>) {
+        if (merged[key] === undefined || merged[key] === "") merged[key] = original[key];
+      }
+    }
+    return { ...merged, duplicateEntries: originals };
+  });
 }
 
 /**

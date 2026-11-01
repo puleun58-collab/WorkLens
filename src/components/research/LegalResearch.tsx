@@ -12,7 +12,7 @@ import { askedArticles } from "@/lib/law-system-evidence";
 import { isSupportingSection, mergeDuplicateAnnexSections, researchResult, type ResearchDecision, type ResearchSection } from "@/lib/law-research-parse";
 import { articleHeadingText, dedupeArticleHeadingLine, dedupeArticleHeadings } from "@/lib/law-article-target";
 import { lawDisplayText } from "@/lib/law-display";
-import { orderByRelevance, type ResearchEnrichment } from "@/lib/research-relevance";
+import { orderByRelevance, researchDecisionDomain, type ResearchEnrichment } from "@/lib/research-relevance";
 import { STATUS_TITLE, type ResearchStatus } from "@/lib/research-status";
 import { researchConfirmationGap } from "@/lib/research-result-status";
 import { taskEvidenceReferences, detailArticles } from "@/lib/task-evidence";
@@ -452,8 +452,6 @@ export function LegalResearch({ workspace, initialTask = "full_research" }: { wo
   </div>;
 }
 
-/** Search hits shown before the list folds; the rest of what the response contains stays one click away. */
-const DECISION_PREVIEW = 3;
 const ANNEX_PREVIEW = 5;
 
 function formatDate(value?: string): string | undefined {
@@ -662,12 +660,15 @@ function ResearchUnderstanding({ interpretation, evidence = [], hasReferences, o
   </>;
 }
 
-function DecisionList({ entries }: { entries: ResearchDecision[] }) {
+function DecisionList({ entries, domain }: { entries: Array<ResearchDecision & { duplicateEntries?: ResearchDecision[] }>; domain?: "precedent" | "interpretation" | "tribunal" }) {
+  const official = domain === "interpretation" ? "법령해석례" : domain === "tribunal" ? "행정심판례" : "판례";
   return <ul className="research-hits">{entries.map((entry) => {
     const meta = [entry.caseNumber && `사건번호 ${entry.caseNumber}`, entry.body, formatDate(entry.date)].filter(Boolean).join(" · ");
+    const duplicates = entry.duplicateEntries?.filter((original) => original.id !== entry.id) ?? [];
     return <li key={entry.id}>
       <strong>{lawDisplayText(entry.title ?? entry.caseNumber ?? "제목 없음")}</strong>
       {meta && <span className="research-meta">{lawDisplayText(meta)}</span>}
+      <span className="research-meta">법제처 조회 ID: {entry.id}{duplicates.length ? ` · 동일 사건 조회 ID: ${duplicates.map((item) => item.id).join(", ")}` : ""} · {official} 조회 목록</span>
     </li>;
   })}</ul>;
 }
@@ -779,8 +780,9 @@ export function appendMissingLawSystemArticles(
   return rows;
 }
 
-function ResearchSectionView({ section, task, relevance, retried, lawSystem, articleTarget, sourceTargets, onSourceSelect }: {
+function ResearchSectionView({ section, task, relevance, decisionRelevance, retried, lawSystem, articleTarget, sourceTargets, onSourceSelect }: {
   section: ResearchSection; task: LawResearchData["task"]; relevance?: ResearchEnrichment["precedents"];
+  decisionRelevance?: ResearchEnrichment["decisions"];
   retried?: ResearchEnrichment["interpretations"]; lawSystem?: LawResearchData["lawSystem"];
   articleTarget?: (index: number) => string;
   sourceTargets?: ReadonlyMap<string, string>; onSourceSelect?: (id: string) => void;
@@ -799,7 +801,7 @@ function ResearchSectionView({ section, task, relevance, retried, lawSystem, art
     return <div className={className} data-kind={section.kind} data-status={section.status}>
       {heading && <h3>{heading}<span className="research-meta"> {found.entries.length}건</span></h3>}
       <p className="research-meta">질문의 핵심어로 다시 찾은 자료입니다. 사건과의 관련성은 원문으로 확인해 주세요</p>
-      <DecisionList entries={found.entries} />
+      <DecisionList entries={orderByRelevance(found.entries, undefined)} domain={researchDecisionDomain(section.heading)} />
     </div>;
   }
   if (section.kind === "law_articles" && section.articles) {
@@ -830,25 +832,30 @@ function ResearchSectionView({ section, task, relevance, retried, lawSystem, art
   }
   if (section.kind === "decision_search" && section.decisions) {
     const { entries } = section.decisions;
-    const rated = relevance && entries.some((entry) => relevance[entry.id]);
-    const ordered = rated ? orderByRelevance(entries, relevance) : entries;
-    // Cases whose 판시사항/opening does not address the question are kept, folded, never deleted.
-    const shown = rated ? ordered.filter((entry) => relevance![entry.id]?.rank !== "low") : ordered;
-    const low = rated ? ordered.filter((entry) => relevance![entry.id]?.rank === "low") : [];
-    const rest = shown.slice(DECISION_PREVIEW);
+    const domain = researchDecisionDomain(section.heading);
+    const byId = Object.fromEntries(entries.flatMap((entry) => {
+      const assessed = domain ? decisionRelevance?.[`${domain}:${entry.id}`] ?? (domain === "precedent" ? relevance?.[entry.id] : undefined) : undefined;
+      return assessed ? [[entry.id, assessed] as const] : [];
+    }));
+    const rated = Object.keys(byId).length > 0;
+    const ordered = orderByRelevance(entries, byId);
+    const rankOf = (entry: (typeof ordered)[number]) => byId[entry.id]?.rank ?? "unknown";
+    const direct = ordered.filter((entry) => rankOf(entry) === "direct");
+    const supporting = ordered.filter((entry) => rankOf(entry) === "related");
+    const additional = ordered.filter((entry) => rankOf(entry) === "unknown" || rankOf(entry) === "low");
+    const domainLabel = domain === "interpretation" ? "해석례" : domain === "tribunal" ? "행정심판례" : "판례";
     return <div className={className} data-kind={section.kind}>
-      <h3>{heading} <span className="research-meta">{entries.length}건</span></h3>
-      {rated && <p className="research-meta">판시사항을 기준으로 관련성이 높은 판례부터 표시</p>}
-      {shown.length > 0
-        ? <DecisionList entries={shown.slice(0, DECISION_PREVIEW)} />
-        : <p className="research-meta research-empty">관련성이 높은 판례를 충분히 확인하지 못했습니다</p>}
-      {rest.length > 0 && <details className="law-detail-source research-more">
-        <SourceToggleSummary label={`판례 ${rest.length}건 더 보기`} openLabel="판례 접기" />
-        <DecisionList entries={rest} />
+      <h3>{heading} <span className="research-meta">{ordered.length}건</span></h3>
+      {rated && <p className="research-meta">판단 내용과 쟁점·처분·관련 조문을 대조한 관련성입니다. 본문 미확보 자료는 직접 관련으로 분류하지 않습니다.</p>}
+      {direct.length > 0 && <><p className="research-meta">직접 관련 자료 · {direct.length}건</p><DecisionList entries={direct} domain={domain} /></>}
+      {supporting.length > 0 && <details className="law-detail-source research-more">
+        <SourceToggleSummary label={`보충 ${domainLabel} ${supporting.length}건 보기`} openLabel={`보충 ${domainLabel} 접기`} />
+        <DecisionList entries={supporting} domain={domain} />
       </details>}
-      {low.length > 0 && <details className="law-detail-source research-more" data-relevance="low">
-        <SourceToggleSummary label={`참고: 직접 관련성이 확인되지 않은 판례 ${low.length}건`} openLabel="참고 판례 접기" />
-        <DecisionList entries={low} />
+      {additional.length > 0 && <details className="law-detail-source research-more" data-relevance="additional">
+        <SourceToggleSummary label={`추가 조회 ${domainLabel} ${additional.length}건 보기`} openLabel={`추가 조회 ${domainLabel} 접기`} />
+        <p className="research-meta">판단 내용이 없거나 질문과 직접 관련성이 확인되지 않은 자료입니다.</p>
+        <DecisionList entries={additional} domain={domain} />
       </details>}
     </div>;
   }
@@ -1146,11 +1153,21 @@ export function ResearchResult({ data, request, expandSources = false, onExpandS
   const followupSeverity = !followupIncomplete ? null
     : status === "matched" && !confirmationGap && !otherFailureSignal ? "info"
     : data.followup?.status === "failed" ? "error" : "warning";
-  const followupNoticeText = followupSeverity === "info" ? data.followup?.failed
-    ? "핵심 근거는 확인했으나 일부 참고 자료 조회가 실패하거나 완료되지 않았습니다."
-    : "핵심 근거는 확인했으나 일부 참고 자료는 확보하지 못했습니다."
-    : followupSeverity === "error" ? "추가 자료 조회를 완료하지 못했습니다. 이미 확보한 근거는 아래에 유지합니다. 조회 실패는 근거가 없다는 뜻이 아닙니다."
-    : followupSeverity === "warning" ? "일부 추가 조회가 완료되지 않았습니다. 확인된 항목과 미확인 항목을 대조해 주세요." : null;
+  const followupMissing = data.followup?.unavailable ?? [];
+  const missingReason = { failed: "조회 실패", "not-found": "조회 결과 없음(근거 부존재 아님)",
+    mismatch: "원문 식별 불일치", incomplete: "원문 일부만 확인", limited: "조회 한도 초과" } as const;
+  const followupDetails = [
+    ...followupMissing.slice(0, 4).map((entry) => `${entry.name} ${entry.type} ${missingReason[entry.reason]}`),
+    ...(followupMissing.length > 4 ? [`그 밖에 ${followupMissing.length - 4}건`] : []),
+    ...(data.followup?.missing && !followupMissing.length ? [`추가 조회 대상 ${data.followup.missing}건(세부 대상 미기록)`] : []),
+    ...(data.followup?.failed && !followupMissing.some((entry) => entry.reason === "failed") ? [`조회 실패 ${data.followup.failed}건`] : []),
+    ...(data.followup?.limited ? ["시간·조회 한도로 추가 후보 미조회"] : []),
+  ].join(" · ");
+  const followupNoticeText = followupSeverity === "info"
+    ? `핵심 근거는 확인했으며, 보충 자료 일부를 확보하지 못했습니다. ${followupDetails}`
+    : followupSeverity === "error"
+      ? `추가 자료 조회가 실패했습니다. 확보한 근거는 유지하며, 실패는 근거 부존재를 뜻하지 않습니다. ${followupDetails}`
+      : followupSeverity === "warning" ? `추가 자료의 원문 확인이 완료되지 않았습니다. ${followupDetails}` : null;
   const followupNoticeTitle = followupSeverity === "info" ? "일부 참고 자료 미확보"
     : followupSeverity === "error" ? "추가 자료 조회 미완료" : "추가 자료 확인 필요";
   // One missing-evidence notice: when a required kind is unconfirmed and
@@ -1158,7 +1175,7 @@ export function ResearchResult({ data, request, expandSources = false, onExpandS
   // (each named only when it actually occurred) instead of two boxes.
   const followupInGap = Boolean(confirmationGap && (followupSeverity === "warning" || followupSeverity === "error"));
   const gapText = confirmationGap && (followupInGap
-    ? `${confirmationGap.text} 일부 자료 조회도 완료되지 않았습니다.${followupSeverity === "error" ? " 조회 실패는 근거가 없다는 뜻이 아닙니다." : ""}`
+    ? `${confirmationGap.text} 추가 자료 조회도 완료되지 않았습니다. ${followupDetails}${followupSeverity === "error" ? " 조회 실패는 근거가 없다는 뜻이 아닙니다." : ""}`
     : confirmationGap.text);
 
   // These targets affect rendering only; adopted evidence and all counts above stay intact.
@@ -1348,18 +1365,17 @@ export function ResearchResult({ data, request, expandSources = false, onExpandS
         <span>확인한 항목</span>
         {isLawSystem && askedLawArticles.length > 0 && !taskItems.some((item) => item.label === "법률") && <p className="research-meta">질문 대상 조항: {askedLawArticles.join(" · ")}</p>}
         <ul>{taskItems.map((item, index) => {
-          // Law-system core result: each asked tier's delegation verdict and
-          // the provisions directly linked to the asked article (names only).
-          // Other provisions, wording and excerpts live once in the tier
-          // detail below; category counts are never summed into a total.
+          // Show the source-backed parent paragraph, subordinate article and
+          // delegated subject in separate lines; mere citations stay separate.
           if (isLawSystem) {
             const summary = lawSystemTopSummary(item);
             const lawTier = item.label === "법률";
             return <li key={`${item.label}-${index}`}>
               <span className="research-issue-label"><span className="research-issue-number">{String(index + 1).padStart(2, "0")}</span>{item.label}{item.optional ? <span className="research-meta"> (참고)</span> : null}</span>
-              <span className="research-issue-status" data-status={item.status}>{(lawTier ? LAW_TIER_LABEL : LAW_SYSTEM_TIER_LABEL)[item.status]}</span>
+              <span className="research-issue-status" data-status={item.status}>{!lawTier && item.status === "viewed" && item.articles?.some((article) => article.relation === "citation") ? "인용·준용 관계 확인" : (lawTier ? LAW_TIER_LABEL : LAW_SYSTEM_TIER_LABEL)[item.status]}</span>
               {lawTier && <span className="research-meta">{[item.detail, ...askedLawArticles].filter(Boolean).join(" · ")}{askedLawRefs.length === 0 && askedLawArticles.length > 0 ? " · 해당 조항 원문 미확인" : ""}</span>}
-              {!lawTier && <span className="research-meta">{summary}{item.articles?.some((article) => article.relation === "citation") ? ` · 단순 관련 규정 (직접 위임 미확인): ${item.articles.filter((article) => article.relation === "citation").map((article) => article.jo).join(" · ")}` : ""}</span>}
+              {!lawTier && <span className="research-meta research-law-system-summary">{summary}</span>}
+              {!lawTier && item.articles?.some((article) => article.relation === "citation") && <span className="research-meta">관련 규정: {item.label} {item.articles.filter((article) => article.relation === "citation").map((article) => article.jo).sort((a, b) => a.localeCompare(b, "ko-KR", { numeric: true })).join("·")}</span>}
             </li>;
           }
           // Same rule for the other tasks: label + status at the top, and
@@ -1591,7 +1607,7 @@ export function ResearchResult({ data, request, expandSources = false, onExpandS
       return <section key={group} className="research-group" data-group={group}>
         <h3>{GROUP_LABELS[data.task === "document_review" ? "full_research" : data.task][group] ?? "참고 자료"}</h3>
         {sections.map((section, index) => <ResearchSectionView key={index} section={section} task={data.task}
-          relevance={data.enrichment?.precedents} retried={/해석례/u.test(section.heading ?? "") ? data.enrichment?.interpretations : undefined}
+          relevance={data.enrichment?.precedents} decisionRelevance={data.enrichment?.decisions} retried={/해석례/u.test(section.heading ?? "") ? data.enrichment?.interpretations : undefined}
           lawSystem={data.lawSystem}
           articleTarget={(articleIndex) => primaryTarget(candidatePrimary.indexOf(section), articleIndex)}
           sourceTargets={sourceTargets} onSourceSelect={showSource} />)}

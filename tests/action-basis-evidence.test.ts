@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { assessActionBasis } from "@/lib/action-basis-evidence";
+import type { AnnexEvidence } from "@/lib/research-annex";
+import type { ResearchEnrichment } from "@/lib/research-relevance";
+import type { TaskEvidence } from "@/lib/task-evidence";
+import food from "./fixtures/law-action-basis-food-suspension.json";
+import foodAnnex from "./fixtures/law-annex-food-23.json";
 
 const QUERY = "음식점 영업정지 처분의 근거와 요건";
 // Verbatim shape of the live 처분 근거 chain (2026-10-27 probe): a
@@ -106,7 +111,7 @@ it("shortens confirmed source answers without upgrading missing annex originals 
   const result = assessActionBasis("예시법 영업정지 처분 근거와 요건 및 별표 기준", text);
   expect(result.items.map((entry) => [entry.status, entry.summary])).toEqual([
     ["found", "예시법 제12조 · 영업정지 등 처분 · 법정 상한 3개월 이내 · 예외 단서 있음"],
-    ["found", "제12조 제1항 각 호의 위반행위 해당 여부 · 개별 적용 미확정 · 예외 단서 원문 확인 필요"],
+    ["found", "제12조 제1항 각 호의 위반행위 해당 여부 · 예외 규정 확인 · 개별 적용 미확정"],
     ["none", undefined],
   ]);
   expect(result.items[0].answer).toContain("시장은 영업자가");
@@ -201,4 +206,162 @@ describe("assessActionBasis accuracy hardening", () => {
     expect(basis.status).toBe("found");
     expect(basis.basisRefs?.[0].note).toBeUndefined();
   });
+});
+
+describe("exception originals are separate from individual applicability", () => {
+  const official = food.enrichment.supplement.articles.find((entry) => entry.jo === "제75조")!;
+  const paragraph = official.excerpt.split("<개정")[0].trim();
+  const source = (body: string) => `═══ 처분 근거 확인: 식품위생법 ═══
+▶ 법령 체계
+[법률] 식품위생법 제75조 (허가취소 등)
+${body}`;
+  const query = "식품위생법 제75조제1항 영업정지 근거와 예외 요건";
+
+  it("confirms the official parent plus complete proviso despite omitted later violation items", () => {
+    const result = assessActionBasis(query, source(`${paragraph}\n1. 제4조 위반 …`));
+    const requirements = result.items.find((entry) => entry.label === "적용 요건")!;
+    expect(requirements.status).toBe("found");
+    expect(requirements.summary).toContain("예외 규정 확인 · 개별 적용 미확정");
+    expect(requirements.answer).toContain("청소년의 신분증 위조ㆍ변조 또는 도용");
+    expect(requirements.answer).toContain("해당 행정처분을 면제할 수 있다.");
+    expect(requirements.summary).not.toContain("원문 미확보");
+    expect(requirements.summary).not.toContain("원문 확인 필요");
+    expect(requirements.uncertainty).toContain("예외 사실을 대조");
+    expect(result.status).toBe("matched");
+  });
+
+  it("retains a retrieved but incomplete proviso without claiming it is missing or confirmed", () => {
+    const partial = paragraph.slice(0, paragraph.indexOf("다만")) + "다만, 식품접객영업자가 제13호를 위반한 경우로서 청소년의 신분증 위조 …";
+    const result = assessActionBasis(query, source(partial));
+    const requirements = result.items.find((entry) => entry.label === "적용 요건")!;
+    expect(requirements.status).toBe("viewed");
+    expect(requirements.summary).toContain("예외 단서 원문 일부만 확인 · 개별 적용 미확정");
+    expect(requirements.answer).toContain("식품접객영업자가 제13호");
+    expect(requirements.uncertainty).toContain("나머지 조건");
+    expect(`${requirements.summary} ${requirements.uncertainty}`).not.toContain("원문 미확보");
+    expect(result.status).toBe("partial");
+    expect(result.items[0].status).toBe("found");
+  });
+
+  it("reports a genuinely unavailable requested proviso without inferring that no exception exists", () => {
+    const result = assessActionBasis(query, source(paragraph.slice(0, paragraph.indexOf("다만"))));
+    const requirements = result.items.find((entry) => entry.label === "적용 요건")!;
+    expect(requirements.summary).toContain("예외 단서 원문 미확보");
+    expect(requirements.status).toBe("viewed");
+    expect(requirements.uncertainty).toContain("예외가 없다는 뜻은 아닙니다");
+    expect(result.status).toBe("partial");
+  });
+
+  it("uses the same original/applicability distinction for another law's complete proviso", () => {
+    const text = "═══ 처분 근거 확인: 예시법 ═══\n▶ 추가 조문\n[법률] 예시법 제9조 (영업정지)\n① 관할청은 영업자가 기준에 해당하는 경우 영업정지 처분을 할 수 있다. 다만, 재난으로 인한 경우에는 처분을 면제한다.";
+    const requirements = assessActionBasis("예시법 영업정지 예외 요건", text).items[1];
+    expect(requirements.status).toBe("found");
+    expect(requirements.summary).toContain("예외 규정 확인 · 개별 적용 미확정");
+    expect(requirements.answer).toContain("재난으로 인한 경우에는 처분을 면제한다.");
+  });
+
+  it("does not use a later registration proviso as the requested permit exception", () => {
+    const text = "═══ 처분 근거 확인: 식품위생법 ═══\n▶ 추가 조문\n[법률] 식품위생법 제37조 (영업허가 등)\n① 제36조제1항 각 호에 따른 영업 중 대통령령으로 정하는 경우에는 영업을 하려는 자는 시장의 허가를 받아야 한다.\n② 영업을 등록하려는 자는 등록하여야 한다. 다만, 폐업한 때에는 신고하여야 한다.";
+    const result = assessActionBasis("식품위생법 영업허가 근거와 예외 요건", text);
+    expect(result.items[0].title).toBe("허가 근거");
+    expect(result.items[0].status).toBe("found");
+    expect(result.items[1].summary).toContain("예외 단서 원문 미확보");
+    expect(result.items[1].answer).not.toContain("폐업한 때");
+    expect(result.items[1].uncertainty).toContain("허가·등록 가능 여부");
+    expect(result.status).toBe("partial");
+  });
+});
+
+describe("annex citation, original, row and individual duration are distinct", () => {
+  const annex: AnnexEvidence = {
+    law: "식품위생법 시행규칙", label: "별표 23", sourceArticle: "제89조",
+    citation: "법 제74조부터 법 제76조까지의 규정에 따른 행정처분의 기준은 별표 23과 같다.",
+    relevance: "direct", status: "verified", text: foodAnnex.text,
+  };
+  const assess = (query: string, annexes: readonly AnnexEvidence[]) =>
+    assessActionBasis(query, food.text, food.enrichment as ResearchEnrichment, annexes);
+  const criteria = (result: TaskEvidence) => result.items.find((entry) => entry.label === "세부 기준(별표)")!;
+
+  it("confirms article 89 and its citation without certifying an unavailable original", () => {
+    const result = assess("식품위생법 영업정지 처분 기준", [{ ...annex, status: "identified", text: undefined }]);
+    expect(criteria(result)).toMatchObject({
+      status: "viewed", summary: "시행규칙 제89조·별표 23 확인 · 세부 기준 원문 확인 필요",
+    });
+    expect(criteria(result).optional).toBeUndefined();
+    expect(criteria(result).uncertainty).toContain("별표 원문 미확보");
+    expect(result.status).toBe("partial");
+    const citationOnly = criteria(assess("식품위생법 영업정지 처분 기준", []));
+    expect(citationOnly.summary).toBe("시행규칙 제89조·별표 23 확인 · 세부 기준 원문 확인 필요");
+    expect(citationOnly.status).toBe("viewed");
+  });
+
+  it("distinguishes an incomplete retrieved annex from a missing original", () => {
+    const result = assess("식품위생법 영업정지 별표 23 기준", [{ ...annex, status: "identified",
+      text: `${foodAnnex.text.slice(0, 1_200)}\n일부만 표시`, truncated: true }]);
+    expect(criteria(result).status).toBe("viewed");
+    expect(criteria(result).summary).toBe("시행규칙 제89조·별표 23 원문 일부만 확인 · 세부 기준 원문 확인 필요");
+    expect(criteria(result).uncertainty).not.toContain("원문 미확보");
+    expect(criteria(result).answer).not.toContain("해당 표의 확인 행");
+    expect(result.status).toBe("partial");
+  });
+
+  it("confirms the original without inventing an industry, row, count or individual duration", () => {
+    const result = assess("식품위생법 영업정지 별표 23 기준", [annex]);
+    expect(criteria(result).summary).toBe("시행규칙 제89조·별표 23 원문 확인 · 개별 처분기간 미확정");
+    expect(criteria(result).status).toBe("found");
+    expect(criteria(result).answer).not.toContain("해당 표의 확인 행");
+    expect(criteria(result).uncertainty).toContain("업종·위반 유형·위반 차수");
+    expect(criteria(result).uncertainty).not.toContain("원문 미확보");
+  });
+
+  it("states a unique industry/violation row and explicit count but leaves case duration unconfirmed", () => {
+    const result = assess("식품위생법 식품제조·가공업 온도 기준을 위반한 경우 영업정지 1차 위반 기준", [annex]);
+    expect(criteria(result).answer).toContain("식품제조·가공업");
+    expect(criteria(result).answer).toContain("온도 기준을 위반한 경우");
+    expect(criteria(result).answer).toContain("1차 위반: 영업정지 7일");
+    expect(criteria(result).summary).toContain("해당 행 확인 · 1차 위반 기준 확인 · 개별 처분기간 미확정");
+    expect(criteria(result).uncertainty).toContain("위반행위 성립·감경·가중");
+    const noCount = criteria(assess("식품위생법 식품제조·가공업 온도 기준을 위반한 경우 영업정지 기준", [annex]));
+    expect(noCount.answer).toContain("차수별 기준:");
+    expect(noCount.summary).toContain("위반 차수 미특정");
+  });
+
+  it("keeps actual annex 23 as related context when the question requests annex 999", () => {
+    const result = assess("식품위생법 영업정지 별표 999 기준", [{ ...annex, relevance: "related" }]);
+    expect(criteria(result).status).toBe("viewed");
+    expect(criteria(result).optional).toBeUndefined();
+    expect(criteria(result).summary).toContain("요청한 별표 999 불일치");
+    expect(criteria(result).summary).toContain("관련 시행규칙 제89조·별표 23 원문 확인");
+    expect(criteria(result).summary).toContain("요청 기준 미확인");
+    expect(criteria(result).uncertainty).toContain("요청한 번호의 기준으로 채택하지 않습니다");
+    expect(criteria(result).answer).toContain("번호가 다릅니다");
+    expect(result.status).toBe("partial");
+  });
+
+  it("does not prefix-match annex 2 to annex 23 or accept another law's original", () => {
+    const mismatch = assess("식품위생법 영업정지 별표 2 기준", [annex]);
+    expect(criteria(mismatch).status).not.toBe("found");
+    expect(criteria(mismatch).summary).toContain("요청한 별표 2 불일치");
+    const foreign = criteria(assess("식품위생법 영업정지 별표 23 기준", [{ ...annex, law: "다른법 시행규칙" }]));
+    expect(foreign.status).not.toBe("found");
+    expect(foreign.summary).not.toContain("원문 확인 · 개별 처분기간");
+  });
+
+  it("reports a completely unavailable requested ID and keeps only peripheral criteria optional", () => {
+    const missing = assessActionBasis("건강기능식품에 관한 법률 영업정지 별표 999 기준", BODY);
+    expect(criteria(missing)).toMatchObject({ status: "none", summary: "요청한 별표 999 원문 미확보" });
+    expect(criteria(missing).optional).toBeUndefined();
+    expect(criteria(assess(food.query, [annex])).optional).toBe(true);
+    expect(criteria(assess("식품위생법 영업정지 처분기간", [annex])).optional).toBeUndefined();
+  });
+});
+
+it("confirms a permit's own complete exception without deciding whether the applicant qualifies", () => {
+  const text = "═══ 처분 근거 확인: 건축법 ═══\n▶ 추가 조문\n[법률] 건축법 제11조 (건축허가)\n① 건축하려는 자가 허가 대상에 해당하는 경우에는 시장의 건축허가를 받아야 한다. 다만, 재해복구를 위한 경우에는 허가를 받지 아니할 수 있다.";
+  const result = assessActionBasis("건축법 건축허가의 예외 요건", text);
+  expect(result.items[0].title).toBe("허가 근거");
+  expect(result.items[1].summary).toContain("예외 규정 확인 · 개별 적용 미확정");
+  expect(result.items[1].answer).toContain("재해복구를 위한 경우에는 허가를 받지 아니할 수 있다.");
+  expect(result.items[1].uncertainty).toContain("허가·등록 가능 여부");
+  expect(result.items[1].uncertainty).not.toContain("처분기간");
 });
