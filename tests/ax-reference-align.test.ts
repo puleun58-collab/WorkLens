@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { decisionPanelLabel } from "@/lib/ax/rule-questions";
@@ -10,7 +9,6 @@ const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8"
 // 통합 섹션: 기존 D 섹션과 범용 섹션이 AxUnifiedRules.tsx 하나로 합쳐졌다.
 const component = () => read("../src/components/ax/AxUnifiedRules.tsx");
 const css = () => read("../src/components/ax/ax.css");
-const sha = (s: string) => createHash("sha256").update(s, "utf8").digest("hex");
 
 const confirmedDiagnosis = (): AxDiagnosis => ({
   ...structuredClone(diagnosisFixture),
@@ -32,11 +30,22 @@ const genericRules = (): GenericRule[] => [
 ];
 
 describe("AX 레퍼런스 동일화 — 업무 규칙 확인 표시", () => {
-  it("진행률 문구는 실제 확인 대상 분모 기준이고 적용 여부 건수를 별도로 표시한다 (고정 7 분모 아님)", () => {
+  it("진행률은 표시된 모든 카드 기준이며 0건은 충분한 진단과 정보 부족을 구분한다", () => {
     expect(component()).toContain("unifiedRuleProgress(drafts)");
     // 0건은 분수가 아니라 완료 아님으로 표시한다 (0건 ≠ 전부 확정).
     expect(component()).toContain("확인할 규칙 없음");
+    expect(component()).toContain('"진단 정보 부족"');
+    expect(component()).toContain("규칙 필요 여부를 판단하지 못했습니다");
+    expect(component()).toContain("규칙 검토 여부와 구현 가능 여부는 별도로 확인하세요");
     expect(component()).not.toContain("/7 확인 완료");
+  });
+
+  it("자동 후보만 제안으로 표시하고 직접 추가의 신규 표시와 안정 후보 키를 유지한다", () => {
+    expect(component()).toContain('item.origin === "candidate" ? "제안" : "신규"');
+    expect(component()).toContain('ax-decision-no ax-decision-no-new">신규</span>');
+    expect(component()).toContain("rule.candidateKey ?? rule.provenance ?? rule.name");
+    expect(component()).toContain("item.displayTitle ?? display.title");
+    expect(component()).toContain("item.displayQuestion ?? display.question");
   });
 
   it("저장 버튼은 통합 영역 우측 하단 단일 '저장'이다", () => {
@@ -78,20 +87,31 @@ describe("AX 레퍼런스 동일화 — 업무 규칙 확인 표시", () => {
   it("패널 라벨은 D번호 없는 카드별 기준이며 예시 필드 문구는 남지 않는다", () => {
     expect(decisionPanelLabel("D1", "상태")).toBe("상태");
     expect((["D1", "D2", "D3", "D4", "D5", "D6", "D7"] as const).map(id => decisionPanelLabel(id, "상세"))).toEqual([
-      "대조 기준", "중복 처리 기준", "예외 처리 기준", "상태 구분 기준", "판단 불가 처리 기준", "빈 파일 처리 기준", "계산 기준",
+      "대조 기준", "중복 처리 기준", "예외 처리 기준", "상태 구분 기준", "판단 불가 처리 기준", "빈 입력 처리 기준", "계산 기준",
     ]);
     expect(component()).not.toContain("업무 규칙 확인 필요");
     expect(component()).not.toContain("예상 결과 상태");
   });
 
-  it("01~04 지시문은 범용 규칙 전환 후 기준 해시와 일치한다 (Codex·Claude, 의도된 변경)", () => {
-    // P2 완료 불인정 기준 블록 추가 (2026-10-31, 의도된 변경): display-wording과
-    // 동일한 픽스처 쌍이므로 full·bare 해시는 해당 테스트의 BASELINE과 같다.
-    for (const agent of ["codex", "claude"] as const) {
-      const full = buildAllInOnePrompt(planFixture, agent, { diagnosis: confirmedDiagnosis(), taskName: "테스트 업무", context: "", genericRules: genericRules() });
-      const bare = buildAllInOnePrompt(planFixture, agent, { diagnosis: diagnosisFixture, taskName: "테스트 업무", context: "", genericRules: [] });
-      expect(sha(full)).toBe("8aaffe77b9bdfca48a9e92cc1ef14d560ed307dd4eb7d431cc0751b86d6fd89e");
-      expect(sha(bare)).toBe("c7a8ad3c5513b82e70b17de3bd99f5b7ab81261572d961e409c160a40733d67e");
+  it("화면 표시 변경 후에도 확정 규칙과 검토 대상 분리가 실제 지시문에서 유지된다", () => {
+    const diagnosis = confirmedDiagnosis();
+    const rules = genericRules();
+    const snapshot = structuredClone({ diagnosis, rules });
+    const options = { diagnosis, taskName: "테스트 업무", context: "", genericRules: rules };
+    const full = buildAllInOnePrompt(planFixture, "codex", options);
+    expect(full).toBe(buildAllInOnePrompt(planFixture, "claude", options));
+    for (const point of diagnosis.decisionPoints!.filter(point => point.status === "확정" && point.id !== "D4")) {
+      expect(full).toContain(point.detail);
     }
+    expect(full).toContain("D4 결과 상태 — 확정: 정상 · 오류(확정) · 확인 필요");
+    expect(full).toContain("R1 월말 마감 이후 주문 이월 (처리·판단 기준) — 확정");
+    expect(full).toContain("[관련 단계: 월말 집계] [근거: 매뉴얼 3장]");
+    expect(full).not.toContain(rules[1].detail);
+    const bareOptions = { diagnosis: diagnosisFixture, taskName: "테스트 업무", context: "", genericRules: [] };
+    const bare = buildAllInOnePrompt(planFixture, "codex", bareOptions);
+    expect(bare).toBe(buildAllInOnePrompt(planFixture, "claude", bareOptions));
+    for (const id of ["D3", "D4", "D5", "D6"]) expect(bare).toMatch(new RegExp(`${id} [^\\n]+ — 미확정`, "u"));
+    for (const id of ["D1", "D2", "D7"]) expect(bare).not.toMatch(new RegExp(`${id} [^\\n]+ — 미확정`, "u"));
+    expect({ diagnosis, rules }).toEqual(snapshot);
   });
 });

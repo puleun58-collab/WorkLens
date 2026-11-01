@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { DECISION_DISPLAY, decisionPanelLabel, deriveUnifiedRules, draftStateNames, hasDerivationSignals, isConfirmationQuestion, unifiedRuleProgress, unifiedSavePayloads, type UnifiedDecisionDraft, type UnifiedGenericDraft, type UnifiedRuleDraft } from "@/lib/ax/rule-questions";
+import { DECISION_DISPLAY, decisionPanelLabel, deriveUnifiedRules, draftStateNames, hasDerivationSignals, isConfirmationQuestion, unifiedRuleProgress, unifiedSavePayloads } from "@/lib/ax/rule-questions";
+import type { UnifiedDecisionDraft, UnifiedGenericDraft, UnifiedRuleDraft } from "@/lib/ax/rule-questions";
 import { resolveDecisionPoints } from "@/lib/ax/decision-points";
 import { diagnosisFixture } from "./fixtures/ax";
 import type { AxDiagnosis, GenericRule } from "@/lib/ax/types";
@@ -16,15 +17,15 @@ const gNames = (items: UnifiedRuleDraft[]): string[] =>
 const candidateDIds = (items: UnifiedRuleDraft[]): string[] =>
   items.filter((item): item is UnifiedDecisionDraft => item.kind === "decision" && item.origin === "candidate").map(item => item.id);
 
-describe("AX 통합 규칙 도출 — 표시 문구 (기존 파일에서 verbatim 이동)", () => {
-  it("D 표시 제목·질문이 기존 값과 동일하다", () => {
+describe("AX 통합 규칙 도출 — 업무 유형에 중립적인 표시 문구", () => {
+  it("D 표시 제목·질문은 숫자·파일만 있는 업무로 한정하지 않는다", () => {
     expect(DECISION_DISPLAY).toEqual({
       D1: { title: "대조 기준", question: "어떤 자료와 항목을 기준으로 비교하나요?" },
       D2: { title: "중복 처리", question: "동일한 항목이 여러 번 나타나면 어떻게 처리하나요?" },
-      D3: { title: "예외값 처리", question: "빈칸·음수·0 등은 어떻게 처리하나요?" },
+      D3: { title: "예외 처리", question: "비정상 값·형식 오류·조건 불일치가 발생하면 어떻게 처리하나요?" },
       D4: { title: "결과 상태", question: "처리 결과를 어떤 상태로 구분하나요?" },
-      D5: { title: "판단 불가 처리", question: "판정할 수 없는 데이터는 어떻게 표시하나요?" },
-      D6: { title: "빈 파일 처리", question: "데이터가 없을 때 어떻게 처리하나요?" },
+      D5: { title: "판단 불가 처리", question: "정보가 부족하거나 판단할 수 없을 때 어떻게 처리하나요?" },
+      D6: { title: "빈 입력 처리", question: "수신할 파일이나 데이터가 없을 때 어떻게 처리하나요?" },
       D7: { title: "계산 기준", question: "합계·반올림·단위의 기준은 무엇인가요?" },
     });
   });
@@ -32,7 +33,7 @@ describe("AX 통합 규칙 도출 — 표시 문구 (기존 파일에서 verbati
   it("패널 라벨에 D번호를 반복하지 않고 카드별 기준을 쓴다", () => {
     expect(decisionPanelLabel("D1", "상태")).toBe("상태");
     expect((["D1", "D2", "D3", "D4", "D5", "D6", "D7"] as const).map(id => decisionPanelLabel(id, "상세"))).toEqual([
-      "대조 기준", "중복 처리 기준", "예외 처리 기준", "상태 구분 기준", "판단 불가 처리 기준", "빈 파일 처리 기준", "계산 기준",
+      "대조 기준", "중복 처리 기준", "예외 처리 기준", "상태 구분 기준", "판단 불가 처리 기준", "빈 입력 처리 기준", "계산 기준",
     ]);
   });
 });
@@ -47,48 +48,52 @@ describe("AX 통합 규칙 도출 — 기본 진단(픽스처)", () => {
     expect(items.filter(item => item.kind === "decision").every(item => item.detail === "")).toBe(true);
   });
 
-  it("픽스처 진단에서는 기술적 확인 항목과 사람 판단 항목이 범용 후보가 된다", () => {
+  it("기술 선행 조건은 규칙이 아니며 중복된 최종 승인 근거는 한 후보로 추적된다", () => {
     const items = deriveUnifiedRules(diagnosis());
-    expect(gNames(items)).toEqual(["시스템 접근", "최종 승인"]);
-    const [check, human] = items.filter(item => item.kind === "generic");
-    expect(check.category).toBe("예외·확인 기준");
-    expect(check.applicability).toBe("적용 여부 미확정");
-    expect(check.sourceLabel).toBe("진단에서 도출");
-    expect(check.provenance).toContain("시스템 접근");
+    expect(gNames(items)).toEqual(["최종 승인"]);
+    const [human] = items.filter(item => item.kind === "generic");
     expect(human.category).toBe("권한·검토 기준");
+    expect(human.applicability).toBe("적용 여부 미확정");
+    expect(human.sourceLabel).toBe("진단에서 도출");
+    expect(human.provenance).toContain("AS-IS 사람 판단");
+    expect(human.provenance).toContain("사람 개입(HITL)");
+    expect(human.provenance).toContain("단계별 판단");
   });
 
-  it("픽스처 진단의 검토 완료율 분모는 표시된 모든 규칙(D 4건 + 범용 후보 2건)이다", () => {
-    expect(unifiedRuleProgress(deriveUnifiedRules(diagnosis()))).toEqual({ done: 0, total: 6, applicabilityPending: 2 });
+  it("픽스처 완료율 분모는 표시된 모든 규칙(D 4건 + 범용 후보 1건)이다", () => {
+    expect(unifiedRuleProgress(deriveUnifiedRules(diagnosis()))).toEqual({ done: 0, total: 5, applicabilityPending: 1 });
   });
 });
 
 describe("AX 통합 규칙 도출 — 구조적 신호", () => {
-  it("입력·시스템이 2개 이상일 때만 D1 후보가 도출된다", () => {
-    const single = diagnosis();
-    expect(dIds(deriveUnifiedRules(single))).not.toContain("D1");
-    const multi = diagnosis({ asIs: { ...diagnosisFixture.asIs, inputs: ["주문 표", "배송 표"] } });
-    expect(dIds(deriveUnifiedRules(multi))).toContain("D1");
+  it("다중 입력·시스템만으로는 D1이 생기지 않고 실제 대조 단계가 필요하다", () => {
+    const context = diagnosis({
+      asIs: { ...diagnosisFixture.asIs, steps: [...diagnosisFixture.asIs.steps], inputs: ["주문 표", "배송 표"], systems: ["시스템 A", "시스템 B"] },
+      toBe: [], stepAssessments: [],
+    });
+    expect(dIds(deriveUnifiedRules(context))).not.toContain("D1");
+    context.asIs.steps.push("주문번호로 주문 표와 배송 표를 대조한다");
+    expect(dIds(deriveUnifiedRules(context))).toContain("D1");
   });
 
-  it("입력에 정규화 후 완전 중복이 있을 때만 D2 후보가 도출된다 (유사 문자열은 아님)", () => {
-    const dup = diagnosis({ asIs: { ...diagnosisFixture.asIs, inputs: ["주문 표", "  주문   표 "] } });
+  it("중복 필드 나열이 아니라 중복 요청·입력·실행 위험으로 D2를 도출한다", () => {
+    const dup = diagnosis({ asIs: { ...diagnosisFixture.asIs, exceptions: [...diagnosisFixture.asIs.exceptions], inputs: ["주문 표", "  주문   표 "] } });
+    expect(dIds(deriveUnifiedRules(dup))).not.toContain("D2");
+    dup.asIs.exceptions.push("동일 주문번호의 중복 요청은 기존 처리 이력을 확인한다");
     expect(dIds(deriveUnifiedRules(dup))).toContain("D2");
-    const similar = diagnosis({ asIs: { ...diagnosisFixture.asIs, inputs: ["주문 표", "주문 표(수정)"] } });
-    expect(dIds(deriveUnifiedRules(similar))).not.toContain("D2");
   });
 
-  it("D5는 D4 신호가 있고 게이트가 go가 아닐 때 도출되고, go+충분+확인 항목 없음이면 도출되지 않는다", () => {
+  it("D5는 Gate가 아니라 실행 중 정보 부족·판단 불가 조건에서 도출된다", () => {
     expect(dIds(deriveUnifiedRules(diagnosis()))).toContain("D5");
     const clean = diagnosis({
-      decisionGate: { verdict: "go", reasons: [] },
-      informationSufficiency: "sufficient",
-      technicalChecks: [],
+      asIs: { ...diagnosisFixture.asIs, exceptions: [] }, risks: [],
+      decisionGate: { verdict: "conditional", reasons: ["API 권한 확인 필요"] },
+      technicalChecks: [{ topic: "시스템 접근", status: "확인 필요", note: "" }],
     });
     expect(dIds(deriveUnifiedRules(clean))).not.toContain("D5");
   });
 
-  it("기술적 확인 항목이 결과 상태를 지목하면 D4로 흡수되어 범용 후보가 중복 생성되지 않는다", () => {
+  it("결과 상태 선행 확인은 별도 범용 규칙으로 변환하지 않는다", () => {
     const items = deriveUnifiedRules(diagnosis({
       technicalChecks: [
         { topic: "시스템 접근", status: "확인 필요", note: "" },
@@ -96,15 +101,16 @@ describe("AX 통합 규칙 도출 — 구조적 신호", () => {
       ],
       asIs: { ...diagnosisFixture.asIs, humanDecisions: [] },
     }));
-    expect(gNames(items)).toEqual(["시스템 접근"]);
+    expect(gNames(items)).not.toContain("시스템 접근");
+    expect(gNames(items)).not.toContain("D4 결과 상태");
     expect(dIds(items)).toContain("D4");
   });
 
-  it("기술적 확인 항목이 계산 기준을 지목하면 D7 후보가 도출된다 (그 외 D7 자동 신호는 없다)", () => {
-    const items = deriveUnifiedRules(diagnosis({
-      technicalChecks: [{ topic: "계산 기준 확인", status: "확인 필요", note: "" }],
-    }));
-    expect(dIds(items)).toContain("D7");
+  it("계산 기준 확인 질문만으로 D7을 생성하지 않고 실제 집계 단계가 필요하다", () => {
+    const input = diagnosis({ technicalChecks: [{ topic: "계산 기준 확인", status: "확인 필요", note: "" }] });
+    expect(dIds(deriveUnifiedRules(input))).not.toContain("D7");
+    input.asIs.steps.push("일자별 가동 시간을 합산한다");
+    expect(dIds(deriveUnifiedRules(input))).toContain("D7");
   });
 
   it("추가 질문은 답변할 질문 영역에서 다루고 범용 규칙 후보가 되지 않는다", () => {
@@ -149,7 +155,8 @@ describe("AX 통합 규칙 도출 — 구조적 신호", () => {
     const names = gNames(items);
     expect(names).not.toContain("최종 결재자가 누구인지 확인 필요");
     expect(names).not.toContain("외부 API 제공 여부");
-    expect(names).toEqual(expect.arrayContaining(["담당자가 최종 수치를 승인한다", "현장 접근 권한"]));
+    expect(names).not.toContain("현장 접근 권한");
+    expect(names).toContain("담당자가 최종 수치를 승인한다");
     // 후보는 자동 확정·자동 적용되지 않는다.
     for (const item of items) if (item.kind === "generic") {
       expect(item.applicability).toBe("적용 여부 미확정");
@@ -190,7 +197,7 @@ describe("AX 통합 규칙 도출 — 저장 행 보존·중복 방지", () => {
     expect(d4.status).toBe("해당 없음");
   });
 
-  it("저장된 범용 규칙과 정규화 이름이 완전 일치하는 후보는 생성하지 않는다 (유사 이름은 별개)", () => {
+  it("저장된 기술 선행 항목은 새 후보에서 제외돼도 삭제되지 않는다", () => {
     const stored: GenericRule[] = [{
       id: "R1", name: "시스템 접근", category: "예외·확인 기준",
       applicability: "적용", status: "확정",
@@ -219,6 +226,7 @@ describe("AX 통합 규칙 도출 — 저장 행 보존·중복 방지", () => {
       asIs: { purpose: "", trigger: "", inputs: [], steps: [], outputs: [], exceptions: [], humanDecisions: [], systems: [] },
       poc: { hypothesis: "", inScope: [], outOfScope: [], inputs: [], outputs: [], evaluation: [], success: [], failure: [] },
       technicalChecks: [],
+      stepAssessments: [], toBe: [], humanInLoop: [], risks: [],
       followUpQuestions: [],
     });
     expect(deriveUnifiedRules(empty)).toEqual([]);
@@ -236,13 +244,13 @@ describe("AX 통합 규칙 도출 — §11 6개 업무 유형 (구조적 필드�
     const items = deriveUnifiedRules(diagnosis({
       asIs: { ...base.asIs, inputs: ["선적 표", "운임 단가표"], exceptions: ["CBM 누락"], humanDecisions: ["운임 확정"] },
     }));
-    expect(dIds(items)).toEqual(expect.arrayContaining(["D1", "D3", "D4", "D5", "D6"]));
+    expect(dIds(items)).toEqual(expect.arrayContaining(["D1", "D3", "D5", "D6"]));
     expect(gNames(items)).toContain("운임 확정");
   });
 
-  it("Excel 대조: 중복 입력 → D2 후보 포함", () => {
+  it("Excel 대조: 실제 중복 처리 조건이 있어야 D2 후보가 포함된다", () => {
     const items = deriveUnifiedRules(diagnosis({
-      asIs: { ...base.asIs, inputs: ["판매내역.xlsx", "판매내역.xlsx"] },
+      asIs: { ...base.asIs, inputs: ["판매내역.xlsx", "판매내역.xlsx"], exceptions: ["중복 거래번호는 담당자가 검토한다"] },
     }));
     expect(dIds(items)).toContain("D2");
   });
@@ -265,12 +273,12 @@ describe("AX 통합 규칙 도출 — §11 6개 업무 유형 (구조적 필드�
     expect(gNames(items)).toContain("완료 기준 정리");
   });
 
-  it("시설 보수: 확인 필요 기술 항목·사람 판단 → 확인 후보 + 권한 후보", () => {
+  it("시설 보수: 기술 선행 조건은 제외하고 사람 판단은 권한 후보로 유지한다", () => {
     const items = deriveUnifiedRules(diagnosis({
       asIs: { ...base.asIs, humanDecisions: ["보수 승인"] },
       technicalChecks: [{ topic: "현장 접근 권한", status: "확인 필요", note: "" }],
     }));
-    expect(gNames(items)).toContain("현장 접근 권한");
+    expect(gNames(items)).not.toContain("현장 접근 권한");
     expect(gNames(items)).toContain("보수 승인");
   });
 
@@ -348,20 +356,20 @@ describe("AX 통합 완료 현황·저장 페이로드", () => {
   it("저장 페이로드: 빈 미확정 D 후보는 빠지고, 미터치 범용 후보는 저장되지 않으며, 터치 후보는 id를 받는다", () => {
     const items = deriveUnifiedRules(diagnosis());
     const touched = items.map(item =>
-      item.kind === "generic" && item.name === "시스템 접근" ? { ...item, touched: true } : item);
+      item.kind === "generic" && item.name === "최종 승인" ? { ...item, touched: true } : item);
     const { points, rules } = unifiedSavePayloads(touched, []);
     expect(points).toEqual([]);
-    expect(rules.map(rule => rule.name)).toEqual(["시스템 접근"]);
+    expect(rules.map(rule => rule.name)).toEqual(["최종 승인"]);
     expect(rules[0].id).toBe("R1");
     expect(rules[0].applicability).toBe("적용 여부 미확정");
-    // 미터치 후보(최종 승인)는 저장되지 않아 다음 렌더링에서 다시 도출된다.
-    expect(rules.map(rule => rule.name)).not.toContain("최종 승인");
+    // 기술 선행 조건은 후보나 저장 규칙으로 자동 승격되지 않는다.
+    expect(rules.map(rule => rule.name)).not.toContain("시스템 접근");
   });
 
   it("저장 페이로드: 후보보다 뒤에 있는 모달 추가 규칙(R1)과 후보 id가 충돌하지 않는다", () => {
     const items = deriveUnifiedRules(diagnosis());
     const withUser = [
-      ...items.map(item => item.kind === "generic" && item.name === "시스템 접근" ? { ...item, touched: true } : item),
+      ...items.map(item => item.kind === "generic" && item.name === "최종 승인" ? { ...item, touched: true } : item),
       {
         kind: "generic" as const, id: "R1", name: "사용자 추가 규칙", category: "처리·판단 기준" as const,
         applicability: "적용" as const, status: "확정" as const, detail: "", source: "", step: "",
@@ -371,7 +379,7 @@ describe("AX 통합 완료 현황·저장 페이로드", () => {
     const { rules } = unifiedSavePayloads(withUser, []);
     const byName = new Map(rules.map(rule => [rule.name, rule.id]));
     expect(byName.get("사용자 추가 규칙")).toBe("R1");
-    expect(byName.get("시스템 접근")).toBe("R2");
+    expect(byName.get("최종 승인")).toBe("R2");
   });
 
   it("저장 페이로드: 확정 D는 detail을 유지하고, 빈 detail은 생략한다", () => {
@@ -435,14 +443,14 @@ describe("AX 확인 질문 ↔ 처리 규칙 구분 (업무 유형 10종)", () =
 });
 
 describe("AX 도출 규칙 출처 보존", () => {
-  it("도출 후보에서 저장된 규칙은 도출 근거를 표시용으로 받고, 사용자 규칙은 받지 않으며 저장 값은 바뀌지 않는다", () => {
+  it("저장된 선행 조건 항목은 자동 이동·삭제하지 않으며 새 규칙 근거를 임의로 붙이지 않는다", () => {
     const stored: GenericRule[] = [
       { id: "R1", name: "시스템 접근", category: "예외·확인 기준", applicability: "해당 없음", status: "미확정" },
       { id: "R2", name: "월말 이월", category: "처리·판단 기준", applicability: "적용", status: "확정" },
     ];
     const generic = deriveUnifiedRules(diagnosis(), stored).filter((item): item is UnifiedGenericDraft => item.kind === "generic");
     const r1 = generic.find(item => item.id === "R1")!;
-    expect(r1.provenance).toContain("시스템 접근");
+    expect(r1.provenance).toBeUndefined();
     expect(generic.find(item => item.id === "R2")!.provenance).toBeUndefined();
     expect(generic.filter(item => item.name === "시스템 접근")).toHaveLength(1);
     expect(unifiedSavePayloads(generic, stored).rules).toEqual(stored);
