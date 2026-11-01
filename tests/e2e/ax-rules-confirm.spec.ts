@@ -34,9 +34,6 @@ async function report(page: Page) {
   await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
   await expect(page.locator(".ax-report-intro")).toBeVisible();
   await expect(page.getByRole("button", { name: "Codex용 올인원 지시문 복사", exact: true })).toBeVisible();
-  // AxDiagnosisView resets scroll for 150ms after a tab change; let that finish before
-  // Playwright scrolls to the review button, otherwise Firefox can lose the pointer click.
-  await page.waitForTimeout(200);
 }
 
 for (const width of [1440, 390]) test(`범용 확정 버튼: 기존 기록·재확정·메타데이터·지시문 ${width}px`, async ({ page }) => {
@@ -94,8 +91,10 @@ for (const width of [1440, 390]) test(`범용 확정 버튼: 기존 기록·재�
   await report(page);
   const criterion = page.locator(".ax-criteria-item").first();
   await criterion.getByRole("button", { name: "검토", exact: true }).click();
-  await criterion.getByRole("radio", { name: /유지/ }).check();
-  await criterion.getByRole("button", { name: "확정", exact: true }).click();
+  // Table review panels occupy the following row, not the criterion's data row.
+  const reviewPanel = criterion.locator("xpath=following-sibling::tr[1]").locator(".ax-plan-review-panel");
+  await reviewPanel.getByRole("radio", { name: /유지/ }).check();
+  await reviewPanel.getByRole("button", { name: "확정", exact: true }).click();
   await expect(criterion.locator(".ax-hitl-status-dot")).toHaveAttribute("data-status", "confirmed");
   const output = page.locator(".ax-prompt");
   await expect(output).toContainText("수정 기준 XYZ로 승인한다");
@@ -134,8 +133,9 @@ test("신규 등록·진단 제안을 적용하고 명시적 확정 후 저장�
   await page.getByRole("button", { name: "Codex용 구현 계획 생성", exact: true }).click();
   const criterion = page.locator(".ax-criteria-item").first();
   await criterion.getByRole("button", { name: "검토", exact: true }).click();
-  await criterion.getByRole("radio", { name: /유지/ }).check();
-  await criterion.getByRole("button", { name: "확정", exact: true }).click();
+  const reviewPanel = criterion.locator("xpath=following-sibling::tr[1]").locator(".ax-plan-review-panel");
+  await reviewPanel.getByRole("radio", { name: /유지/ }).check();
+  await reviewPanel.getByRole("button", { name: "확정", exact: true }).click();
   await expect(page.locator(".ax-prompt")).toContainText("신규 식별표 NEW를 담당자가 확인한다");
 });
 
