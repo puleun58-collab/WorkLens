@@ -185,8 +185,8 @@ export interface TerminalStateSnapshot {
     conflicted: boolean;
   };
   lines: string[];
-  /** 터미널 화면 기록 (입력한 명령과 출력) */
-  transcript: { cmd: string; out: string[] }[];
+  /** 터미널 화면 기록. cwd는 명령 실행 전 경로이며, 과거 기록에는 없을 수 있다. */
+  transcript: { cmd: string; out: string[]; cwd?: string }[];
 }
 
 /**

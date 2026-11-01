@@ -37,7 +37,7 @@ export function LearnCompletion({ progress, onBack }: LearnCompletionProps) {
         <div className="learn-question-card">
           <p>아직 모든 단계를 통과하지 않았습니다. LEVEL 1~10을 모두 통과하면 학습 완료를 확인할 수 있습니다.</p>
           <p className="learn-muted">
-            <small>통과한 단계: {passedCount} / 10</small>
+            <small><strong>통과한 단계:</strong> {passedCount} / 10</small>
           </p>
         </div>
       </div>
@@ -58,16 +58,15 @@ export function LearnCompletion({ progress, onBack }: LearnCompletionProps) {
         <div className="learn-completion-stats">
           <div className="learn-completion-stat">
             <Layers aria-hidden="true" />
-            <div>
-              <span className="learn-completion-stat-label">완료 단계</span>
-              <strong>10 / 10</strong>
+            <div className="learn-completion-stat-text">
+              <strong>완료 단계:</strong> <span>10 / 10</span>
             </div>
           </div>
           <div className="learn-completion-stat">
             <CalendarDays aria-hidden="true" />
-            <div>
-              <span className="learn-completion-stat-label">최초 완료일</span>
-              <strong>{completedAt !== undefined ? formatDate(completedAt) : "최초 완료일 확인 불가"}</strong>
+            <div className="learn-completion-stat-text">
+              <strong>최초 완료일:</strong>{" "}
+              <span>{completedAt !== undefined ? formatDate(completedAt) : "최초 완료일 확인 불가"}</span>
             </div>
           </div>
         </div>
