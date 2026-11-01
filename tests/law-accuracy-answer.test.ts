@@ -56,6 +56,44 @@ describe("공식 원문 대조: 식품위생법 처분·허가", () => {
     expect(foodResult()).toEqual(result);
   });
 
+  it("extracts the operative violation items from the full official article instead of repeating disposition power", () => {
+    const items = foodResult().items;
+    const basis = items.find((item) => item.label === "처분·허가 근거")!;
+    const conditions = items.find((item) => item.label === "적용 요건")!;
+    expect(conditions.answer).toContain("영업자가 다음 각 호의 어느 하나에 해당하는 경우에는");
+    expect(conditions.answer).toContain("위반행위 23개 호(삭제 호 제외)");
+    expect(conditions.answer).toContain("1. 제4조부터 제6조까지");
+    expect(conditions.answer).toContain("3. 제17조제4항을 위반한 경우");
+    expect(conditions.answer).toContain("예외 단서: 다만, 식품접객영업자가 제13호");
+    expect(conditions.answer).toContain("면제할 수 있다.");
+    expect(conditions.answer).not.toContain("<개정");
+    expect(conditions.answer).not.toContain("6개월 이내");
+    expect(conditions.answer).not.toContain("2. 삭제");
+    expect(conditions.answer).not.toBe(basis.answer);
+  });
+
+  it("scopes a cited violation to its own numbered item, without assuming an unrelated annex violation", () => {
+    const scoped = assessActionBasis("식품위생법 제36조 위반 영업정지 요건", food.text,
+      food.enrichment as Parameters<typeof assessActionBasis>[2]);
+    const conditions = scoped.items.find((item) => item.label === "적용 요건")!;
+    expect(conditions.answer).toContain("6. 제36조를 위반한 경우");
+    expect(conditions.answer).not.toContain("1. 제4조부터");
+    const annexOnly = assessActionBasis("식품위생법 온도 기준 위반 영업정지 요건", food.text,
+      food.enrichment as Parameters<typeof assessActionBasis>[2]);
+    expect(annexOnly.items.find((item) => item.label === "적용 요건")?.answer).not.toContain("해당 위반 항목: 온도");
+  });
+
+  it("extracts conditions from another statute's operative clause without statutory-name special cases", () => {
+    const text = "═══ 처분 근거 확인: 예시법 ═══\n▶ 추가 조회 조문\n[법률] 예시법 제9조 (등록취소)\n제9조(등록취소)\n① 관할청은 사업자가 다음 각 호의 어느 하나에 해당하는 경우에는 등록을 취소할 수 있다.\n1. 장부를 거짓으로 작성한 경우\n2. 시설을 폐쇄한 경우\n② 이의신청은 별도로 정한다.";
+    const result = assessActionBasis("예시법 등록취소 요건", text);
+    const basis = result.items.find((item) => item.label === "처분·허가 근거")!;
+    const conditions = result.items.find((item) => item.label === "적용 요건")!;
+    expect(conditions.answer).toContain("사업자가 다음 각 호의 어느 하나에 해당하는 경우에는");
+    expect(conditions.answer).toContain("1. 장부를 거짓으로 작성한 경우");
+    expect(conditions.answer).toContain("2. 시설을 폐쇄한 경우");
+    expect(conditions.answer).not.toBe(basis.answer);
+  });
+
   it("does not certify a list or an identity-only annex as detailed criteria", () => {
     const result = assessActionBasis("식품위생법 영업정지 별표 기준", food.text, food.enrichment as Parameters<typeof assessActionBasis>[2],
       [{ law: "식품위생법 시행규칙", label: "별표 23", sourceArticle: "제89조", citation: "행정처분 기준은 별표 23과 같다.", relevance: "direct", status: "identified" }]);
