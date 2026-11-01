@@ -1045,7 +1045,7 @@
 .ax-matrix-counts-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .ax-matrix-counts-link:disabled { color: var(--muted-foreground); text-decoration: none; cursor: default; }
 /* 바로가기 스크롤 착지 지점 여백 */
-#ax-answer-section, .ax-diag-checks, #ax-decision-points, #ax-plan-review, #ax-plan-section, #ax-step-review { scroll-margin-top: 96px; }
+#ax-answer-section, .ax-diag-checks, .ax-diag-checks li, .ax-decision-row, #ax-decision-points, #ax-plan-review, #ax-plan-section, #ax-step-review { scroll-margin-top: 96px; }
 /* 구현 전 확인 이동 대상 강조: 고정 헤더에 가리지 않고 수정 위치를 식별한다. */
 .ax-check-target { outline: 2px solid var(--primary); outline-offset: 4px; }
 /* 상세 분석 구분 헤더 */
@@ -1182,16 +1182,8 @@
 .ax-plan-step-no { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: color-mix(in srgb, var(--primary) 10%, var(--card)); color: var(--primary); font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .ax-plan-step-text { min-width: 0; font-size: 14px; line-height: 1.6; color: var(--foreground); overflow-wrap: anywhere; }
 .ax-plan-review-cell { display: inline-flex; align-items: center; gap: 10px; white-space: nowrap; }
-.ax-plan-review-panel { margin-top: 12px; padding: 16px 0 0; border-top: 1px solid var(--line-soft); }
-.ax-plan-review-panel .ax-hitl-panel-v2 { gap: 14px; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
-.ax-plan-review-panel .ax-hitl-v2-original { padding: 12px 0; border: 0; border-top: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft); border-radius: 0; background: transparent; }
-.ax-plan-review-panel .ax-hitl-v2-original-text { color: var(--muted-foreground); }
-.ax-plan-review-panel .ax-hitl-v2-original-title { color: var(--foreground); }
-.ax-plan-review-panel .ax-hitl-v2-notice { padding: 10px 0; border: 0; border-radius: 0; background: transparent; }
-.ax-plan-review-panel .ax-hitl-confirmed { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 2px 12px; }
-.ax-plan-review-panel .ax-hitl-confirmed .ax-hitl-label { grid-column: 1; margin: 0; }
-.ax-plan-review-panel .ax-hitl-confirmed p { grid-column: 1; margin: 0; }
-.ax-plan-review-panel .ax-hitl-confirmed .ax-hitl-buttons { grid-column: 2; grid-row: 1 / 3; }
+/* 구현 계획·완료 기준 검토 패널은 단계별 자동화 판단과 같은 HitlReviewPanel 기본 디자인을 그대로 쓴다. */
+.ax-plan-review-panel { margin-top: 12px; }
 .ax-scope-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; text-align: left; }
 .ax-scope-panel { min-width: 0; padding: 24px; border: 1px solid var(--border); border-radius: 14px; background: var(--card); box-shadow: var(--shadow-sm, 0 1px 2px rgb(16 24 40 / 0.04)); }
 .ax-scope-panel h3 { display: flex; align-items: center; gap: 12px; margin: 0 0 16px; font-size: 20px; font-weight: 700; }

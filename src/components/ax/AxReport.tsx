@@ -860,12 +860,11 @@ function AxPrecheckSection({ summary, onGoToTarget }: { summary: AxPlanSummary; 
   const blocked = summary.blockReasons.length > 0;
   return <AxReviewAccordion className="ax-precheck" headClassName="ax-precheck-head" label="구현 전 확인" icon={ClipboardList} meta={<span>{blocked ? "진행 보류" : "미해결"} {count}건</span>} open={open} onOpenChange={setOpen}>
     {count ? <ul className="ax-precheck-items">{items.map((item, i) => {
-      const location = item.target.kind === "none" ? "" : precheckTargetLabel(item.target) + (item.target.kind === "decision" && item.target.id ? ` ${item.target.id}` : "");
       const target = item.target;
-      return <li key={i} className="ax-precheck-row">
-        <div className="ax-precheck-row-text"><strong>{uiText(item.title)}</strong><span>{uiText(item.detail)}</span>
-          {target.kind === "none" ? <small>{uiText(target.guidance)}</small> : location ? <small>확인 위치: {location}</small> : null}</div>
-        {target.kind !== "none" && onGoToTarget ? <Button type="button" variant="outline" size="sm" onClick={() => onGoToTarget(target, item.title)}>확인하러 가기</Button> : null}
+      // 한 줄 구성: 굵은 항목명 + '확인'. 이동 위치가 없는 항목은 버튼 대신 안내를 툴팁(title)으로만 둔다.
+      return <li key={i} className="ax-precheck-row" title={target.kind === "none" ? uiText(target.guidance) : undefined}>
+        <strong>{uiText(item.title)}</strong>
+        {target.kind !== "none" && onGoToTarget ? <Button type="button" variant="outline" size="sm" onClick={() => onGoToTarget(target, item.title)}>확인</Button> : null}
       </li>;
     })}</ul> : <p className="ax-muted ax-precheck-empty">필수 확인사항 없음</p>}
   </AxReviewAccordion>;
