@@ -43,7 +43,7 @@ describe("AX 레퍼런스 동일화 — 업무 규칙 확인 표시", () => {
     expect(component()).not.toContain("변경사항 저장");
     expect(component()).not.toContain("업무 처리 예시 저장");
     expect(component().match(/>저장<\/Button>/g)).toHaveLength(1);
-    expect(component()).toContain("업무 규칙을 저장했습니다.");
+    expect(component()).toContain("업무 규칙을 저장했습니다");
     expect(component()).not.toContain("결정 지점을 저장했습니다.");
     expect(component()).not.toContain("범용 업무 규칙을 저장했습니다.");
   });

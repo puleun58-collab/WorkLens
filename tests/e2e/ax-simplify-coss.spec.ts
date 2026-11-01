@@ -85,14 +85,14 @@ test("AX 간소화·COSS 통일: 판단 하단 문구 제거·매트릭스 버�
   await expect(precheck.getByRole("button", { name: "HITL 검토" })).toHaveCount(0);
   await expect(precheck.getByRole("button", { name: "규칙 확인" })).toHaveCount(0);
   await expect(precheck.getByRole("button", { name: "예시 확인" })).toHaveCount(0);
-  // 펼치면 실제 미해결 항목이 보이고, 항목별 이동 버튼은 생기지 않는다.
+  // 펼치면 실제 미해결 항목과 해당 항목의 확인 위치로 가는 버튼이 보인다.
   // 표시 건수는 배지 건수와 같다 (같은 집계 기준).
   await precheck.getByRole("button", { name: /구현 전 확인/ }).click();
   await expect(precheck.locator(".ax-precheck-items")).toBeVisible();
   const badgeText = await precheck.locator(".ax-precheck-head").textContent();
   const badgeCount = Number(/미해결 (\d+)건/.exec(badgeText ?? "")?.[1]);
   await expect(precheck.locator(".ax-precheck-row")).toHaveCount(badgeCount);
-  await expect(precheck.getByRole("button")).toHaveCount(1);
+  await expect(precheck.getByRole("button", { name: "확인하러 가기" })).toHaveCount(badgeCount);
   await expect(precheck.getByRole("button", { name: "계획 검토" })).toHaveCount(0);
   await expect(precheck.getByRole("button", { name: "업무 정보 수정" })).toHaveCount(0);
 
@@ -116,7 +116,7 @@ test("AX 간소화·COSS 통일: 판단 하단 문구 제거·매트릭스 버�
   const unified = page.locator('section[aria-label="업무 규칙 확인"]');
   await addInlineRule(unified, { name: "운송장 중복 기준", category: "처리·판단 기준", applicability: "적용 여부 미확정", status: "미확정" });
   await unified.getByRole("button", { name: "저장", exact: true }).click();
-  await expect(unified.getByText("업무 규칙을 저장했습니다.", { exact: true })).toBeVisible();
+  await expect(unified.getByText("업무 규칙을 저장했습니다", { exact: true })).toBeVisible();
   await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
   await expect(page.locator(".ax-report-intro h2")).toContainText("운송장 검증");
   await expect(precheck).toBeVisible();

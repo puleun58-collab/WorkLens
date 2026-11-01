@@ -1,5 +1,5 @@
 import type { z } from "zod";
-import type { axTaskSchema, axDiagnosisSchema, axPlanSchema, axStateSchema, axDetailsSchema, axDiagnosisRequestSchema, axPlanRequestSchema, FACTOR_KEYS, hitlReviewSchema, hitlReviewCollectionSchema, axTaskV2Schema, axStateV2Schema, HITL_TARGET_TYPES, HITL_ACTIONS, HITL_STATUSES, axAttachmentMetaSchema, decisionPointSchema, exampleResultSchema, genericRuleSchema, verificationFailureSchema, verificationResultSchema, DECISION_POINT_IDS, DECISION_POINT_STATUSES, GENERIC_RULE_CATEGORIES, GENERIC_RULE_APPLICABILITY, GENERIC_RULE_STATUSES } from "./schema";
+import type { axTaskSchema, axDiagnosisSchema, axPlanSchema, axStateSchema, axDetailsSchema, axDiagnosisRequestSchema, axPlanRequestSchema, FACTOR_KEYS, hitlReviewSchema, hitlReviewCollectionSchema, axTaskV2Schema, axStateV2Schema, HITL_TARGET_TYPES, HITL_ACTIONS, HITL_STATUSES, axAttachmentMetaSchema, decisionPointSchema, exampleResultSchema, genericRuleSchema, verificationFailureSchema, verificationResultSchema, checkConfirmationSchema, DECISION_POINT_IDS, DECISION_POINT_STATUSES, GENERIC_RULE_CATEGORIES, GENERIC_RULE_APPLICABILITY, GENERIC_RULE_STATUSES } from "./schema";
 export type AxTask = z.infer<typeof axTaskSchema>;
 export type AxAttachmentMeta = z.infer<typeof axAttachmentMetaSchema>;
 export type AxDiagnosis = z.infer<typeof axDiagnosisSchema>;
@@ -24,6 +24,7 @@ export type GenericRuleApplicability = (typeof GENERIC_RULE_APPLICABILITY)[numbe
 export type GenericRuleStatus = (typeof GENERIC_RULE_STATUSES)[number];
 export type VerificationFailure = z.infer<typeof verificationFailureSchema>;
 export type VerificationResult = z.infer<typeof verificationResultSchema>;
+export type CheckConfirmation = z.infer<typeof checkConfirmationSchema>;
 export type HitlTargetType = typeof HITL_TARGET_TYPES[number];
 export type HitlAction = typeof HITL_ACTIONS[number];
 export type HitlStatus = typeof HITL_STATUSES[number];

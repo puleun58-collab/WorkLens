@@ -38,7 +38,7 @@ test("AX multi-file: select several at once, pastel rows, add more, duplicate an
     csv("주간실적.csv", "주차,실적\n1주차,10\n2주차,12"),
     csv("업무매뉴얼.csv", "절차,담당\n수집,담당자\n검토,팀장"),
   ]);
-  await expect(page.getByText("첨부 요약을 준비했습니다.", { exact: false })).toBeVisible();
+  await expect(page.getByText("첨부 요약을 준비했습니다", { exact: false })).toBeVisible();
   const rows = page.locator(".ax-register-files .ax-file-row");
   await expect(rows).toHaveCount(3);
   await expect(rows.nth(0)).toContainText("경유가격_원본.csv");
@@ -58,7 +58,7 @@ test("AX multi-file: select several at once, pastel rows, add more, duplicate an
   await expect(rows).toHaveCount(4);
   // 동일 파일(같은 이름·같은 내용) 중복 방지
   await input.setInputFiles([csv("경유가격_원본.csv", "품목,가격\n경유,1500\n휘발유,1600")]);
-  await expect(page.getByText("중복으로 추가하지 않았습니다.", { exact: false })).toBeVisible();
+  await expect(page.getByText("중복으로 추가하지 않았습니다", { exact: false })).toBeVisible();
   await expect(rows).toHaveCount(4);
   // 같은 이름·다른 내용은 별도 파일로 추가
   await input.setInputFiles([csv("경유가격_원본.csv", "품목,가격\n경유,1550")]);
@@ -94,7 +94,7 @@ test("AX multi-file: partial failure keeps successful files and reports the fail
   await expect(page.locator(".ax-register-files .ax-file-row")).toHaveCount(1);
   await expect(page.locator(".ax-register-files .ax-file-row").nth(0)).toContainText("정상.csv");
   await expect(page.getByText("손상.pdf", { exact: false }).first()).toBeVisible();
-  await expect(page.getByText("빈 파일은 첨부할 수 없습니다.", { exact: false })).toBeVisible();
+  await expect(page.getByText("빈 파일은 첨부할 수 없습니다", { exact: false })).toBeVisible();
 });
 
 test("AX multi-file: diagnosis request carries the combined per-file summary and reload tracks each file", async ({ page }) => {

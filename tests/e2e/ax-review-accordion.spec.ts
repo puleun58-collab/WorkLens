@@ -165,13 +165,14 @@ test("implementation steps and completion criteria save independently and persis
   await detail.getByRole("button", { name: "확정" }).click();
   await expect(detail).toContainText("기준 확인 완료");
   await expect(review.locator(".ax-hitl-table-counts")).toContainText("검토 완료 2");
-  // IndexedDB 영구 저장은 UI 반영 뒤 비동기로 완료되므로 저장 결과를 기다린 뒤 재조회한다.
+  // IndexedDB 영구 저장은 UI 반영 뒤 비동기(디바운스)로 완료되므로, 수정한 의견까지 저장된 것을 확인한 뒤 재조회한다.
   await expect.poll(() => page.evaluate(async taskId => {
     const db = await new Promise<IDBDatabase>(resolve => { const request = indexedDB.open("worklens-ax", 1); request.onsuccess = () => resolve(request.result); });
     const state = await new Promise<AxStateV2>(resolve => { const request = db.transaction("state").objectStore("state").get("current"); request.onsuccess = () => resolve(request.result); });
     db.close();
-    return state.tasks.find(saved => saved.id === taskId)?.reviews?.filter(review => review.status === "confirmed").length;
-  }, task.id)).toBe(2);
+    const confirmed = state.tasks.find(saved => saved.id === taskId)?.reviews?.filter(review => review.status === "confirmed") ?? [];
+    return `${confirmed.length}:${confirmed.some(review => review.comment === "기준 확인 완료")}`;
+  }, task.id)).toBe("2:true");
   await page.reload();
   await navigateWorkspace(page, "업무 자동화 진단");
   await plan.getByRole("region", { name: "구현 계획", exact: true }).getByRole("button", { name: "전체 펼치기" }).click();

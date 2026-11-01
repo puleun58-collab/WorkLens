@@ -39,7 +39,7 @@ function render(onSave: Save, saveStatus = "이 브라우저에 저장됨", curr
   return nodes(UnifiedRulesSection({ diagnosis: currentDiagnosis, onSave, saveStatus }));
 }
 const saveButton = (tree: NodeProps[]) => tree.find(props => props.children === "저장")!;
-const hasSuccess = (tree: NodeProps[]) => tree.some(props => props.children === "업무 규칙을 저장했습니다.");
+const hasSuccess = (tree: NodeProps[]) => tree.some(props => props.children === "업무 규칙을 저장했습니다");
 beforeEach(() => { harness.slots = []; harness.cursor = 0; });
 
 describe("AX unified rules persistence feedback", () => {

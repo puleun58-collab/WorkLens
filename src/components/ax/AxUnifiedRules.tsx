@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { DECISION_POINT_DEFS } from "@/lib/ax/decision-points";
 import { GENERIC_RULE_CATEGORIES, GENERIC_RULE_STATUSES } from "@/lib/ax/schema";
 import { resolveGenericRules } from "@/lib/ax/generic-rules";
+import { uiText } from "@/lib/ax/display-text";
 import {
   DECISION_DISPLAY,
   decisionPanelLabel,
@@ -67,7 +68,7 @@ const RULE_STEP_MAX_LENGTH = 500;
 const APPLICABILITY_LABEL = "업무 적용 여부";
 const DETAIL_LABEL = "처리 기준";
 const STATUS_LABEL = "확정 상태";
-const DETAIL_HINT = "적용 조건, 처리 방법, 예외 및 결과 처리 기준을 작성하세요.";
+const DETAIL_HINT = "적용 조건, 처리 방법, 예외 및 결과 처리 기준을 작성하세요";
 
 const NEW_RULE_KEY = "new-rule";
 
@@ -105,7 +106,7 @@ interface NewRuleErrors {
 const emptyNewRule: GenericRuleFieldValues = { name: "", category: "", applicability: "", status: "미확정", detail: "", source: "", step: "" };
 
 /** 규칙 선택창: D규칙·범용 규칙의 모든 선택 항목이 같은 COSS 흰색 Select를 쓴다. */
-function RuleSelect<T extends string>({ label, value, options, placeholder = "선택하세요", disabled, error, onChange }: {
+export function RuleSelect<T extends string>({ label, value, options, placeholder = "선택하세요", disabled, error, onChange }: {
   label: string;
   value: T | "";
   options: readonly { value: T | ""; label: string }[];
@@ -202,13 +203,15 @@ function GenericRuleFields({ value, onChange, disabled, errors, detailsOpen, onD
   </>;
 }
 
-export function UnifiedRulesSection({ diagnosis, genericRules, disabled: externallyDisabled, saveStatus, onSave }: {
+export function UnifiedRulesSection({ diagnosis, genericRules, disabled: externallyDisabled, saveStatus, onSave, focus }: {
   diagnosis: AxDiagnosis;
   /** 범용 규칙 (저장된 값 기준). */
   genericRules?: GenericRule[];
   disabled?: boolean;
   saveStatus: string;
   onSave: (points: DecisionPoint[], rules: GenericRule[]) => Promise<boolean>;
+  /** 구현 전 확인 '확인하러 가기'로 펼칠 결정 지점 (D1~D7). */
+  focus?: { id: string; nonce: number } | null;
 }) {
   // 저장 후 부모가 새 값을 내려주면 초안을 동기화한다 (effect가 아닌 렌더 중 조정 패턴).
   const draftsKey = JSON.stringify({ d: diagnosis.decisionPoints ?? [], g: resolveGenericRules(genericRules) });
@@ -227,6 +230,8 @@ export function UnifiedRulesSection({ diagnosis, genericRules, disabled: externa
   // 펼침 상태는 초안과 별개로 유지한다: 접었다 펴도 미저장 입력값이 사라지지 않는다.
   // 기본값은 모두 접힘(한 번에 한 항목만 펼침).
   const [openKey, setOpenKey] = useState<string | null>(null);
+  const [focusNonce, setFocusNonce] = useState<number | null>(null);
+  if (focus && focus.nonce !== focusNonce) { setFocusNonce(focus.nonce); setOpenKey(focus.id); }
   // 항목별 추가 정보 펼침 (기본 접힘).
   const [detailsOpen, setDetailsOpen] = useState<ReadonlySet<string>>(() => new Set());
   // 인라인 신규 항목: "추가" 전까지 초안 목록과 분리된 작성 중 상태다.
@@ -289,14 +294,14 @@ export function UnifiedRulesSection({ diagnosis, genericRules, disabled: externa
     if (!newRule) return;
     const errors: NewRuleErrors = {};
     const name = newRule.name.trim();
-    if (!name) errors.name = "규칙명을 입력하세요.";
+    if (!name) errors.name = "규칙명을 입력하세요";
     // 업무 적용 여부는 미선택(적용 여부 미확정)으로 둘 수 있다. 확정 상태는 기본 미확정이다.
-    if (!newRule.category) errors.category = "분류를 선택하세요.";
+    if (!newRule.category) errors.category = "분류를 선택하세요";
     if (name) {
       const key = name.replace(/\s+/gu, " ").trim();
       const clash = drafts.some(item =>
         item.kind === "generic" && item.name.replace(/\s+/gu, " ").trim() === key);
-      if (clash) errors.duplicate = "이미 같은 이름의 규칙이 있습니다. 기존 규칙을 편집하세요.";
+      if (clash) errors.duplicate = "이미 같은 이름의 규칙이 있습니다. 기존 규칙을 편집하세요";
     }
     setNewRuleErrors(errors);
     if (Object.keys(errors).length) return;
@@ -335,15 +340,15 @@ export function UnifiedRulesSection({ diagnosis, genericRules, disabled: externa
   // D5 선택형 UI용 D4 확정 상태 목록 (초안 기준). D4 미확정 시에는 기존 자유 입력 유지한다.
   const d4States = draftStateNames(drafts);
   const emptyText = hasDerivationSignals(diagnosis)
-    ? "확인 대상 규칙이 없습니다."
-    : "진단 정보가 부족해 규칙을 도출하지 못했습니다. 업무에 실제로 필요한 규칙이 있으면 '+ 규칙 추가'로 근거와 함께 추가하세요.";
+    ? "확인 대상 규칙이 없습니다"
+    : "진단 정보가 부족해 규칙을 도출하지 못했습니다. 업무에 실제로 필요한 규칙이 있으면 '+ 규칙 추가'로 근거와 함께 추가하세요";
   const newRuleOpen = openKey === NEW_RULE_KEY;
 
   return <section className="ax-surface ax-decision" id="ax-decision-points" aria-label="업무 규칙 확인">
     <div className="ax-decision-head">
       <div>
         <h3>업무 규칙 확인</h3>
-        <p className="ax-muted">자동화에 필요한 업무 규칙을 확인합니다. 확정된 내용은 올인원 지시문에 반영됩니다.</p>
+        <p className="ax-muted">자동화에 필요한 업무 규칙을 확인합니다. 확정된 내용은 올인원 지시문에 반영됩니다</p>
       </div>
       <div className="ax-decision-progress">
         <strong>{progressText}</strong>
@@ -364,7 +369,7 @@ export function UnifiedRulesSection({ diagnosis, genericRules, disabled: externa
             <button type="button" className="ax-decision-row-head" aria-expanded={isOpen} disabled={disabled}
               onClick={() => setOpenKey(isOpen ? null : item.id)}>
               <span className="ax-decision-no">{item.id}</span>
-              <span className="ax-decision-title"><strong>{display.title}</strong><small>{display.question}</small></span>
+              <span className="ax-decision-title"><strong>{display.title}</strong><small>{uiText(display.question)}</small></span>
               <span className="ax-decision-badge" data-status={item.status}>{STATUS_BADGE[item.status]}</span>
               <ChevronDown size={18} aria-hidden="true" className={isOpen ? "is-open" : ""} />
             </button>
@@ -379,9 +384,9 @@ export function UnifiedRulesSection({ diagnosis, genericRules, disabled: externa
                     ...d4States.map(name => ({ value: name, label: name })),
                   ]}
                   onChange={detail => { updateDecision(item.id, { detail }); setSaveState("idle"); }} />
-                {d5Mismatch ? <p className="ax-muted" role="status">현재 값이 결과 상태 (D4) 목록에 없습니다. 결과 상태 (D4) 중 하나로 수정하세요. 수정 전까지 기존값이 유지됩니다.</p> : null}
+                {d5Mismatch ? <p className="ax-muted" role="status">현재 값이 결과 상태 (D4) 목록에 없습니다. 결과 상태 (D4) 중 하나로 수정하세요. 수정 전까지 기존값이 유지됩니다</p> : null}
               </> : <label className="ax-field">{decisionPanelLabel(item.id, "상세")}
-                <Textarea rows={4} maxLength={DECISION_DETAIL_MAX_LENGTH} aria-label={decisionPanelLabel(item.id, "상세")} placeholder={def.detailHint} disabled={disabled}
+                <Textarea rows={4} maxLength={DECISION_DETAIL_MAX_LENGTH} aria-label={decisionPanelLabel(item.id, "상세")} placeholder={uiText(def.detailHint)} disabled={disabled}
                   value={item.detail ?? ""} onChange={e => { updateDecision(item.id, { detail: e.target.value }); setSaveState("idle"); }} />
                 <span className="ax-decision-counter">{(item.detail ?? "").length} / {DECISION_DETAIL_MAX_LENGTH}</span>
               </label>}
@@ -396,7 +401,7 @@ export function UnifiedRulesSection({ diagnosis, genericRules, disabled: externa
             {item.id
               ? <span className="ax-decision-no">{item.id}</span>
               : <span className="ax-decision-no ax-decision-no-new">신규</span>}
-            <span className="ax-decision-title"><strong>{item.name.trim() || "새 규칙"}</strong><small>{item.category}</small></span>
+            <span className="ax-decision-title"><strong>{item.origin === "candidate" ? uiText(item.name.trim()) || "새 규칙" : item.name.trim() || "새 규칙"}</strong><small>{item.category}</small></span>
             <span className="ax-decision-badge" data-status={genericBadgeStatus(item)}>{STATUS_BADGE[genericBadgeStatus(item)]}</span>
             <ChevronDown size={18} aria-hidden="true" className={isOpen ? "is-open" : ""} />
           </button>
@@ -432,8 +437,8 @@ export function UnifiedRulesSection({ diagnosis, genericRules, disabled: externa
     </div> : <p className="ax-muted">{emptyText}</p>}
     <div className="ax-decision-save">
       <Button type="button" disabled={disabled} onClick={save}>저장</Button>
-      {saveState === "saved" && saveStatus === "이 브라우저에 저장됨" ? <p className="ax-muted" role="status">업무 규칙을 저장했습니다.</p> : null}
-      {saveState === "failed" ? <p className="ax-muted" role="alert">업무 규칙을 저장하지 못했습니다. 입력 내용은 유지됩니다. 저장 상태를 확인하고 다시 시도하세요.</p> : null}
+      {saveState === "saved" && saveStatus === "이 브라우저에 저장됨" ? <p className="ax-muted" role="status">업무 규칙을 저장했습니다</p> : null}
+      {saveState === "failed" ? <p className="ax-muted" role="alert">업무 규칙을 저장하지 못했습니다. 입력 내용은 유지됩니다. 저장 상태를 확인하고 다시 시도하세요</p> : null}
     </div>
   </section>;
 }

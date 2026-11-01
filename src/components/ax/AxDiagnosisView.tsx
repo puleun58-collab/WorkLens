@@ -19,13 +19,21 @@ import { axes, automationLevel, diagnosisCounts, diagnosisStatusItems, execution
 import { candidateTask, taskDetails, followUpDescription, legacyDetailValues, validateAttachmentPreflight, isRegistrationUnchanged } from "@/lib/ax/registration";
 import { MAX_TASK_ATTACHMENTS, attachmentPatch, buildAttachmentSummary, combineAttachmentSummaries, taskAttachments } from "@/lib/ax/attachments";
 import type { AxAttachmentMeta } from "@/lib/ax/types";
+import { uiText } from "@/lib/ax/display-text";
 import type { AxToolId } from "@/lib/ax/guide";
 import { exportAxState, importAxState } from "@/lib/ax/transfer";
 import { emptyAxState, type AxStateV2, type AxTask, type AxDiagnosis, type AxDetails, type FactorKey } from "@/lib/ax/types";
 import { extractReviewableItems, extractPlanReviewableItems, reconcileReviews, validateReviewForConfirm } from "@/lib/ax/hitl";
-import { AxLevelBadge, AxProcess, AxPlanSection, AxCheckIcon, AxStatCards, diagnosisSummaryParts, diagnosisCheckItems, visibleDiagnosisCheckItems, resolveActiveTool, concreteNextAction, formatUnifiedNextAction, type AxCheckItem } from "./AxReport";
-import { UnifiedRulesSection } from "./AxUnifiedRules";
+import { AxLevelBadge, AxProcess, AxPlanSection, AxCheckIcon, AxStatCards, diagnosisSummaryParts, diagnosisCheckItems, visibleDiagnosisCheckItems, resolveActiveTool, concreteNextAction, formatUnifiedNextAction, type AxCheckItem, type PrecheckTarget } from "./AxReport";
+import { applyCheckConfirmations, checkConfirmationState, checkKey, upsertCheckConfirmation } from "@/lib/ax/check-confirmations";
+import { RuleSelect, UnifiedRulesSection } from "./AxUnifiedRules";
 import "./ax.css";
+
+/** 사용자 확인 기록(checkConfirmations)을 반영한 업무 보기. 화면 표시·집계 전용이며 저장하지 않는다. */
+function viewTask<T extends AxTask>(task: T): T {
+  const confirmations = (task as import("@/lib/ax/types").AxTaskV2).checkConfirmations;
+  return task.diagnosis && confirmations?.length ? { ...task, diagnosis: applyCheckConfirmations(task.diagnosis, confirmations) } : task;
+}
 
 const STEPS = ["업무 등록", "업무 진단", "자동화 매트릭스", "결과·로드맵"];
 const STEP_ICONS = [ClipboardList, Stethoscope, LayoutGrid, MapIcon];
@@ -80,14 +88,16 @@ function NeedsCheckLink({ tasks, label, disabled, onGo }: { tasks: AxTask[]; lab
 /** 선택 업무의 결과·로드맵 래퍼: 도구 선택 상태를 소유해 로드맵·01~03·04가
  * 같은 도구의 확정 검토를 따르게 한다. key로 업무 전환 시 remount돼 상태가
  * 초기화되는 점은 기존 AxPlanSection key 동작과 동일하다. */
-function AxSelectedReport({ task, busy, onGenerate, onSaveReview }: {
+function AxSelectedReport({ task, busy, onGenerate, onSaveReview, onGoToTarget }: {
   task: AxTask;
   busy: string | null;
   onGenerate: (target: AxToolId) => void;
   onSaveReview: (r: Omit<import("@/lib/ax/types").HitlReview, "id" | "reviewedAt" | "updatedAt"> & { id?: string }) => { saved: boolean; reason?: string };
+  onGoToTarget: (target: PrecheckTarget, topic: string) => void;
 }) {
-  // 호출 지점은 selected.diagnosis가 있는 경우에만 이 래퍼를 렌더링한다.
-  const diagnosis = task.diagnosis as AxDiagnosis;
+  // 호출 지점은 selected.diagnosis가 있는 경우에만 이 래퍼를 렌더링한다. 구현 계획·구현 전 확인·
+  // 올인원 지시문은 사용자 확인 기록을 반영한 진단 보기를 쓴다 (원본 진단은 그대로).
+  const diagnosis = viewTask(task).diagnosis as AxDiagnosis;
   const plans = { codex: diagnosis.planCodex, claude: diagnosis.planClaude };
   const [selectedTool, setSelectedTool] = useState<AxToolId | null>(null);
   const activeTool = resolveActiveTool(selectedTool, plans);
@@ -96,6 +106,7 @@ function AxSelectedReport({ task, busy, onGenerate, onSaveReview }: {
   return <>
     <AxPlanSection
       diagnosis={diagnosis}
+      onGoToTarget={onGoToTarget}
       taskName={task.name}
       taskContext={[task.description, ...Object.entries(taskDetails(task)).filter(([, value]) => value !== undefined).map(([key, value]) => `${key}: ${value}`)].join("\n")}
       busy={busy}
@@ -135,11 +146,14 @@ export function AxDiagnosisView() {
   const [showMatrixHelp, setShowMatrixHelp] = useState(false);
   // Factor 상세 평가 아코디언: 기본 접힘. 사용자가 펼친 상태는 탭·업무 전환에도 유지한다.
   const [factorsOpen, setFactorsOpen] = useState(false);
-  const [checkScroll, setCheckScroll] = useState<{ taskId: string; nonce: number; target?: "answers" | "checks" } | null>(null);
-  const ranked = priority(state.tasks).map((row, index) => ({ ...row, rank: index + 1 }));
+  const [checkScroll, setCheckScroll] = useState<{ taskId: string; nonce: number; target?: "answers" | "checks"; step?: number; selector?: string } | null>(null);
+  // 화면 집계·우선순위·Gate는 사용자 확인 기록을 반영한 진단 보기(viewTask)로 계산한다. 저장·수정
+  // 경로는 항상 원본 state.tasks를 쓴다 (확인 기록이 AI 진단 원본에 섞여 저장되지 않게).
+  const viewTasks = state.tasks.map(viewTask);
+  const ranked = priority(viewTasks).map((row, index) => ({ ...row, rank: index + 1 }));
   // 매트릭스 목록: 기존 우선순위순 고정 표시 (원본 데이터·계산 변경 없음)
   const matrixListed = ranked;
-  const counts = diagnosisCounts(state.tasks);
+  const counts = diagnosisCounts(viewTasks);
   // 정보 확인 필요 업무: 집계 counts.questions과 같은 판정(needs-check) 기준으로 바로가기 대상을 구성한다.
   const needsCheckTasks = state.tasks.filter(task => task.diagnosis?.informationSufficiency === "needs-check");
   // 상태 문구는 공통 표시 항목(diagnosisStatusItems)을 쓰고, 진단 완료만 완료/전체로 앞에 표기한다.
@@ -155,7 +169,8 @@ export function AxDiagnosisView() {
   const profiles = ranked.map(row => ({ row, profile: executionProfile(row.task.diagnosis) }));
   const displayed = [...profiles].sort((a, b) => gateOrder[a.profile.gate] - gateOrder[b.profile.gate]).map(({ row }) => row);
   const currentSelection = state.tasks.find(task => task.id === state.selectedTaskId);
-  const selected = state.step >= 3 ? currentSelection?.diagnosis ? currentSelection : displayed[0]?.task : currentSelection ?? state.tasks[0];
+  const fallbackId = displayed[0]?.task.id;
+  const selected = state.step >= 3 ? currentSelection?.diagnosis ? currentSelection : state.tasks.find(task => task.id === fallbackId) : currentSelection ?? state.tasks[0];
   const selectedId = selected?.id ?? null;
   useEffect(() => {
     if (ready && state.selectedTaskId !== selectedId) update(current => ({ ...current, selectedTaskId: selectedId }));
@@ -167,16 +182,18 @@ export function AxDiagnosisView() {
   // 동일 좌표 그룹: 하단 표를 두지 않는다. 선택된 업무가 속한 그룹은
   // 우측 업무 목록에서 파생 상태로만 강조한다 (그룹 표·팝업·접힘 카드 없음).
   useEffect(() => {
-    if (!checkScroll || state.step !== 2 || state.selectedTaskId !== checkScroll.taskId) return;
+    if (!checkScroll || state.step !== (checkScroll.step ?? 2) || state.selectedTaskId !== checkScroll.taskId) return;
     const timer = window.setTimeout(() => {
       if (selectedRef.current !== checkScroll.taskId) { setCheckScroll(null); return; }
       requestAnimationFrame(() => {
         const panel = document.querySelector(".ax-step2-grid");
+        // selector가 있으면(구현 전 확인의 '확인하러 가기') 그 항목으로, 없으면 기존 규칙대로:
         // target이 checks면 차단 사유 등이 있는 확인할 사항 영역을 우선하고,
         // 그 외에는 추가 질문 영역이 있으면 그곳, 없으면 확인할 사항 영역으로 이동한다.
-        const target = checkScroll.target === "checks"
-          ? panel?.querySelector(".ax-diag-checks") ?? panel?.querySelector(".ax-diag-card")
-          : panel?.querySelector("#ax-answer-section") ?? panel?.querySelector(".ax-diag-checks") ?? panel?.querySelector(".ax-diag-card");
+        const target = checkScroll.selector ? document.querySelector(checkScroll.selector) ?? (checkScroll.step === 4 ? null : panel?.querySelector(".ax-diag-checks"))
+          : checkScroll.target === "checks"
+            ? panel?.querySelector(".ax-diag-checks") ?? panel?.querySelector(".ax-diag-card")
+            : panel?.querySelector("#ax-answer-section") ?? panel?.querySelector(".ax-diag-checks") ?? panel?.querySelector(".ax-diag-card");
         target?.scrollIntoView({ behavior: "smooth", block: "start" });
         setCheckScroll(null);
       });
@@ -199,12 +216,46 @@ export function AxDiagnosisView() {
     if (busy) return;
     const task = getState().tasks.find(t => t.id === taskId);
     if (!task?.diagnosis || task.diagnosis.informationSufficiency !== "needs-check") {
-      setMessage("정보 확인 필요 상태가 변경되어 이동할 업무가 없습니다.");
+      setMessage("정보 확인 필요 상태가 변경되어 이동할 업무가 없습니다");
       return;
     }
     select(taskId);
     changeStep(2);
     setCheckScroll({ taskId, nonce: Date.now() });
+  }
+  // '확인하러 가기'로 열 기술 확인 항목 (업무 진단 카드가 해당 입력을 연다).
+  const [focusCheck, setFocusCheck] = useState<{ taskId: string; topic: string; nonce: number } | null>(null);
+  const jumpSeq = useRef(0);
+  const [focusDecision, setFocusDecision] = useState<{ taskId: string; id: string; nonce: number } | null>(null);
+  /** 구현 전 확인 '확인하러 가기': 현재 선택 업무를 유지한 채 실제 확인·수정 위치로 이동한다.
+   * 이동 대상이 없는 항목(none)은 호출되지 않는다. 다른 업무로는 이동하지 않는다. */
+  function goToPrecheckTarget(taskId: string, target: PrecheckTarget, topic: string) {
+    if (busy || getState().selectedTaskId !== taskId) return;
+    const nonce = ++jumpSeq.current;
+    if (target.kind === "register") { const task = getState().tasks.find(t => t.id === taskId); if (task) editTask(task); return; }
+    if (target.kind === "plan") { setCheckScroll({ taskId, nonce, step: 4, selector: "#ax-plan-review" }); return; }
+    changeStep(2);
+    if (target.kind === "checks") {
+      setFocusCheck({ taskId, topic, nonce });
+      setCheckScroll({ taskId, nonce, selector: `#ax-check-${CSS.escape(encodeURIComponent(checkKey(topic)))}` });
+    } else if (target.kind === "decision") {
+      if (target.id) setFocusDecision({ taskId, id: target.id, nonce });
+      setCheckScroll({ taskId, nonce, selector: target.id ? `#ax-decision-${target.id}` : "#ax-decision-points" });
+    }
+    else if (target.kind === "hitl") setCheckScroll({ taskId, nonce, selector: "#ax-step-review" });
+  }
+  /** 기술 확인 항목 확인 결과 저장: 진단 원본은 그대로 두고 업무의 checkConfirmations만 갱신한다.
+   * 영구 저장이 끝난 뒤 결과 문구를 돌려주고, 실패하면 null (입력은 폼에 남는다). */
+  async function saveCheckConfirmation(taskId: string, topic: string, input: { result: "확인 완료" | "사용 불가" | "미확인"; note: string }): Promise<string | null> {
+    const now = new Date().toISOString();
+    const saved = await updateAndSave(current => ({ ...current, tasks: current.tasks.map(t => {
+      if (t.id !== taskId || !t.diagnosis) return t;
+      const check = t.diagnosis.technicalChecks.find(c => checkKey(c.topic) === checkKey(topic));
+      if (!check) return t;
+      return { ...t, checkConfirmations: upsertCheckConfirmation(t.checkConfirmations, check, input, now), updatedAt: now };
+    }) }));
+    if (!saved) return null;
+    return input.result === "확인 완료" ? "확인 완료 · 확인 필요 건수에서 제외했습니다" : input.result === "사용 불가" ? "사용 불가로 저장했습니다 · 추가 확인 필요" : "확인 내용 저장 완료 · 추가 확인 필요";
   }
 
   /** HITL 검토 저장: v2 reviews 필드에 저장 (중복 방지, ID 유지)
@@ -245,7 +296,7 @@ export function AxDiagnosisView() {
       };
     });
     if (!result.applied) {
-      if (result.reason) setMessage(`검토를 확정할 수 없습니다. ${result.reason}`);
+      if (result.reason) setMessage(`검토를 확정할 수 없습니다. ${uiText(result.reason)}`);
       return { saved: false, reason: result.reason };
     }
     // applied=true: 로컬 반영 완료 (IndexedDB 영구 저장은 비동기로 진행됨)
@@ -347,7 +398,7 @@ export function AxDiagnosisView() {
   function register(event: FormEvent) {
     event.preventDefault();
     try {
-      if (!editingId && state.tasks.length >= AX_LIMITS.tasks) throw new Error("등록은 최대 100개까지 가능합니다.");
+      if (!editingId && state.tasks.length >= AX_LIMITS.tasks) throw new Error("등록은 최대 100개까지 가능합니다");
       const inputs = Object.fromEntries(DETAILS.flatMap(({ key, numeric }) => {
         const value = details[key]?.trim(); return value ? [[key, numeric ? Number(value) : value]] : [];
       }));
@@ -367,12 +418,12 @@ export function AxDiagnosisView() {
         markSessionReady(task.id, sessionEntries.map(entry => entry.meta.fingerprint));
       };
       if (previous && isRegistrationUnchanged(previous, task)) {
-        syncSession(); clearDraft(); setMessage("변경된 내용이 없습니다."); return;
+        syncSession(); clearDraft(); setMessage("변경된 내용이 없습니다"); return;
       }
       syncSession();
       update(current => ({ ...current, tasks: editingId ? current.tasks.map(t => t.id === editingId ? task : t) : [...current.tasks, task], selectedTaskId: task.id }));
-      clearDraft(); setMessage(previous ? "등록 정보를 수정했습니다. 변경된 정보로 다시 진단하세요." : "업무를 등록했습니다.");
-    } catch { setMessage("등록 정보를 확인하세요. 설명은 필수이며 입력값의 길이와 숫자 범위를 확인해야 합니다."); }
+      clearDraft(); setMessage(previous ? "등록 정보를 수정했습니다. 변경된 정보로 다시 진단하세요" : "업무를 등록했습니다");
+    } catch { setMessage("등록 정보를 확인하세요. 설명은 필수이며 입력값의 길이와 숫자 범위를 확인해야 합니다"); }
   }
   /** 파일 1개를 워커로 파싱·분석해 개별 요약을 만든다. 실패하면 예외를 던지고 이미 처리된 다른 파일에는 영향을 주지 않는다. */
   async function summarizeFile(file: File, bytes: Uint8Array<ArrayBuffer>): Promise<string> {
@@ -406,22 +457,22 @@ export function AxDiagnosisView() {
       const session = new Map<string, SessionAttachment>((taskId ? attachments.current.get(taskId) ?? [] : draftAttachments.filter((entry): entry is SessionAttachment => entry.summary !== null)).map(entry => [entry.meta.fingerprint, entry]));
       let metasChanged = false;
       for (const file of files) {
-        try { validateAttachmentPreflight(file); } catch (error) { failures.push(error instanceof Error ? error.message : "첨부 파일을 확인하세요."); continue; }
+        try { validateAttachmentPreflight(file); } catch (error) { failures.push(error instanceof Error ? error.message : "첨부 파일을 확인하세요"); continue; }
         let fingerprint: string;
         let bytes: Uint8Array<ArrayBuffer>;
         try {
           bytes = new Uint8Array(await file.arrayBuffer());
           fingerprint = await fingerprintOf(bytes);
-        } catch { failures.push(`'${file.name}' 파일을 읽지 못했습니다.`); continue; }
+        } catch { failures.push(`'${file.name}' 파일을 읽지 못했습니다`); continue; }
         if (session.has(fingerprint)) { duplicates++; continue; }
         const meta: AxAttachmentMeta = { name: file.name, type: file.type, size: file.size, lastModified: file.lastModified, fingerprint };
         // 이미 메타데이터가 있는 동일 파일(새로고침 후 재첨부 등)은 목록을 바꾸지 않고 요약만 복원한다.
         const existingMeta = metas.find(m => m.fingerprint === fingerprint);
         // 진단 화면 재첨부: 이름이 같은 미복원 메타데이터는 같은 파일의 교체로 본다.
         const nameSlot = !existingMeta && task ? metas.find(m => m.name === file.name && !session.has(m.fingerprint)) : undefined;
-        if (!existingMeta && !nameSlot && metas.length >= MAX_TASK_ATTACHMENTS) { failures.push(`첨부는 업무당 최대 ${MAX_TASK_ATTACHMENTS}개까지 가능합니다. '${file.name}' 파일은 추가하지 않았습니다.`); continue; }
+        if (!existingMeta && !nameSlot && metas.length >= MAX_TASK_ATTACHMENTS) { failures.push(`첨부는 업무당 최대 ${MAX_TASK_ATTACHMENTS}개까지 가능합니다. '${file.name}' 파일은 추가하지 않았습니다`); continue; }
         let summary: string;
-        try { summary = await summarizeFile(file, bytes); } catch { failures.push(`'${file.name}' 파일을 읽지 못했습니다. 지원 형식과 파일 상태를 확인하세요.`); continue; }
+        try { summary = await summarizeFile(file, bytes); } catch { failures.push(`'${file.name}' 파일을 읽지 못했습니다. 지원 형식과 파일 상태를 확인하세요`); continue; }
         if (!alive.current) return;
         if (existingMeta) { session.set(fingerprint, { meta: existingMeta, summary }); restored++; }
         else if (nameSlot) {
@@ -443,16 +494,16 @@ export function AxDiagnosisView() {
       if (!alive.current) return;
       if (added + restored > 0) {
         const notes = [
-          ...(duplicates ? [`이미 첨부된 동일한 파일 ${duplicates}개는 중복으로 추가하지 않았습니다.`] : []),
+          ...(duplicates ? [`이미 첨부된 동일한 파일 ${duplicates}개는 중복으로 추가하지 않았습니다`] : []),
           ...failures,
         ];
-        setMessage(`첨부 요약을 준비했습니다. 진단 실행 시 요약만 AI에 전송됩니다.${notes.length ? ` ${notes.join(" ")}` : ""}`);
+        setMessage(`첨부 요약을 준비했습니다. 진단 실행 시 요약만 AI에 전송됩니다${notes.length ? `. ${uiText(notes.join(" "))}` : ""}`);
       } else if (duplicates > 0 && !failures.length) {
-        setMessage(`첨부 요약을 준비했습니다. 진단 실행 시 요약만 AI에 전송됩니다. 이미 첨부된 동일한 파일 ${duplicates}개는 중복으로 추가하지 않았습니다.`);
+        setMessage(`첨부 요약을 준비했습니다. 진단 실행 시 요약만 AI에 전송됩니다. 이미 첨부된 동일한 파일 ${duplicates}개는 중복으로 추가하지 않았습니다`);
       } else if (failures.length === 1 && files.length === 1) {
-        setMessage(failures[0]);
+        setMessage(uiText(failures[0]));
       } else if (failures.length) {
-        setMessage(failures.join(" "));
+        setMessage(uiText(failures.join(" ")));
       }
     } finally { activeRun.current = false; if (alive.current) setBusy(null); }
   }
@@ -466,8 +517,8 @@ export function AxDiagnosisView() {
     if (metas.length && !attachmentSummary) { setMessage("첨부 파일이 사용됨 — 재분석 시 재첨부 필요"); return; }
     const revised = withAnswers ? followUpDescription(task.description, task.diagnosis?.followUpQuestions ?? [], answers[task.id] ?? []) : task.description;
     if (withAnswers) {
-      if (revised === task.description) { setMessage("추가 질문에 답변을 입력하세요."); return; }
-      if (revised.length > AX_LIMITS.description) { setMessage("답변을 포함한 설명은 3,000자 이하여야 합니다. 등록 정보를 수정해 정리하세요."); return; }
+      if (revised === task.description) { setMessage("추가 질문에 답변을 입력하세요"); return; }
+      if (revised.length > AX_LIMITS.description) { setMessage("답변을 포함한 설명은 3,000자 이하여야 합니다. 등록 정보를 수정해 정리하세요"); return; }
     }
     activeRun.current = true; activeAi.current = true; setBusy(task.id); setMessage("");
     // 요청 식별자 발급: 응답 도착 시 최신 요청인지 확인
@@ -488,7 +539,7 @@ export function AxDiagnosisView() {
       if (!alive.current) return;
       // 오래된 응답 보호: 더 새로운 요청이 시작되었으면 이 응답을 버림
       if (taskRequestSeq.current.get(task.id) !== mySeq) {
-        setMessage("최신 상태가 변경되어 이전 진단 결과를 반영하지 않았습니다.");
+        setMessage("최신 상태가 변경되어 이전 진단 결과를 반영하지 않았습니다");
         return;
       }
       // 1차 MVP 개선: D1~D7은 사용자가 직접 확인하는 항목이므로 AI 응답에
@@ -501,7 +552,7 @@ export function AxDiagnosisView() {
         const latestTask = current.tasks.find(t => t.id === task.id) as import("@/lib/ax/types").AxTaskV2 | undefined;
         // 업무 삭제됨 → 응답 버림 (복원하지 않음)
         if (!latestTask) {
-          setMessage("업무가 삭제되어 진단 결과를 반영하지 않았습니다.");
+          setMessage("업무가 삭제되어 진단 결과를 반영하지 않았습니다");
           return current;
         }
         // 업무 입력이 변경됨 → 오래된 응답 버림 (전체 입력 기준)
@@ -517,7 +568,7 @@ export function AxDiagnosisView() {
           attachmentSummary: sessionSummary(latestTask.id, taskAttachments(latestTask)) ?? null,
         });
         if (latestInput !== requestInput) {
-          setMessage("업무 정보가 변경되어 이전 진단 결과를 반영하지 않았습니다.");
+          setMessage("업무 정보가 변경되어 이전 진단 결과를 반영하지 않았습니다");
           return current;
         }
         // 1차 MVP 개선: 사용자가 저장한 D1~D7은 AI 진단 항목이 아니라 업무 규칙 기록이므로
@@ -548,7 +599,7 @@ export function AxDiagnosisView() {
         };
       });
       setAnswers(current => ({ ...current, [task.id]: [] }));
-      setMessage(`업무 진단을 완료했습니다. 필요한 경우 점수를 조정하세요.${keptDecisionPoints ? " 이전에 저장한 결정 지점(D1~D7)은 그대로 유지했습니다. 새 진단과 맞는지 다시 확인하세요." : ""}`);
+      setMessage(`업무 진단을 완료했습니다. 필요한 경우 점수를 조정하세요${keptDecisionPoints ? ". 이전에 저장한 결정 지점(D1~D7)은 그대로 유지했습니다. 새 진단과 맞는지 다시 확인하세요" : ""}`);
     } catch (error) { if (alive.current) setMessage(`진단 실패 · ${aiFailureDetail(error)}`); }
     finally { activeAi.current = false; activeRun.current = false; if (alive.current) setBusy(null); }
   }
@@ -570,7 +621,9 @@ export function AxDiagnosisView() {
   }
   async function generatePlan(task: AxTask, target: "codex" | "claude") {
     if (!task.diagnosis || activeRun.current) return;
-    if (!planAllowed(task.diagnosis)) { setMessage("현재 조건에서는 구현 계획을 생성할 수 없습니다. 선행 조치를 먼저 해결하세요."); return; }
+    // 계획 생성 가능 여부와 AI에 보내는 확정 진단은 확인 기록을 반영한 보기 기준이다 (요청 기준값 비교는 원본).
+    const effective = viewTask(task).diagnosis ?? task.diagnosis;
+    if (!planAllowed(effective)) { setMessage("현재 조건에서는 구현 계획을 생성할 수 없습니다. 선행 조치를 먼저 해결하세요"); return; }
     activeRun.current = true; activeAi.current = true; setBusy(target); setMessage("");
     // 요청 시점 기준 상태 기록 (오래된 AI 응답 적용 방지)
     const requestBaseline = {
@@ -582,12 +635,12 @@ export function AxDiagnosisView() {
       planExists: target === "codex" ? !!task.diagnosis.planCodex : !!task.diagnosis.planClaude,
     };
     try {
-      const confirmed = confirmedAxDiagnosis(task.diagnosis);
+      const confirmed = confirmedAxDiagnosis(effective);
       const plan = await planAx({ kind: "ax-plan", target, task: { name: task.name, description: task.description, details: taskDetails(task) }, diagnosis: confirmed });
       if (!alive.current) return;
       // 응답 도착 시 최신 상태와 기준 상태 비교 (getState()로 최신 상태 조회 - stale closure 방지)
       const latestTask = getState().tasks.find(t => t.id === requestBaseline.taskId) as import("@/lib/ax/types").AxTaskV2 | undefined;
-      if (!latestTask) { setMessage("업무가 삭제되어 계획 생성을 중단했습니다."); return; }
+      if (!latestTask) { setMessage("업무가 삭제되어 계획 생성을 중단했습니다"); return; }
       const latestDiagnosis = latestTask.diagnosis;
       const baselineMatches = latestDiagnosis
         && latestTask.name === requestBaseline.name
@@ -596,7 +649,7 @@ export function AxDiagnosisView() {
         && JSON.stringify(confirmedAxDiagnosis(latestDiagnosis)) === requestBaseline.diagnosis
         && (target === "codex" ? !!latestDiagnosis.planCodex : !!latestDiagnosis.planClaude) === requestBaseline.planExists;
       if (!baselineMatches) {
-        setMessage("업무 정보가 변경되어 이전 계획 생성을 반영하지 않았습니다. 최신 상태로 다시 생성하세요.");
+        setMessage("업무 정보가 변경되어 이전 계획 생성을 반영하지 않았습니다. 최신 상태로 다시 생성하세요");
         return;
       }
       // HITL: 계획 재생성 시 기존 계획 검토와 새 계획 비교 → 변경된 항목 stale
@@ -640,16 +693,16 @@ export function AxDiagnosisView() {
     try {
       const url = URL.createObjectURL(new Blob([exportAxState(state)], { type: "application/json" }));
       const anchor = document.createElement("a"); anchor.href = url; anchor.download = `worklens-ax-${new Date().toISOString().slice(0, 10)}.json`;
-      anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); setMessage("AI•AX 데이터를 내보냈습니다.");
-    } catch (error) { setMessage(error instanceof Error ? error.message : "AI•AX 데이터를 내보내지 못했습니다."); }
+      anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); setMessage("AI•AX 데이터를 내보냈습니다");
+    } catch (error) { setMessage(error instanceof Error ? uiText(error.message) : "AI•AX 데이터를 내보내지 못했습니다"); }
   }
   async function acceptImport(file: File) {
     try {
-      if (file.size > AX_LIMITS.transferBytes) throw new Error("가져오기 파일은 8MB 이하여야 합니다.");
+      if (file.size > AX_LIMITS.transferBytes) throw new Error("가져오기 파일은 8MB 이하여야 합니다");
       const imported = importAxState(await file.text());
       if (state.tasks.length || storageProtection !== "writable") setConfirmation({ kind: "import", state: imported });
-      else { const saved = await replace(imported); attachments.current.clear(); setSessionReady({}); clearDraft(); setMessage(saved ? "AI•AX 데이터를 가져왔습니다." : "AI•AX 데이터를 가져왔으나 브라우저 저장에 실패했습니다. 내보내기로 보관하세요."); }
-    } catch (error) { setMessage((error as Error).message); }
+      else { const saved = await replace(imported); attachments.current.clear(); setSessionReady({}); clearDraft(); setMessage(saved ? "AI•AX 데이터를 가져왔습니다" : "AI•AX 데이터를 가져왔으나 브라우저 저장에 실패했습니다. 내보내기로 보관하세요"); }
+    } catch (error) { setMessage(uiText((error as Error).message)); }
   }
   async function confirm() {
     if (!confirmation) return;
@@ -661,7 +714,7 @@ export function AxDiagnosisView() {
     } else {
       const saved = await replace(action.kind === "reset" ? emptyAxState() : action.state, action.kind === "reset");
       attachments.current.clear(); setSessionReady({}); clearDraft(); setAnswers({});
-      setMessage(saved ? action.kind === "reset" ? "AI•AX 데이터를 초기화했습니다." : "AI•AX 데이터를 가져왔습니다." : "화면 데이터를 변경했으나 브라우저 저장에 실패했습니다. 새로고침 시 이전 데이터가 복원될 수 있습니다.");
+      setMessage(saved ? action.kind === "reset" ? "AI•AX 데이터를 초기화했습니다" : "AI•AX 데이터를 가져왔습니다" : "화면 데이터를 변경했으나 브라우저 저장에 실패했습니다. 새로고침 시 이전 데이터가 복원될 수 있습니다");
     }
   }
   const diagnosedCount = state.tasks.filter(t => !!t.diagnosis).length;
@@ -711,10 +764,10 @@ export function AxDiagnosisView() {
    * 업무명·다음 행동만 표시한다. Level 문구·배지와 반복 Gate 배지는 제거하고, Gate·Level은
    * 선택 업무 상세에서 1회만 표시한다. 동일 업무가 두 목록에 중복 등장하지 않는다. */
   function unifiedTaskRows() {
-    return <>{displayed.some((row, index) => row.rank !== index + 1) ? <p className="ax-muted ax-priority-order">번호는 우선순위 점수 기준이며, 실행 상태별로 표시합니다.</p> : null}<ol className="ax-priority-list" aria-label="업무 목록">{displayed.map(r => {
+    return <>{displayed.some((row, index) => row.rank !== index + 1) ? <p className="ax-muted ax-priority-order">번호는 우선순위 점수 기준이며, 실행 상태별로 표시합니다</p> : null}<ol className="ax-priority-list" aria-label="업무 목록">{displayed.map(r => {
       return <li key={r.task.id}><Button type="button" variant="ghost" className="ax-priority-row" aria-pressed={selected?.id === r.task.id} onClick={() => select(r.task.id)} disabled={!!busy}>
         <strong className="ax-rank">#{r.rank}</strong><span className="ax-priority-content"><span className="ax-priority-head"><span className="ax-task-name">{r.task.name}</span></span>
-        <small className="ax-next-action"><span>다음 행동</span>{formatUnifiedNextAction(concreteNextAction(r.task.diagnosis))}</small></span>
+        <small className="ax-next-action"><span>다음 행동</span>{uiText(formatUnifiedNextAction(concreteNextAction(r.task.diagnosis)))}</small></span>
       </Button></li>;
     })}</ol></>;
   }
@@ -728,14 +781,14 @@ export function AxDiagnosisView() {
     else attachments.current.delete(task.id);
     markSessionReady(task.id, session.map(entry => entry.meta.fingerprint));
     patchTask(task.id, { ...attachmentPatch(remaining), diagnosis: undefined, status: "registered" });
-    setMessage(remaining.length ? "첨부 파일 1개를 해제했습니다. 변경된 첨부 구성으로 다시 진단하세요." : "첨부를 해제했습니다. 등록 정보로 다시 진단할 수 있습니다.");
+    setMessage(remaining.length ? "첨부 파일 1개를 해제했습니다. 변경된 첨부 구성으로 다시 진단하세요" : "첨부를 해제했습니다. 등록 정보로 다시 진단할 수 있습니다");
   }
   return <section className="ax-view" aria-label="업무 자동화 진단" aria-busy={!!busy}>
     {message ? <div className="ax-data-actions"><p role="status" className="ax-utility-message">{message}</p></div> : null}
     <input ref={importInput} type="file" hidden accept=".json,application/json" aria-label="AI•AX 데이터 가져오기 파일" onChange={e => { const file = e.target.files?.[0]; e.target.value = ""; if (file) void acceptImport(file); }} />
-    {saveStatus === "저장 실패" ? <p role="status" className="ax-notice">자동 저장에 실패했습니다. 필요하면 AI•AX 데이터를 내보내 백업해주세요.</p> : null}
-    {loadNotice ? <p role="status" className="ax-notice">{loadNotice}</p> : null}
-    {externalChange ? <p role="status" className="ax-notice">다른 탭에서 AI•AX 데이터가 변경되어 원본 보호를 위해 자동 저장을 중단했습니다. 현재 화면의 변경은 먼저 내보내기로 보관하세요. 새로고침하면 다른 탭의 최신 데이터를 불러옵니다. <Button type="button" variant="outline" size="sm" onClick={() => window.location.reload()}>새로고침</Button></p> : null}
+    {saveStatus === "저장 실패" ? <p role="status" className="ax-notice">자동 저장에 실패했습니다. 필요하면 AI•AX 데이터를 내보내 백업해주세요</p> : null}
+    {loadNotice ? <p role="status" className="ax-notice">{uiText(loadNotice)}</p> : null}
+    {externalChange ? <p role="status" className="ax-notice">다른 탭에서 AI•AX 데이터가 변경되어 원본 보호를 위해 자동 저장을 중단했습니다. 현재 화면의 변경은 먼저 내보내기로 보관하세요. 새로고침하면 다른 탭의 최신 데이터를 불러옵니다 <Button type="button" variant="outline" size="sm" onClick={() => window.location.reload()}>새로고침</Button></p> : null}
     {!ready ? <p role="status">AI•AX 데이터를 불러오는 중…</p> : <Tabs value={String(state.step)} onValueChange={value => changeStep(Number(value))}>
       <TabsList className="ax-steps" aria-label="진단 단계">{STEPS.map((s, i) => { const Icon = STEP_ICONS[i]; return <TabsTab key={s} value={String(i + 1)} disabled={!!busy}><Icon size={15} aria-hidden="true" /><span>{s}</span></TabsTab>; })}
         {/* 관리 메뉴는 학습센터와 같은 공통 Menu·outline icon 버튼을 재사용한다. 단계 박스
@@ -769,18 +822,19 @@ export function AxDiagnosisView() {
           <section className="ax-surface" aria-label="등록 업무 목록"><h3>업무 목록</h3>{taskRows(false)}</section>
           <div className="ax-detail-col">{selected ? <>
             <DiagnosisCard task={selected} busy={busy} onDiagnose={() => void diagnose(selected)} onEdit={() => editTask(selected)}
+              onSaveCheck={(topic, input) => saveCheckConfirmation(selected.id, topic, input)} focusTopic={focusCheck?.taskId === selected.id ? focusCheck : null}
               attachment={<TaskAttachment task={selected} busy={busy} ready={new Set(sessionReady[selected.id] ?? [])} onDetachFile={fingerprint => detachFile(selected, fingerprint)} onAttachFiles={files => void attachFiles(files, selected.id)} />} />
             {selected.diagnosis ? <>
-              {selected.diagnosis.followUpQuestions.length ? <section className="ax-surface ax-questions" id="ax-answer-section" aria-label="답변할 질문"><h3>답변할 질문 {selected.diagnosis.followUpQuestions.length}개</h3>{selected.diagnosis.followUpQuestions.map((q, i) => <label className="ax-field" key={i}>{q}<Textarea rows={2} maxLength={500} disabled={!!busy} value={answers[selected.id]?.[i] ?? ""} onChange={e => setAnswers(current => { const values = [...(current[selected.id] ?? [])]; values[i] = e.target.value; return { ...current, [selected.id]: values }; })} /></label>)}<Button type="button" className="ax-rediagnose" disabled={!!busy} onClick={() => void diagnose(selected, true)}>답변 반영 후 재진단</Button></section> : null}
+              {selected.diagnosis.followUpQuestions.length ? <section className="ax-surface ax-questions" id="ax-answer-section" aria-label="답변할 질문"><h3>답변할 질문 {selected.diagnosis.followUpQuestions.length}개</h3>{selected.diagnosis.followUpQuestions.map((q, i) => <label className="ax-field" key={i}>{uiText(q)}<Textarea rows={2} maxLength={500} disabled={!!busy} value={answers[selected.id]?.[i] ?? ""} onChange={e => setAnswers(current => { const values = [...(current[selected.id] ?? [])]; values[i] = e.target.value; return { ...current, [selected.id]: values }; })} /></label>)}<Button type="button" className="ax-rediagnose" disabled={!!busy} onClick={() => void diagnose(selected, true)}>답변 반영 후 재진단</Button></section> : null}
               <section className="ax-surface ax-factors" aria-label="진단 항목">
                 <Accordion value={factorsOpen ? ["factors"] : []} onValueChange={values => setFactorsOpen(values.includes("factors"))}>
                   <AccordionItem value="factors" className="border-b-0">
                     <AccordionTrigger className="ax-factors-trigger"><span className="ax-factors-title">진단 항목 상세<span className="ax-muted"> · {selected.diagnosis.factors.length}개 Factor 평가</span></span></AccordionTrigger>
                     <AccordionPanel className="ax-factors-panel pb-0">
-                      <p className="ax-muted">필요하면 AI 평가값을 조정할 수 있습니다. 변경한 값은 자동화 수준과 우선순위에 바로 반영됩니다.</p>
+                      <p className="ax-muted">필요하면 AI 평가값을 조정할 수 있습니다. 변경한 값은 자동화 수준과 우선순위에 바로 반영됩니다</p>
                       {selected.diagnosis.factors.map(f => { const { icon: Icon, color } = FACTOR_META[f.key], effective = factorEffectiveValue(f), adjusted = factorHasAdjustment(f); const style = { "--ax-factor": color } as CSSProperties; return <div className="ax-factor-row" key={f.key}>
                         <span className="ax-factor-icon" style={style}><Icon size={16} aria-hidden="true" /></span>
-                        <div className="ax-factor-main"><div className="ax-factor-head"><h4>{FACTOR_LABELS[f.key]}</h4><span className="ax-muted">AI {f.aiValue}점</span>{adjusted ? <span className="ax-factor-corrected">사용자 보정</span> : null}</div><p>{f.rationale}</p><small>{factorScale(f.key)}</small></div>
+                        <div className="ax-factor-main"><div className="ax-factor-head"><h4>{FACTOR_LABELS[f.key]}</h4><span className="ax-muted">AI {f.aiValue}점</span>{adjusted ? <span className="ax-factor-corrected">사용자 보정</span> : null}</div><p>{uiText(f.rationale)}</p><small>{uiText(factorScale(f.key))}</small></div>
                         <div className="ax-factor-control"><div className="ax-segments" role="group" aria-label={`${FACTOR_LABELS[f.key]} 보정`}>{[1, 2, 3, 4, 5].map(v => <button type="button" key={v} className={v <= effective ? "is-on" : ""} style={style} aria-label={`${FACTOR_LABELS[f.key]} ${v}점`} aria-pressed={v === effective} disabled={!!busy} onClick={() => adjust(selected, f.key, String(v))} />)}</div><strong className="ax-factor-value" style={{ color }}>{effective}</strong>{adjusted ? <AiValueReset disabled={!!busy} onReset={() => adjust(selected, f.key, "")} /> : null}</div>
                       </div>; })}
                     </AccordionPanel>
@@ -803,6 +857,7 @@ export function AxDiagnosisView() {
                 disabled={!!busy}
                 saveStatus={saveStatus}
                 onSave={(points, rules) => saveUnifiedRules(selected.id, points, rules)}
+                focus={focusDecision?.taskId === selected.id ? focusDecision : null}
               />
             </> : null}
           </> : null}</div>
@@ -862,7 +917,8 @@ export function AxDiagnosisView() {
           </aside>
           {selected?.diagnosis ? <article className="ax-selected-report" aria-label={`${selected.name} 결과·로드맵`}>
             <header className="ax-report-intro"><div><span className="ax-report-eyebrow">선택한 업무 · 결과·로드맵</span><div className="ax-title-group"><h2>{selected.name}</h2><AxLevelBadge level={automationLevel(selected.diagnosis)} className="ax-level-badge" /><Badge className="ax-status-badge">{STATUS[taskDisplayStatus(selected).status]}</Badge>{taskDisplayStatus(selected).needsCheck ? <span className="ax-status-note">추가 질문 필요</span> : null}</div></div></header>
-            <AxSelectedReport key={selected.id} task={selected} busy={busy} onGenerate={target => void generatePlan(selected, target)} onSaveReview={r => saveHitlReview(selected.id, r)} />
+            <AxSelectedReport key={selected.id} task={selected} busy={busy} onGenerate={target => void generatePlan(selected, target)} onSaveReview={r => saveHitlReview(selected.id, r)}
+              onGoToTarget={(target, topic) => goToPrecheckTarget(selected.id, target, topic)} />
           </article> : <p className="ax-muted">우선순위에서 업무 선택 후 상세 결과 확인</p>}
         </>}
       </TabsPanel>
@@ -871,7 +927,7 @@ export function AxDiagnosisView() {
       {state.step > 1 ? <Button type="button" variant="outline" onClick={() => changeStep(state.step - 1)} disabled={!!busy}><ArrowLeft aria-hidden="true" />이전 단계</Button> : <span aria-hidden="true" />}
       {state.step < 4 ? <Button type="button" onClick={() => changeStep(state.step + 1)} disabled={!!busy || nextStepDisabled}><span>다음 단계</span><ArrowRight aria-hidden="true" /></Button> : <span aria-hidden="true" />}
     </nav> : null}
-    <AlertDialog open={confirmation !== null} onOpenChange={open => { if (!open) setConfirmation(null); }}><AlertDialogPopup><AlertDialogHeader><AlertDialogTitle>{confirmation?.kind === "import" ? "AI•AX 데이터를 덮어쓸까요?" : confirmation?.kind === "delete" ? "업무를 삭제할까요?" : "AI•AX 데이터를 초기화할까요?"}</AlertDialogTitle><AlertDialogDescription>{confirmation?.kind === "import" ? "검증된 가져오기 데이터로 현재 AI•AX 업무·진단·계획을 교체합니다." : confirmation?.kind === "delete" ? "선택한 업무와 진단·계획을 삭제합니다." : "현재 AI•AX 업무·진단·계획만 삭제합니다. 다른 작업 공간은 유지됩니다."}</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogClose render={<Button type="button" variant="ghost" />}>취소</AlertDialogClose><Button type="button" variant="destructive" onClick={() => void confirm()}>{confirmation?.kind === "import" ? "덮어쓰기" : confirmation?.kind === "delete" ? "삭제" : "초기화"}</Button></AlertDialogFooter></AlertDialogPopup></AlertDialog>
+    <AlertDialog open={confirmation !== null} onOpenChange={open => { if (!open) setConfirmation(null); }}><AlertDialogPopup><AlertDialogHeader><AlertDialogTitle>{confirmation?.kind === "import" ? "AI•AX 데이터를 덮어쓸까요?" : confirmation?.kind === "delete" ? "업무를 삭제할까요?" : "AI•AX 데이터를 초기화할까요?"}</AlertDialogTitle><AlertDialogDescription>{confirmation?.kind === "import" ? "검증된 가져오기 데이터로 현재 AI•AX 업무·진단·계획을 교체합니다" : confirmation?.kind === "delete" ? "선택한 업무와 진단·계획을 삭제합니다" : "현재 AI•AX 업무·진단·계획만 삭제합니다. 다른 작업 공간은 유지됩니다"}</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogClose render={<Button type="button" variant="ghost" />}>취소</AlertDialogClose><Button type="button" variant="destructive" onClick={() => void confirm()}>{confirmation?.kind === "import" ? "덮어쓰기" : confirmation?.kind === "delete" ? "삭제" : "초기화"}</Button></AlertDialogFooter></AlertDialogPopup></AlertDialog>
   </section>;
 }
 /** '확인 필요 항목 보기': 구현 전 확인 사항 목록으로 이동한다 (목록은 항상 펼친 상태로 렌더링된다).
@@ -885,26 +941,95 @@ const VERDICT_CARDS = [
   { verdict: "AI 보조", label: "AI 보조 적합", tone: "violet", icon: Sparkles },
   { verdict: "사람 유지", label: "담당자 수행", tone: "green", icon: UserCheck },
 ] as const;
+/** 확인 결과 입력: 결과(확인 완료·사용 불가·미확인) + 확인 내용. 확인 완료·사용 불가는 근거가 있어야
+ * 저장되고, 저장이 실제로 끝난 뒤에만 결과 문구를 표시한다 (방문·입력만으로 상태가 바뀌지 않음). */
+const CHECK_RESULT_OPTIONS = [
+  { value: "확인 완료" as const, label: "확인 완료" },
+  { value: "사용 불가" as const, label: "사용 불가" },
+  { value: "미확인" as const, label: "미확인" },
+];
+type CheckResult = (typeof CHECK_RESULT_OPTIONS)[number]["value"];
+function CheckConfirmForm({ topic, need, initial, disabled, onSave, onClose }: {
+  topic: string; need?: string; initial?: { result: CheckResult; note: string }; disabled: boolean;
+  onSave: (input: { result: CheckResult; note: string }) => Promise<string | null>;
+  onClose: () => void;
+}) {
+  const [result, setResult] = useState<CheckResult | "">(initial?.result ?? "");
+  const [note, setNote] = useState(initial?.note ?? "");
+  const [error, setError] = useState("");
+  const [status, setStatus] = useState("");
+  const [saving, setSaving] = useState(false);
+  async function save() {
+    if (!result) { setError("확인 결과를 선택하세요"); return; }
+    if (result !== "미확인" && !note.trim()) { setError("확인 근거가 되는 확인 내용을 입력하세요"); return; }
+    setError(""); setStatus(""); setSaving(true);
+    const message = await onSave({ result, note });
+    setSaving(false);
+    if (message === null) { setError("저장하지 못했습니다. 입력 내용은 그대로 두었으니 다시 저장하세요"); return; }
+    setStatus(message);
+  }
+  return <div className="ax-check-form" role="group" aria-label={`${topic} 확인 결과 입력`}>
+    {need ? <p className="ax-check-form-need"><strong>확인이 필요한 내용</strong> {uiText(need)}</p> : null}
+    <RuleSelect label="확인 결과" value={result} options={CHECK_RESULT_OPTIONS} disabled={disabled || saving} onChange={value => setResult(value)} />
+    <label className="ax-field ax-rule-field">
+      <span>확인 내용</span>
+      <Textarea rows={3} maxLength={2000} value={note} disabled={disabled || saving} placeholder="실제로 확인한 사항(확인 방법·담당자·결과)을 적으세요" onChange={event => setNote(event.target.value)} />
+    </label>
+    {error ? <p className="ax-rule-error" role="alert">{error}</p> : null}
+    {status ? <p className="ax-check-form-status" role="status">{status}</p> : null}
+    <div className="ax-rule-actions">
+      <Button type="button" variant="outline" size="sm" disabled={saving} onClick={onClose}>닫기</Button>
+      <Button type="button" size="sm" disabled={disabled || saving} onClick={() => void save()}>{saving ? "저장 중…" : "확인 결과 저장"}</Button>
+    </div>
+  </div>;
+}
 /** Step 2 selected-task card: name/Gate·Level badges + actions → 진단 결과 요약(판정 분포 3카드·핵심 판단 패널) → 구현 전 확인 사항(미확인 우선, 확인 완료는 접힘). Follow-up questions render once, in the answer section below this card. */
-function DiagnosisCard({ task, busy, onDiagnose, onEdit, attachment }: {
+function DiagnosisCard({ task, busy, onDiagnose, onEdit, attachment, onSaveCheck, focusTopic }: {
   task: AxTask; busy: string | null; onDiagnose: () => void; onEdit: () => void; attachment: ReactNode;
+  /** 확인 결과 저장: 저장 성공 시 결과 문구, 실패 시 null. */
+  onSaveCheck: (topic: string, input: { result: CheckResult; note: string }) => Promise<string | null>;
+  /** 다른 화면의 '확인하러 가기'로 열 항목 (주제). */
+  focusTopic?: { topic: string; nonce: number } | null;
 }) {
   const display = taskDisplayStatus(task);
-  const d = task.diagnosis;
+  const raw = task.diagnosis;
+  const confirmations = (task as import("@/lib/ax/types").AxTaskV2).checkConfirmations;
+  // 표시·집계는 확인 기록을 반영한 진단 보기로 한다 (원본은 raw).
+  const d = viewTask(task).diagnosis;
   const lvl = d ? automationLevel(d) : null;
   const gate = d ? executionGate(d) : null;
   const checks = d ? diagnosisCheckItems(d) : [];
   const summary = d ? diagnosisSummaryParts(d) : undefined;
   // 추가 질문이 같은 주제로 묻고 있는 확인 항목은 질문 영역에서 확인하므로 목록에서 중복 표시하지 않는다.
   const visibleChecks = d ? visibleDiagnosisCheckItems(d) : [];
-  // 미확인 = 확인 필요·보류 사유, 확인 완료 = 확인됨. 상단 건수와 목록 건수는 같은 집계(pending)를 쓴다.
+  // 미확인 = 확인 필요·사용 불가·보류 사유, 확인 완료 = 확인됨. 상단 건수와 목록 건수는 같은 집계(pending)를 쓴다.
   const pendingChecks = visibleChecks.filter(c => c.kind !== "done");
   const doneChecks = visibleChecks.filter(c => c.kind === "done");
-  const checkRow = (c: AxCheckItem, i: number) => <li key={i}>
-    <span className="ax-check-icon"><AxCheckIcon title={c.title} /></span>
-    <span className="ax-check-text"><strong>{c.title}</strong>{c.desc ? <small>{c.desc}</small> : null}</span>
-    <span className="ax-check-badge" data-kind={c.kind}>{c.badge}</span>
-  </li>;
+  const [openTopic, setOpenTopic] = useState<string | null>(null);
+  const [focusNonce, setFocusNonce] = useState<number | null>(null);
+  // 다른 화면에서 '확인하러 가기'로 들어오면 해당 항목의 입력을 연다 (렌더 중 파생 상태 갱신).
+  if (focusTopic && focusTopic.nonce !== focusNonce) { setFocusNonce(focusTopic.nonce); setOpenTopic(checkKey(focusTopic.topic)); }
+  const checkRow = (c: AxCheckItem, i: number) => {
+    const source = raw?.technicalChecks.find(check => checkKey(check.topic) === checkKey(c.title));
+    const state = source && source.status !== "확인됨" ? checkConfirmationState(source, confirmations) : { kind: "none" as const };
+    const badge = state.kind === "applied" ? state.status === "확인됨" ? "담당자 확인" : "사용 불가"
+      : state.kind === "stale" ? "재확인 필요" : state.kind === "recorded" ? "확인 내용 등록" : c.badge;
+    const open = !!source && source.status !== "확인됨" && openTopic === checkKey(c.title);
+    return <li key={i} id={source ? `ax-check-${encodeURIComponent(checkKey(c.title))}` : undefined} className={open ? "is-open" : undefined}>
+      <div className="ax-check-row">
+        <span className="ax-check-icon"><AxCheckIcon title={c.title} /></span>
+        <span className="ax-check-text"><strong>{uiText(c.title)}</strong>{c.desc ? <small>{uiText(c.desc)}</small> : null}</span>
+        <span className="ax-check-side">
+          <span className="ax-check-badge" data-kind={state.kind === "applied" && state.status === "불가" ? "block" : c.kind}>{badge}</span>
+          {source && source.status !== "확인됨" ? <Button type="button" variant="outline" size="sm" aria-expanded={open} disabled={!!busy} onClick={() => setOpenTopic(open ? null : checkKey(c.title))}>{state.kind === "none" ? "확인 결과 기록" : "기록 수정"}</Button>
+            : c.kind === "block" ? <Button type="button" variant="outline" size="sm" disabled={!!busy} onClick={onEdit}>확인하러 가기</Button> : null}
+        </span>
+      </div>
+      {open && source ? <CheckConfirmForm key={`${task.id}:${checkKey(c.title)}`} topic={source.topic} need={source.note || undefined}
+        initial={state.kind === "none" ? undefined : { result: state.confirmation.result, note: state.confirmation.note }} disabled={!!busy}
+        onSave={input => onSaveCheck(source.topic, input)} onClose={() => setOpenTopic(null)} /> : null}
+    </li>;
+  };
   return <section className="ax-surface ax-diag-card" aria-label={`${task.name} 진단`}>
     <div className="ax-diag-head">
       <div className="ax-diag-title">
@@ -935,7 +1060,7 @@ function DiagnosisCard({ task, busy, onDiagnose, onEdit, attachment }: {
             <div className="ax-judgement-text">
               <h4>핵심 판단</h4>
               {/* 판정 분포 건수는 위 3카드가 표시하므로, 담당자 역할 문장이 있으면 그것을, 없으면 분포 요약을 보여 준다. */}
-              <p>{summary?.human ?? summary?.verdict ?? "단계별 판정 정보 없음"}</p>
+              <p>{uiText(summary?.human ?? summary?.verdict ?? "단계별 판정 정보 없음")}</p>
             </div>
           </div>
           <div className="ax-judgement-foot">
@@ -944,12 +1069,12 @@ function DiagnosisCard({ task, busy, onDiagnose, onEdit, attachment }: {
           </div>
         </div>
         {/* 기본 출처 문구("사용자 등록 정보 기반 진단")는 표시하지 않고, 재첨부 안내가 담긴 첨부 파일 기반 문구만 남긴다. */}
-        {d.sourceNote && d.sourceNote !== "사용자 등록 정보 기반 진단" ? <p className="ax-muted ax-diag-source">{d.sourceNote}</p> : null}
+        {d.sourceNote && d.sourceNote !== "사용자 등록 정보 기반 진단" ? <p className="ax-muted ax-diag-source">{uiText(d.sourceNote)}</p> : null}
       </section>
       {/* 모든 확인 항목이 추가 질문 영역에서 다뤄지면(표시 항목 0, 원본 1건 이상) 이 영역을 두지 않는다. */}
       {visibleChecks.length || !checks.length ? <section className="ax-diag-checks" aria-label="구현 전 확인 사항">
         <div className="ax-diag-checks-head"><h3>구현 전 확인 사항</h3><span className="ax-muted">· {pendingChecks.length}건</span></div>
-        {pendingChecks.length ? <ul>{pendingChecks.map(checkRow)}</ul> : <p className="ax-muted">확인이 필요한 항목이 없습니다.</p>}
+        {pendingChecks.length ? <ul>{pendingChecks.map(checkRow)}</ul> : <p className="ax-muted">확인이 필요한 항목이 없습니다</p>}
         {doneChecks.length ? <Collapsible className="ax-checks-done">
           <CollapsibleTrigger className="ax-checks-done-trigger">확인 완료 항목 보기 ({doneChecks.length}건)<ChevronDown size={16} aria-hidden="true" /></CollapsibleTrigger>
           <CollapsiblePanel><ul>{doneChecks.map(checkRow)}</ul></CollapsiblePanel>

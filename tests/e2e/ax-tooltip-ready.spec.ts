@@ -32,7 +32,7 @@ test("AX reset tooltip shows after detail expand settles", async ({ page }) => {
   await page.route("**/api/ai", async route => { await page.waitForTimeout(800); await route.fallback(); }, { times: 1 });
   await page.getByRole("button", { name: "업무 진단 실행" }).click();
   await expect(page.getByText("정보 충분", { exact: true })).toBeVisible();
-  await expect(page.locator(".ax-data-actions .ax-utility-message")).toHaveText("업무 진단을 완료했습니다. 필요한 경우 점수를 조정하세요.");
+  await expect(page.locator(".ax-data-actions .ax-utility-message")).toHaveText("업무 진단을 완료했습니다. 필요한 경우 점수를 조정하세요");
   await page.getByRole("button", { name: /진단 항목 상세/ }).click();
   const factor = page.getByRole("button", { name: "반복성 1점", exact: true });
   await waitForFactorControlReady(factor);
