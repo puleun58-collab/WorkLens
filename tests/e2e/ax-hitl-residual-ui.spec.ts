@@ -80,7 +80,7 @@ async function reviewItem(page: Page, itemText: string, action: "exclude" | "kee
   await row.getByRole("button", { name: "검토", exact: true }).click();
   const panel = page.locator(".ax-hitl-panel-v2").first();
   await expect(panel).toBeVisible();
-  await panel.locator("label", { hasText: action === "exclude" ? "실행 대상에서 제외합니다." : "AI 판단 그대로 적용합니다." }).first().click();
+  await panel.locator("label", { hasText: action === "exclude" ? "실행 대상에서 제외합니다" : "AI 판단 그대로 적용합니다" }).first().click();
   if (reason) {
     await page.getByLabel(/제외 사유/).fill(reason);
   }

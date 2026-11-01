@@ -1026,8 +1026,7 @@ function AxPlanGroups({ steps, planItems, controls, open, onOpenChange }: {
       const Icon = PLAN_GROUP_ICONS[group.id];
       return <AccordionItem key={group.id} value={group.id} className="ax-plan-group">
         <AccordionTrigger className="ax-plan-group-trigger">
-          <span className="ax-plan-group-icon" aria-hidden="true"><Icon size={22} /></span>
-          <span className="ax-plan-group-title">{group.title} ({group.steps.length}개)</span>
+          <span className="ax-plan-group-name"><span className="ax-plan-group-icon" aria-hidden="true"><Icon size={22} /></span><span className="ax-plan-group-title">{group.title} ({group.steps.length}개)</span></span>
           <span className="ax-plan-group-desc">{group.description}</span>
           <span className="ax-plan-group-count">{group.steps.length}개</span>
         </AccordionTrigger>
@@ -1050,43 +1049,45 @@ function AxPlanGroups({ steps, planItems, controls, open, onOpenChange }: {
     })}
   </Accordion>;
 }
-/** 앞 N개 + "외 N개"로 줄인 한 줄 요약 (전체 원본은 올인원 지시문·검토에 그대로 남는다). */
-const briefList = (items: string[], max = 3) => items.length > max ? `${items.slice(0, max).join(" · ")} 외 ${items.length - max}개` : items.join(" · ");
-/** 구현 범위·완료 기준 2열 패널. 구현 범위는 숫자 대신 구현 대상·담당자 수행·보류·제외·적용 방식·산출물을
- * 실제 범위 데이터로 보여 준다(보류·제외는 줄이지 않는다). 완료 기준은 계획이 있으면 계획 기준(acceptance·tests)을
- * 검토 상태와 함께, 없으면 진단 요약의 핵심 기준을 중립 표시로 보여 준다. 검토 완료가 아닌 기준은 완료 표시를 쓰지 않는다. */
-function AxScopeCriteria({ summary, diagnosis, plan, criteria, controls }: {
+/** 구현 범위·완료 기준: 요약 데이터의 원본 항목을 줄이지 않고 영역별 목록으로 표시한다. */
+function AxScopeCriteria({ summary, diagnosis, plan, planItems, criteria, controls }: {
   summary: AxPlanSummary;
   diagnosis: AxDiagnosis;
   plan?: AxPlan;
+  planItems: ReviewableItem[];
   criteria: ReviewableItem[];
   controls?: PlanReviewControls;
 }) {
   const rows = scopeSummaryRows(summary);
-  const include = foldScopeItems(summary.include).items;
-  const human = dedupeHumanItems(summary.humanKept);
-  const method = plan?.integrations.length ? plan.integrations : diagnosis.asIs.systems;
+  const include = summary.include;
+  const human = summary.humanKept;
+  const method = plan?.integrations.length ? plan.integrations.map(integration => `${integration} (계획안 · 확정 전)`) : diagnosis.asIs.systems.map(system => `${system} (사용 시스템 · 적용 방식 확인 필요)`);
   const outputs = diagnosis.poc.outputs.length ? diagnosis.poc.outputs : diagnosis.asIs.outputs;
+  const validReviews = controls
+    ? getValidConfirmedReviews({ reviews: controls.reviews } as AxTaskV2, [...extractReviewableItems(diagnosis), ...planItems, ...criteria])
+    : [];
+  const deferred = validReviews.filter(review => review.action === "defer" && (review.target.type === "step" || review.target.type === "planItem"))
+    .map(review => [review.target.sourceText, review.reason ? `보류 사유: ${review.reason}` : "", review.resumeCondition ? `재개 조건: ${review.resumeCondition}` : ""].filter(Boolean).join(" · "));
   const scopeRows = [
-    { label: "구현 대상", text: briefList(include) },
-    { label: "담당자 수행", text: briefList(human) },
-    { label: "보류·제외", text: summary.excluded.join(" · ") },
-    { label: "적용 방식", text: briefList(method) },
-    { label: "산출물", text: briefList(outputs) },
-  ].filter(row => row.text);
-  const criteriaIcon = (status: "confirmed" | "stale" | "editing" | "pending") => status === "confirmed" ? CheckCircle2 : status === "stale" ? AlertTriangle : Circle;
+    { label: "구현 대상", items: include },
+    { label: "담당자 수행", items: human },
+    { label: "보류·제외", items: [...deferred.map(text => `보류: ${text}`), ...summary.excluded.map(text => `현재 구현 제외: ${text}`)] },
+    { label: "적용 방식", items: method },
+    { label: "산출물", items: outputs },
+  ];
   return <section className="ax-scope-summary" aria-label="구현 범위·완료 기준">
     <section className="ax-scope-panel" data-scope-group="scope" aria-labelledby="ax-scope-title">
       <h3 id="ax-scope-title"><Target size={22} aria-hidden="true" />구현 범위</h3>
-      {scopeRows.length ? <ul className="ax-scope-list">{scopeRows.map(row => <li key={row.label}><Circle size={14} aria-hidden="true" className="ax-scope-bullet" /><span><strong>{row.label}:</strong> {row.text}</span></li>)}</ul> : <p className="ax-muted">구현 범위 정보 없음</p>}
-      {rows.unconfirmedScope ? <p className="ax-muted ax-scope-note">미확정 처리 방식과 필수 기준은 해당 단계에서 확인이 필요합니다.</p> : null}
+      <div className="ax-scope-sections">{scopeRows.map(row => <section key={row.label} className="ax-scope-section">
+        <h4>{row.label}</h4>{row.items.length ? <ul>{row.items.map((text, index) => <li key={`${index}-${text}`}>{text}</li>)}</ul> : <p className="ax-muted">정보 없음</p>}
+      </section>)}</div>
     </section>
     <section className="ax-scope-panel" data-scope-group="criteria" aria-labelledby="ax-criteria-title">
-      <h3 id="ax-criteria-title"><Flag size={22} aria-hidden="true" />완료 기준</h3>
+      <h3 id="ax-criteria-title"><Flag size={22} aria-hidden="true" />완료 기준 ({plan ? criteria.length : rows.coreCriteria.length + rows.additionalCriteriaCount}개)</h3>
       {plan && criteria.length ? <ul className="ax-scope-list">{criteria.map(item => {
         const review = controls ? findReview({ reviews: controls.reviews } as AxTaskV2, item.key) : undefined;
         const status = controls ? reviewDisplayState(item, review, new Set(controls.validKeys)).status : "pending";
-        const Icon = criteriaIcon(status);
+        const Icon = status === "confirmed" ? CheckCircle2 : status === "stale" ? AlertTriangle : Circle;
         return <li key={item.key} className="ax-criteria-item" data-status={status}>
           <div className="ax-criteria-row"><Icon size={16} aria-hidden="true" className="ax-criteria-icon" /><span className="ax-criteria-text">{item.text}</span>{controls ? <PlanReviewStatus item={item} controls={controls} /> : null}</div>
           {controls ? <PlanReviewPanel item={item} controls={controls} /> : null}
@@ -1095,7 +1096,6 @@ function AxScopeCriteria({ summary, diagnosis, plan, criteria, controls }: {
         {rows.coreCriteria.map((text, i) => <li key={i}><Circle size={14} aria-hidden="true" className="ax-scope-bullet" /><span>{text}</span></li>)}
         {rows.additionalCriteriaCount ? <li><Circle size={14} aria-hidden="true" className="ax-scope-bullet" /><span>추가 기준 {rows.additionalCriteriaCount}개</span></li> : null}
       </ul> : <p className="ax-muted">완료 기준 정보 없음</p>}
-      {rows.criteriaNotices.map((notice, i) => <p key={i} className="ax-muted ax-scope-note">{notice}</p>)}
     </section>
   </section>;
 }
@@ -1301,9 +1301,9 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
     heading?.focus({ preventScroll: true });
   }
   const generateButton = (target: AxToolId) => <Button key={target} type="button" variant="outline" className="ax-plan-generate" disabled={!!busy || gate === "blocked"} onClick={() => onGenerate(target)}><FileCode2 aria-hidden="true" />{busy === target ? target === "codex" ? "Codex 계획 생성 중…" : "Claude 계획 생성 중…" : `${TOOL_GUIDES[target].name}용 구현 계획 생성`}</Button>;
-  // 검토 대상 계획: 선택 도구의 계획, 없으면 존재하는 계획 (도구별 검토 키는 planCodex:/planClaude:로 분리 유지).
-  const reviewTool: AxToolId = plans[activeTool] ? activeTool : plans.codex ? "codex" : "claude";
-  const reviewPlan = plans[reviewTool];
+  // 검토와 요약·지시문은 같은 선택 도구만 따른다. 계획이 없는 도구로 전환하면 다른 도구의 계획을 대신 표시하지 않는다.
+  const reviewTool = activeTool;
+  const reviewPlan = activePlan;
   const reviewItems = reviewPlan ? extractPlanReviewableItems(reviewPlan, reviewTool) : [];
   const planItems = reviewItems.filter(item => item.type === "planItem");
   const criteriaItems = reviewItems.filter(item => item.type === "criterion");
@@ -1321,35 +1321,35 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
     <AxStatCards cards={PLAN_OVERVIEW_CARDS.map(card => ({ ...card, count: card.key === "check" ? precheckListItems(summary).length : diagnosis.stepAssessments.filter(step => step.verdict === card.key).length }))} />
     <AxPrecheckSection summary={summary} />
   </section>
-  <section className="ax-surface ax-plan-groups-surface" id="ax-plan-review" aria-labelledby={`${instructionsId}-plan`}>
+  <section className="ax-surface ax-plan-groups-surface" id="ax-plan-review" aria-label="구현 계획">
     <div className="ax-plan-groups-head">
-      <h3 id={`${instructionsId}-plan`}><ListChecks size={24} aria-hidden="true" />구현 계획</h3>
+      <h3><ListChecks size={24} aria-hidden="true" />구현 계획 ({planItems.length}개)</h3>
       {reviewPlan ? <div className="ax-plan-groups-tools">
         {plans.codex && plans.claude ? <div className="ax-hitl-plan-tabs" role="group" aria-label="검토할 계획 도구">
           <Button type="button" variant={reviewTool === "codex" ? "default" : "outline"} size="sm" aria-pressed={reviewTool === "codex"} onClick={() => setSelectedTool("codex")}>Codex</Button>
           <Button type="button" variant={reviewTool === "claude" ? "default" : "outline"} size="sm" aria-pressed={reviewTool === "claude"} onClick={() => setSelectedTool("claude")}>Claude Code</Button>
         </div> : null}
-        {reviewProps ? <span className="ax-hitl-table-counts"><ReviewCounts total={reviewItems.length} completed={reviewItems.filter(item => validKeys.has(item.key)).length} /></span> : null}
+        {reviewProps ? <span className="ax-hitl-table-counts"><span>검토 대상 {reviewItems.length}개 (구현 단계 {planItems.length} · 완료 기준 {criteriaItems.length})</span><span aria-hidden="true"> · </span><span>검토 완료 {reviewItems.filter(item => validKeys.has(item.key)).length} · 검토 필요 {reviewItems.length - validKeys.size}</span></span> : null}
         <Button type="button" variant="outline" size="sm" onClick={() => setOpenGroups(allOpen ? [] : groupIds)}><ChevronsUpDown aria-hidden="true" />{allOpen ? "전체 접기" : "전체 펼치기"}</Button>
       </div> : null}
     </div>
     {reviewPlan ? <AxPlanGroups steps={reviewPlan.implementation} planItems={planItems} controls={controls} open={openGroups} onOpenChange={setOpenGroups} />
-      : <><p className="ax-muted">도구별 구현 계획을 생성하면 단계별 구현 계획이 표시됩니다.</p><div className="ax-actions">{generateButton("codex")}{generateButton("claude")}</div></>}
+      : <><p className="ax-muted">도구별 구현 계획을 생성하면 단계별 구현 계획이 표시됩니다</p>{!plans.codex && !plans.claude ? <div className="ax-actions">{generateButton("codex")}{generateButton("claude")}</div> : null}</>}
   </section>
-  <AxScopeCriteria summary={summary} diagnosis={diagnosis} plan={reviewPlan} criteria={criteriaItems} controls={controls} />
+  <AxScopeCriteria summary={summary} diagnosis={diagnosis} plan={reviewPlan} planItems={planItems} criteria={criteriaItems} controls={controls} />
   <section className="ax-surface ax-instructions-surface">
     <section ref={instructionsRef} id={`${instructionsId}-section`} className="ax-plan-instructions" aria-labelledby={instructionsId}>
-      {gate === "blocked" ? <><AxPlanHeading id={instructionsId} title="올인원 지시문" description="선택한 코딩 에이전트를 위한 통합 지시문을 생성합니다." /><p role="status" className="ax-notice">현재 진단에서는 구현 계획 생성 불가</p></> : <>
+      {gate === "blocked" ? <><AxPlanHeading id={instructionsId} title="올인원 지시문" description="선택한 코딩 에이전트를 위한 통합 지시문을 생성합니다" /><p role="status" className="ax-notice">현재 진단에서는 구현 계획 생성 불가</p></> : <>
         {plans.codex || plans.claude ?
           <Tabs className="ax-tool-tabs" value={activeTool} onValueChange={value => { if (value === "codex" || value === "claude") setSelectedTool(value); }}>
             <div className="ax-plan-instructions-head">
-              <AxPlanHeading id={instructionsId} title="올인원 지시문" description="선택한 코딩 에이전트를 위한 통합 지시문을 생성합니다." />
+              <AxPlanHeading id={instructionsId} title="올인원 지시문" description="선택한 코딩 에이전트를 위한 통합 지시문을 생성합니다" />
               <div className="ax-plan-toolbar">
                 <TabsList aria-label="AI 코딩 도구 선택"><TabsTab value="codex">Codex</TabsTab><TabsTab value="claude">Claude Code</TabsTab></TabsList>
               </div>
             </div>
             {(["codex", "claude"] as const).map(target => <TabsPanel key={target} value={target}>{target === activeTool ? plans[target] ? <><p className="ax-plan-tool-hint">{TOOL_GUIDES[target].name}에서 현재 프로젝트를 열고 올인원 지시문 붙여넣기</p><AxExecutionPackage plan={plans[target]} target={target} taskName={taskName} taskContext={taskContext} prerequisites={prerequisites} diagnosis={diagnosis} hitlReviews={reviewProps?.reviews} genericRules={genericRules} /></> : <><p className="ax-plan-generate-hint">{TOOL_GUIDES[target].name}용 구현 계획 생성 후 올인원 지시문 확인</p>{generateButton(target)}</> : null}</TabsPanel>)}
-          </Tabs> : <><AxPlanHeading id={instructionsId} title="올인원 지시문" description="선택한 코딩 에이전트를 위한 통합 지시문을 생성합니다." /><p className="ax-muted">도구별 구현 계획 생성 후 올인원 지시문 확인</p></>}
+          </Tabs> : <><AxPlanHeading id={instructionsId} title="올인원 지시문" description="선택한 코딩 에이전트를 위한 통합 지시문을 생성합니다" /><p className="ax-muted">도구별 구현 계획 생성 후 올인원 지시문 확인</p></>}
       </>}
     </section>
     {gate !== "blocked" && (plans.codex || plans.claude) ? <section className="ax-plan-guide" aria-label="설치·시작 가이드">

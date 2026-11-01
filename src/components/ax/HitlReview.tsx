@@ -22,10 +22,10 @@ const STATUS_META: Record<HitlStatus, { label: string; className: string }> = {
 
 // 액션별 표시 문구 및 선택 강조색
 const ACTION_META: Record<HitlAction, { label: string; description: string; tone: string }> = {
-  keep: { label: "유지", description: "AI 판단 그대로 적용합니다.", tone: "blue" },
-  defer: { label: "보류", description: "현재 진행하지 않고 보류합니다.", tone: "orange" },
-  exclude: { label: "제외", description: "실행 대상에서 제외합니다.", tone: "red" },
-  supplement: { label: "보완", description: "AI 원본에 추가 내용을 반영합니다.", tone: "green" },
+  keep: { label: "유지", description: "AI 판단 그대로 적용합니다", tone: "blue" },
+  defer: { label: "보류", description: "현재 진행하지 않고 보류합니다", tone: "orange" },
+  exclude: { label: "제외", description: "실행 대상에서 제외합니다", tone: "red" },
+  supplement: { label: "보완", description: "AI 원본에 추가 내용을 반영합니다", tone: "green" },
 };
 
 const MAX_INPUT_LENGTH = 500;
@@ -161,7 +161,7 @@ export function HitlReviewPanel({ item, review, onSave, onCancel, onEdit }: Hitl
     <div className="ax-hitl-panel-v2">
       <div className="ax-hitl-v2-head">
         <h4 className="ax-hitl-v2-title">검토하기</h4>
-        <p className="ax-hitl-v2-subtitle">선택한 항목에 대해 검토 의견을 확정합니다.</p>
+        <p className="ax-hitl-v2-subtitle">선택한 항목에 대해 검토 의견을 확정합니다</p>
       </div>
 
       {isStale && review ? <StaleNotice review={review} currentText={item.text} /> : null}
@@ -250,7 +250,7 @@ export function HitlReviewPanel({ item, review, onSave, onCancel, onEdit }: Hitl
 
           <div className="ax-hitl-v2-notice" role="note">
             <span className="ax-hitl-v2-notice-icon" aria-hidden="true">ⓘ</span>
-            <span>확정한 검토 내용은 구현 지시문에 반영되며, AI 원본과 기존 진단 결과는 변경되지 않습니다.</span>
+            <span>확정한 검토 내용은 구현 지시문에 반영되며, AI 원본과 기존 진단 결과는 변경되지 않습니다</span>
           </div>
 
           <div className="ax-hitl-v2-buttons">

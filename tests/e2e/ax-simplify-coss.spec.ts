@@ -98,7 +98,7 @@ test("AX 간소화·COSS 통일: 판단 하단 문구 제거·매트릭스 버�
 
   // E. 구현 계획은 업무 흐름 그룹 안의 단계별 검토에서 직접 확인한다.
   await page.getByRole("button", { name: "Codex용 구현 계획 생성" }).click();
-  await expect(page.getByRole("heading", { name: "구현 계획", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /^구현 계획 \(\d+개\)$/ })).toBeVisible();
   const planReview = page.getByRole("region", { name: "구현 계획", exact: true });
   await expect(planReview).toContainText("검토 필요");
   await expect(planReview.locator(".ax-plan-group")).toHaveCount(2);
