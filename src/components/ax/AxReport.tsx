@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useId, useRef, useState } from "react";
 import { AlertTriangle, ArrowRight, BarChart3, Bot, BrainCircuit, Check, CheckCircle2, ChevronsUpDown, Circle, CircleCheck, Clipboard, ClipboardCheck, ClipboardList, CloudUpload, Copy, Database, Download, FileCode2, FileOutput, FilePlus2, FileSpreadsheet, FileText, Flag, Folder, GitBranch, GitMerge, GitPullRequest, Globe, Info, ListChecks, Monitor, MonitorCog, Play, Plug, Rocket, Settings2, ShieldAlert, ShieldCheck, Sparkles, Target, Terminal, UserRound, type LucideIcon } from "lucide-react";
 import type { AxDiagnosis, AxPlan, AxTask, AxTaskV2, HitlReview, VerificationResult } from "@/lib/ax/types";
-import { automationLevel, axes, executionGate, executionProfile, factorEffectiveValue, GATE_LABELS, gateBlockReasons, LEVEL_DESCRIPTIONS, levelDisplayLabel, nextAction, prerequisiteTopicKey, splitGatePrerequisites } from "@/lib/ax/policy";
+import { automationLevel, axes, executionGate, executionProfile, factorEffectiveValue, GATE_LABELS, gateBlockReasons, levelDescription, levelDisplayLabel, nextAction, prerequisiteTopicKey, splitGatePrerequisites } from "@/lib/ax/policy";
 import { FACTOR_LABELS } from "@/lib/ax/schema";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
@@ -59,7 +59,7 @@ export function AxPlanLevelTag({ level }: { level: ReturnType<typeof automationL
   const tip = useLevelTooltip();
   return <Tooltip open={tip.open} onOpenChange={tip.onOpenChange}>
     <TooltipTrigger render={<span className="ax-status-badge" tabIndex={0} {...tip.triggerHandlers} />}>{`${levelDisplayLabel(level)}${level.provisional ? " (잠정)" : ""}`}</TooltipTrigger>
-    <TooltipPopup>{LEVEL_DESCRIPTIONS[level.level]}</TooltipPopup>
+    <TooltipPopup>{levelDescription(level)}</TooltipPopup>
   </Tooltip>;
 }
 /** Level 배지: 표기는 levelDisplayLabel로 통일하고, 공통 툴팁으로 Level 의미를 한 줄로 안내한다 (호버·터치·포커스). */
@@ -72,7 +72,7 @@ export function AxLevelBadge({ level, className, variant, suffix }: {
   const tip = useLevelTooltip();
   return <Tooltip open={tip.open} onOpenChange={tip.onOpenChange}>
     <TooltipTrigger render={<Badge variant={variant} className={className} tabIndex={0} {...tip.triggerHandlers} />}>{`${levelDisplayLabel(level)}${suffix ?? ""}`}</TooltipTrigger>
-    <TooltipPopup>{LEVEL_DESCRIPTIONS[level.level]}</TooltipPopup>
+    <TooltipPopup>{levelDescription(level)}</TooltipPopup>
   </Tooltip>;
 }
 export function AxSummary({ task, showGate = true }: { task: AxTask; showGate?: boolean }) {
