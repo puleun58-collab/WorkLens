@@ -10,7 +10,7 @@ vi.mock("@/server/research-enrichment", async (original) => ({ ...await original
 vi.mock("@/server/research-followup", async (original) => ({ ...await original<typeof import("@/server/research-followup")>(), retrieveResearchFollowup: vi.fn() }));
 vi.mock("@/server/research-annex", async (original) => ({ ...await original<typeof import("@/server/research-annex")>(), retrieveAnnexes: vi.fn() }));
 const basis = `═══ 처분 근거 확인: 식품위생법 ═══\n▶ 법령 체계\n[법률] 식품위생법 제75조 (영업정지)\n영업정지 처분을 할 수 있다. 영업정지 요건은 해당 기준에 따른다.`;
-const system = `═══ 법체계 확인: 개인정보 보호법 ═══\n▶ 3단 비교 (법률·시행령·시행규칙)\n[시행령] 개인정보 보호법 시행령 제45조 (행사 방법)\n법 제38조에 따라 청구한다.\n[시행규칙] 개인정보 보호법 시행규칙 제8조 (행사 방법)\n법 제38조에 따른 청구서이다.`;
+const system = `═══ 법체계 확인: 개인정보 보호법 ═══\n▶ 3단 비교 (법률·시행령·시행규칙)\n[법률] 개인정보 보호법 제38조 (행사 방법)\n① 권리행사의 행사 방법은 대통령령으로 정한다. 청구서 작성 방법은 부령으로 정한다.\n[시행령] 개인정보 보호법 시행령 제45조 (행사 방법)\n법 제38조에 따라 행사 방법을 정한다.\n[시행규칙] 개인정보 보호법 시행규칙 제8조 (행사 방법)\n법 제38조에 따른 청구서이다.`;
 beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(enrichResearch).mockResolvedValue({});
@@ -39,7 +39,7 @@ describe("server core completion versus additional retrieval", () => {
   });
   it("retains conservative status for an unverified original, and preserves the actual failure", async () => {
     vi.mocked(callLawTool).mockResolvedValue({ text: basis, isError: false });
-    vi.mocked(retrieveAnnexes).mockResolvedValue([{ law: "식품위생법", label: "별표 1", citation: "별표 1", sourceArticle: "제75조", status: "failed" }]);
+    vi.mocked(retrieveAnnexes).mockResolvedValue([{ law: "식품위생법", label: "별표 1", citation: "별표 1", sourceArticle: "제75조", status: "failed", relevance: "direct" }]);
     expect(await runLegalResearch({ task: "action_basis", query: "영업정지 근거와 요건" }, { requestId: "completion-unit" })).toMatchObject({ actionBasis: { status: "partial" }, annexes: [{ status: "failed" }] });
   });
   it("does not erase confirmed checks or primary-section failures", async () => {

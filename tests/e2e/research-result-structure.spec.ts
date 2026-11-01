@@ -88,20 +88,15 @@ ${expression}
     const top = output.locator(".research-overview");
     await expect(top.locator("details")).toHaveCount(0);
     await expect(top).not.toContainText(expression);
-    // The summary keeps the direct-link verdict; evidence wording appears on
-    // one source row, never inside the item-level verification disclosure.
+    // A cross-reference without the parent's operative delegation cannot be
+    // promoted to a direct link, even if an upstream summary labels it direct.
     await expect(top.getByRole("button", { name: "근거 보기", exact: true })).toHaveCount(0);
-    await expect(top).toContainText("직접 연결: 제7조(적용범위)");
-    await expect(top).not.toContainText("고유 조문");
-    const details = output.getByRole("region", { name: "법령 단계별 관계" });
-    await expect(details.locator("details[open]")).toHaveCount(0);
-    await details.locator("details summary").first().click();
-    await expect(details).toContainText("① 직접 연결 여부");
-    await expect(details).toContainText("② 다른 조항 참조");
-    await expect(details).toContainText("③ 추가 확인 사항");
+    await expect(top).toContainText("직접 위임관계 미확인");
+    await expect(top).not.toContainText(expression);
+    await expect(output.getByRole("region", { name: "법령 단계별 관계" })).toHaveCount(0);
     const source = output.getByRole("region", { name: "상세 근거" });
-    await expect(source.getByText(expression, { exact: false })).toBeVisible();
-    expect((await details.locator("#research-task-evidence-1").boundingBox())!.y).toBeGreaterThanOrEqual(64);
+    await expect(source).toContainText(expression);
+    await expect(source).toContainText("직접 위임관계 미확인");
     await expect(output.locator(".research-hierarchy")).toHaveCount(0);
     await expect(source).toContainText("근로기준법 시행령 제7조");
     await expect(top.locator("h3")).toHaveAttribute("data-status", "partial");
@@ -136,8 +131,9 @@ ${expression}
     await form.getByRole("button", { name: "실행", exact: true }).click();
     const output = page.locator(".legal-analysis-output[data-task='action_basis']");
     const source = output.getByRole("region", { name: "상세 근거" });
-    await expect(source.locator(".research-hits > li")).toHaveCount(5);
-    await expect(source.getByRole("link", { name: "법제처 원문 보기" })).toHaveCount(5);
+    await expect(source.locator(".research-hits > li")).toHaveCount(4);
+    await expect(source.getByRole("link", { name: "법제처 원문 보기" })).toHaveCount(4);
+    await expect(source).toContainText("① 별도의 원문 발췌");
     await expect(source).toContainText("다른 법률 제23조");
     await expect(source).toContainText("근로기준법 제23조");
     await expect(output.locator('[data-group="statutes"] [data-kind="law_articles"]')).toHaveCount(0);

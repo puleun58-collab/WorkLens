@@ -125,7 +125,7 @@ describe("round 2 §B: law-system counts, wording and membership", () => {
   const systemText = (core: string, blocks: string) => `═══ 법체계 확인: 개인정보 보호법 ═══\n법령명: 개인정보 보호법\n\n▶ 3단 비교 (법률·시행령·시행규칙)\n${blocks}\n▶ 핵심 조문\n개인정보 보호법\n${core}\n`;
   const decree = (jo: string, title: string, body: string) => `[시행령] 개인정보 보호법 시행령 ${jo} (${title})\n${body}\n`;
   const question = "개인정보보호법 제38조와 시행령의 관계";
-  const coreTwoWay = "제38조 권리행사의 방법 및 절차\n개인정보처리자는 대통령령으로 정하는 바에 따라 수수료를 청구할 수 있다.";
+  const coreTwoWay = "제38조 권리행사의 방법 및 절차\n① 정보주체는 대통령령으로 정하는 방법에 따라 대리인에게 권리행사를 하게 할 수 있다.\n③ 개인정보처리자는 대통령령으로 정하는 바에 따라 수수료를 청구할 수 있다.";
   const blocks = decree("제45조", "대리인의 범위 등", "법 제38조에 따라 대리인의 범위를 정한다.")
     + decree("제13조", "자료제출 요구 등의 범위와 방법", "법 제11조에 따라 자료제출을 요구할 수 있다.")
     + decree("제2조", "공공기관의 범위", "대통령령으로 정하는 기관이란 다음 각 호의 기관을 말한다.")
@@ -136,7 +136,7 @@ describe("round 2 §B: law-system counts, wording and membership", () => {
     const item = result.items.find((entry) => entry.label === "시행령")!;
     expect(item.status).toBe("found");
     expect(item.detail).toBe(
-      "시행령 4건 · 그 중 법률에서 위임한 사항 확인 1건 · 그 중 위임 관련 표현 발견 1건(질문한 조항과 참조 조항이 다름) · 그 중 위임 대상 조항 확인 필요 1건");
+      "시행령 4건 · 그 중 양쪽 원문으로 직접 위임 확인 1건 · 그 중 위임 관련 표현 발견 1건(질문한 조항과 참조 조항이 다름) · 그 중 위임 대상 조항 확인 필요 1건");
     expect(item.detail).not.toContain("상세 형식 헤더 기준");
     expect(item.detail).not.toContain("위임 문구 포함");
     expect(item.detail).not.toContain("직접 위임 아님");
@@ -160,9 +160,9 @@ describe("round 2 §B: law-system counts, wording and membership", () => {
     const coreCitationOnly = "제38조 권리행사의 방법 및 절차\n정보주체는 대리인에게 하게 할 수 있다.";
     const result = assessLawSystem(systemText(coreCitationOnly, blocks), question);
     const item = result.items.find((entry) => entry.label === "시행령")!;
-    expect(item.detail).toContain("그 중 질문한 조항 인용 확인 1건");
-    expect(item.detail).not.toContain("법률에서 위임한 사항 확인");
-    expect(item.articles?.[0].relation).toBe("direct");
+    expect(item.detail).toContain("그 중 인용·준용만 확인 1건");
+    expect(item.detail).not.toContain("양쪽 원문으로 직접 위임 확인");
+    expect(item.articles?.[0].relation).toBe("citation");
   });
 
   it("states the unconfirmed relation instead of asserting absence", () => {

@@ -14,23 +14,24 @@ import type { TaskEvidenceArticle, TaskEvidenceItem } from "@/lib/task-evidence"
  * by name, or that the direct link to the asked article is unconfirmed. */
 export function lawSystemTopSummary(item: TaskEvidenceItem): string | undefined {
   const articles = item.articles ?? [];
-  const direct = articles.filter((article) => article.relation === "direct" || article.relation === "twoWay");
-  if (direct.length) return `직접 연결: ${direct.map((article) => `${article.jo}${article.title ? `(${article.title})` : ""}`).join(" · ")}`;
-  return articles.length ? "질문한 조항과의 직접 연결 미확인" : undefined;
+  const direct = articles.filter((article) => article.relation === "twoWay");
+  if (direct.length) return `직접 위임관계: ${direct.map((article) => `${article.jo}${article.title ? `(${article.title})` : ""}`).join(" · ")}`;
+  return "직접 위임관계 미확인 — 조회 실패나 원문 부족은 관계 부존재를 의미하지 않습니다.";
 }
 
 export interface LawSystemRelationGroup {
-  key: "direct" | "other" | "unidentified" | "related";
+  key: "direct" | "citation" | "other" | "unidentified" | "related";
   label: string;
   articles: TaskEvidenceArticle[];
 }
 
 const RELATION_GROUPS: Array<{ key: LawSystemRelationGroup["key"]; label: string;
   match: (relation: TaskEvidenceArticle["relation"]) => boolean }> = [
-  { key: "direct", label: "직접 연결", match: (relation) => relation === "direct" || relation === "twoWay" },
+  { key: "direct", label: "직접 위임관계", match: (relation) => relation === "twoWay" },
+  { key: "citation", label: "단순 인용·준용 (직접 위임 미확인)", match: (relation) => relation === "citation" || relation === "direct" },
   { key: "other", label: "다른 조항 참조", match: (relation) => relation === "other" },
   { key: "unidentified", label: "위임 대상 조항 확인 필요", match: (relation) => relation === "unidentified" },
-  { key: "related", label: "조회된 조항", match: (relation) => relation === "related" },
+  { key: "related", label: "간접 관련·조회 자료", match: (relation) => relation === "related" },
 ];
 
 /** Group provisions by judged relation, in display order; empty groups omitted. */

@@ -5,6 +5,8 @@ import { appendMissingLawSystemArticles, ResearchResult } from "../src/component
 import { assessLawSystem } from "../src/lib/law-system-evidence";
 import { assessActionBasis } from "../src/lib/action-basis-evidence";
 import type { LawResearchData, LawResearchRequest } from "../src/lib/law-research";
+import food from "./fixtures/law-action-basis-food-suspension.json";
+import privacy from "./fixtures/law-system-privacy-38.json";
 
 const excerpt = "① 해고의 기준을 확인한다.\n② 마지막 항도 보존한다.";
 const article = { law: "근로기준법", jo: "제23조", title: "해고 등의 제한", excerpt, effectiveDate: "2025.01.01", matched: ["해고"] };
@@ -24,6 +26,27 @@ function render(data: LawResearchData) {
 }
 const base = { found: true, task: "full_research", text, markers: [] } satisfies LawResearchData;
 
+it("shows source-grounded direct answers above one detailed original per provision", () => {
+  const actionBasis = assessActionBasis(food.query, food.text, food.enrichment as Parameters<typeof assessActionBasis>[2], []);
+  const html = render({ found: true, task: "action_basis", text: food.text, markers: [], actionBasis });
+  const summary = html.slice(0, html.indexOf('aria-label="상세 근거"'));
+  expect(summary).toContain("식품위생법 제75조");
+  expect(summary).toContain("6개월 이내");
+  expect(summary).toContain("위반행위와 영업 종류가 특정되지 않으면");
+  expect(summary).not.toContain("처분 권한과 법정 사유의 근거 문언을 확인했습니다");
+  expect(html).not.toContain("상세 검증 내용 보기");
+});
+
+it("distinguishes the two directly delegated articles from citations in the summary", () => {
+  const lawSystem = assessLawSystem(privacy.text, privacy.query);
+  const html = render({ found: true, task: "law_system", text: privacy.text, markers: [], lawSystem });
+  const summary = html.slice(0, html.indexOf('aria-label="상세 근거"'));
+  expect(summary).toContain("직접 위임관계: 제47조");
+  expect(summary).toContain("제45조");
+  expect(summary).not.toContain("직접 위임관계: 제42조의8");
+  expect(summary).toMatch(/관련 규정:[^<]*제42조의8/u);
+});
+
 describe("research result source structure", () => {
   it("links independent action checks to retrieved originals and keeps missing requirements accessible", () => {
     const actionText = "═══ 처분 근거 확인: 식품위생법 ═══\n▶ 법령 체계\n[법률] 식품위생법 제75조 (영업정지)\n영업정지 처분을 할 수 있다.";
@@ -32,15 +55,12 @@ describe("research result source structure", () => {
     expect(html).toContain('data-status="partial"');
     expect(html).toMatch(/research-summary-status[^>]*data-tone="warning"[^>]*>.*?적용 요건 확인 필요/u);
     expect(html).toContain("적용 요건 추가 확인 필요");
-    // Top shows label + status only: no repeated article list, no jump
-    // button into the detail section below (that section is the single home).
+    // The answer remains visible above the single detailed source list.
     expect(html).not.toContain('aria-controls="research-task-evidence-');
-    const lower = html.slice(html.indexOf('aria-label="항목별 법적 근거"'));
-    expect(lower).toContain('id="research-task-evidence-1"');
-    expect(lower).toContain('id="research-task-evidence-2"');
+    const lower = html.slice(html.indexOf('aria-label="상세 근거"'));
     expect(lower).toContain("영업정지 처분을 할 수 있다.");
     expect(lower).toContain("법제처 원문 보기");
-    expect(lower).toContain("적용 대상·처분 대상 위반행위의 요건 문언을 확인하지 못했습니다.");
+    expect(html).toContain("위반행위와 영업 종류가 특정되지 않으면");
     expect(lower).toContain("관련 검토 항목: 처분 근거");
   });
 
@@ -50,21 +70,21 @@ describe("research result source structure", () => {
     const html = render({ ...base, task: "action_basis", actionBasis: { status: "matched", items: [
       { label: "처분·허가 근거", title: "처분 근거", status: "found", basisRefs: [source] },
       { label: "적용 요건", status: "found", requirementRefs: [source] },
-      { label: "세부 기준(별표)", title: "세부 처분 기준", optional: true, status: "found", detail: "식품위생법 시행규칙 별표 23" },
+      { label: "세부 기준(별표)", title: "세부 처분 기준", optional: true, status: "viewed", uncertainty: "별표 원문 미확보" },
     ] }, annexes: [{ law: "식품위생법 시행규칙", label: "별표 23", sourceArticle: "제89조",
       citation: "법 제75조의 행정처분 기준은 별표 23과 같다.", status: "identified", relevance: "direct",
       url: "https://www.law.go.kr/법령별표서식/(식품위생법시행규칙,별표23)" }] });
-    const sources = html.slice(html.indexOf('aria-label="상세 근거"'), html.indexOf('class="law-detail-source research-source"'));
-    const top = html.slice(0, html.indexOf('aria-label="항목별 법적 근거"'));
+    const sources = html.slice(html.indexOf('aria-label="상세 근거"'));
+    const top = html.slice(0, html.indexOf('aria-label="상세 근거"'));
     expect(top).not.toContain("식품위생법 시행규칙 별표 23");
-    expect(top).toContain("기준 목록 확인 · 원문 미확보");
+    expect(top).toContain("별표 원문 미확보");
     expect(sources.match(/식품위생법 제75조/gu)).toHaveLength(1);
     expect(sources).toContain("처분 근거 (법적 근거 · 근거 확인)");
     expect(sources).toContain("적용 요건 (요건 문언 · 근거 확인)");
     expect(sources).toContain("별표 23");
     expect(sources).toContain("원문 일부 확인");
     expect(html).toContain("세부 처분 기준");
-    expect(html).toContain("세부 기준 원문을 확인하지 못했습니다");
+    expect(html).toContain("별표 원문 미확보");
     expect(sources).not.toContain("별표 원문 보기");
   });
 
@@ -82,8 +102,8 @@ describe("research result source structure", () => {
       { label: "처분·허가 근거", status: "viewed", basisRefs: [] },
       { label: "적용 요건", status: "viewed", requirementRefs: [] },
     ] } });
-    expect(html).toContain('id="research-task-evidence-1"');
-    expect(html).toContain('id="research-task-evidence-2"');
+    expect(html).toContain("처분·허가 근거");
+    expect(html).toContain("적용 요건");
     expect(html).toContain("필수 항목 추가 확인 필요");
     expect(html).not.toContain("확인된 사실: 조회 원문에");
   });
@@ -138,16 +158,16 @@ describe("research result source structure", () => {
     const lawSystem = assessLawSystem(initial + additional, "개인정보 보호법 제38조 위임관계");
     expect(lawSystem.items.find((item) => item.label === "시행령")?.articles).toHaveLength(3);
     const html = render({ ...base, task, text: initial, lawSystem });
-    // Top: the core answer — provisions directly linked to the asked article,
-    // named once, never counted; every relation stays accessible below.
-    const top = html.slice(0, html.indexOf('aria-label="법령 단계별 관계"'));
-    expect(top).toContain("직접 연결: 제40조(청구 방법) · 제41조(청구 기준)");
+    // Retrieval and citation are visible, but no parent delegation was
+    // supplied by this fixture: the screen must not claim a direct link.
+    const lowerStart = html.indexOf(task === "law_system" ? 'aria-label="상세 근거"' : 'aria-label="항목별 법적 근거"');
+    const top = html.slice(0, lowerStart);
+    expect(top).toContain("직접 위임관계 미확인");
+    expect(top).toContain("관련 규정: 제40조 · 제41조");
     expect(top).not.toContain("제42조");
     expect(html).toContain("위임관계 확인 필요");
-    const lower = html.slice(html.indexOf('aria-label="법령 단계별 관계"'));
+    const lower = html.slice(lowerStart);
     for (const jo of ["제40조", "제41조", "제42조"]) expect(lower).toContain(jo);
-    // A provision citing another article stays in the folded extra list, apart from the direct links.
-    expect(lower.indexOf("추가 조회 조문 보기 · 1건")).toBeLessThan(lower.indexOf("법 제39조에 따른"));
     expect(lower).toContain("법 제39조에 따른");
     expect(html).not.toContain("법령 체계상의 위치");
     if (task === "full_research") {
@@ -195,7 +215,7 @@ describe("research result source structure", () => {
     expect(html).not.toMatch(/class="law-detail-source research-issue-refs"[^>]*\bopen=/u);
   });
 
-  it("retains a different law, effective version or excerpt in additional sources", () => {
+  it("retains distinct laws and effective versions while merging a provision's excerpt ranges", () => {
     const html = render({ ...base, task: "action_basis", actionBasis: { status: "viewed", items: [] },
       enrichment: { supplement: { status: "found", articles: [
         article, { ...article, effectiveDate: "2026.01.01" }, { ...article, law: "다른 법률" },
@@ -205,7 +225,7 @@ describe("research result source structure", () => {
     expect(html).toContain("2026.01.01");
     expect(html).toContain("다른 법률 제23조");
     expect(html).toContain("별도 발췌");
-    expect(html.match(/법제처 원문 보기/gu)).toHaveLength(5);
+    expect(html.match(/법제처 원문 보기/gu)).toHaveLength(4);
     expect(html).toContain('data-status="viewed"');
   });
 
@@ -225,19 +245,14 @@ describe("research result source structure", () => {
         { law: "근로기준법 시행령", jo: "제7조", title: "적용범위", relation: "direct", expression },
       ] }, { label: "시행규칙", status: "none", detail: "미확보" },
     ] } });
-    const lower = html.indexOf('aria-label="법령 단계별 관계"');
+    const lower = html.indexOf('aria-label="상세 근거"');
     expect(lower).toBeGreaterThan(0);
     expect(html.slice(0, lower)).not.toContain(expression);
     expect(html.slice(0, lower)).not.toContain("고유 검증 설명");
     expect(html.slice(lower)).toContain(expression);
     expect(html.slice(lower)).not.toContain("고유 검증 설명");
     expect(html).not.toContain("상세 근거 ·");
-    expect(html.slice(0, lower)).toContain("직접 연결: 제7조(적용범위)");
-    const delegationTop = html.slice(0, lower);
-    expect(delegationTop).not.toContain("고유 조문");
-    // The top summary keeps relation phrases only (no provision count) and
-    // no longer repeats the article list or its jump button; the detail
-    // section below is the single home for the provision and its delegation wording.
+    expect(html.slice(0, lower)).toContain("직접 위임관계 미확인");
     expect(html).not.toContain('aria-controls="research-task-evidence-');
   });
 

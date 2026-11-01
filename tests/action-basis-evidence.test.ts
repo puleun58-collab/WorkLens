@@ -50,7 +50,7 @@ describe("assessActionBasis", () => {
   it("verifies the annex kind only from annex entries, never from a duty claim", () => {
     const withAnnex = `${BODY}\n▶ 별표 (행정처분 기준표)\n별표/서식 목록 (총 2건):\n\n1. [별표 1] 영업정지 기준\n2. [별표 2] 과태료 기준\n`;
     const result = assessActionBasis("영업정지 처분의 근거와 별표 기준", withAnnex);
-    expect(result.items.find((item) => item.label === "세부 기준(별표)")?.status).toBe("found");
+    expect(result.items.find((item) => item.label === "세부 기준(별표)")?.status).toBe("viewed");
   });
 
   it("reports an empty search as none", () => {
@@ -78,8 +78,8 @@ describe("assessActionBasis", () => {
     // other law.
     const named = assessActionBasis("개인정보 보호법 영업정지 처분의 근거와 별표 기준", mixed);
     const annex = named.items.find((item) => item.label === "세부 기준(별표)")!;
-    expect(annex.status).toBe("found");
-    expect(annex.detail).toBe("개인정보보호법 별표 항목 1건");
+    expect(annex.status).toBe("viewed");
+    expect(annex.uncertainty).toContain("별표 원문 미확보");
     const otherOnly = assessActionBasis("식품위생법 영업정지 처분의 근거와 별표 기준", `${BODY}\n▶ 별표 (행정처분 기준표)\n별표/서식 목록 (총 1건):\n\n1. [별표 1] 영업정지 기준\n   관련법령: 개인정보보호법\n`);
     expect(otherOnly.items.find((item) => item.label === "세부 기준(별표)")?.status).toBe("none");
   });
@@ -87,9 +87,9 @@ describe("assessActionBasis", () => {
   it("demotes an otherwise complete result when no verified annex original matches the list", () => {
     const withAnnex = `${BODY}\n▶ 별표 (행정처분 기준표)\n별표/서식 목록 (총 1건):\n\n1. [별표 1] 영업정지 기준\n   관련법령: 건강기능식품에 관한 법률\n`;
     const query = "음식점 영업정지 처분의 근거와 요건과 별표 기준";
-    expect(assessActionBasis(query, withAnnex).status).toBe("matched");
+    expect(assessActionBasis(query, withAnnex).status).toBe("partial");
     expect(assessActionBasis(query, withAnnex, undefined, []).status).toBe("partial");
-    const verified = [{ law: "건강기능식품에 관한 법률", label: "별표 1", sourceArticle: "제32조", citation: "별표 1", status: "verified" as const }];
+    const verified = [{ law: "건강기능식품에 관한 법률", label: "별표 1", sourceArticle: "제32조", citation: "별표 1", relevance: "direct" as const, status: "verified" as const, text: "영업정지 7일" }];
     expect(assessActionBasis(query, withAnnex, undefined, verified).status).toBe("matched");
     const foreign = [{ ...verified[0], law: "식품위생법" }];
     expect(assessActionBasis(query, withAnnex, undefined, foreign).status).toBe("partial");
@@ -125,11 +125,11 @@ describe("assessActionBasis accuracy hardening", () => {
       "법 제32조제1항에 따라 영업자가 기준을 위반하면 영업정지 처분을 할 수 있다. 처분의 요건과 기준은 해당 조문에 따른다.",
       "법 제32조제1항에 따라 영업정지 처분의 요건에 관한 규정은 별표와 같다.");
     const result = assessActionBasis(QUERY, mentionOnly);
-    expect(result.status).toBe("partial");
+    expect(result.status).toBe("viewed");
     const requirement = result.items.find((item) => item.label === "적용 요건")!;
     expect(requirement.status).toBe("viewed");
     expect(requirement.detail).toContain("요건 관련 문언 확인");
-    expect(result.items.find((item) => item.label === "처분·허가 근거")?.status).toBe("found");
+    expect(result.items.find((item) => item.label === "처분·허가 근거")?.status).toBe("viewed");
   });
 
   it("does not confirm a direct disposition basis from a substitute-fine provision alone", () => {

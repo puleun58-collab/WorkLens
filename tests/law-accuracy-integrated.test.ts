@@ -33,7 +33,7 @@ describe("assessLawSystem with the asked article", () => {
     const decreeOnly = assessLawSystem(DELEGATION_TEXT, "개인정보보호법 제38조와 시행령의 관계");
     const decree = decreeOnly.items.find((item) => item.label === "시행령")!;
     expect(decree.status).toBe("found");
-    expect(decree.detail).toContain("법률에서 위임한 사항 확인 1건");
+    expect(decree.detail).toContain("양쪽 원문으로 직접 위임 확인 1건");
     expect(decreeOnly.items.find((item) => item.label === "시행규칙")).toBeUndefined();
     expect(decreeOnly.status).toBe("matched");
     // Asking about both tiers keeps the 시행규칙 requirement.
@@ -56,7 +56,7 @@ describe("assessLawSystem with the asked article", () => {
     const viaArticles = assessLawSystem(DELEGATION_TEXT, undefined, ["제38조"]);
     expect(viaArticles.items.find((item) => item.label === "시행령")?.status).toBe("found");
     const noQuestion = assessLawSystem(DELEGATION_TEXT);
-    expect(noQuestion.status).toBe("matched");
+    expect(noQuestion.status).toBe("partial");
     expect(noQuestion.items.find((item) => item.label === "시행령")?.detail).toContain("위임 연결 1건");
   });
 

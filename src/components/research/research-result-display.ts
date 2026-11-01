@@ -12,9 +12,8 @@ export interface TaskSource {
   links: Array<{ label: string; status: TaskEvidenceItem["status"]; role: string; expression?: string }>;
 }
 
-/** Combine only the same official source, provision, version and actual text range.
- * A shorter excerpt contained in a longer one is the same range's preview;
- * disjoint excerpts and distinct versions remain separate entries. */
+/** Combine the same official provision and version into one displayed source.
+ * Preserve disjoint excerpts as separate quoted ranges inside that source. */
 export function taskSources(
   items: readonly TaskEvidenceItem[],
   candidates: readonly Omit<TaskSource, "links">[],
@@ -22,14 +21,15 @@ export function taskSources(
   const rows: TaskSource[] = [];
   const add = (candidate: Omit<TaskSource, "links">, link?: TaskSource["links"][number]) => {
     const text = candidate.excerpt.trim();
-    const range = text.replace(/\s*…\s*$/u, "");
     const compatible = (row: TaskSource) => row.law === candidate.law && row.jo === candidate.jo
-      && row.source === candidate.source && (row.effective === candidate.effective || !row.effective || !candidate.effective)
-      && (!text || !row.excerpt || row.excerpt.includes(range) || range.includes(row.excerpt.replace(/\s*…\s*$/u, "")));
+      && row.source === candidate.source && (row.effective === candidate.effective || !row.effective || !candidate.effective);
     const row = rows.find(compatible);
     if (row) {
       if (!row.effective) row.effective = candidate.effective;
-      if (text.length > row.excerpt.length) row.excerpt = text;
+      if (text && !row.excerpt.includes(text.replace(/\s*…\s*$/u, ""))) {
+        const old = row.excerpt.replace(/\s*…\s*$/u, "");
+        row.excerpt = text.includes(old) ? text : `${row.excerpt}\n…\n${text}`;
+      }
       if (!row.title) row.title = candidate.title;
       if (link && !row.links.some((entry) => entry.label === link.label && entry.role === link.role && entry.status === link.status)) row.links.push(link);
     } else rows.push({ ...candidate, excerpt: text, links: link ? [link] : [] });
@@ -40,8 +40,8 @@ export function taskSources(
   for (const item of items) for (const ref of item.articles ?? item.basisRefs ?? item.requirementRefs ?? []) {
     const article = ref as TaskEvidenceArticle | TaskEvidenceBodyRef;
     const role = "relation" in article ? ({
-      direct: "직접 연결", twoWay: "법률 위임·직접 연결", other: "다른 조항 참조",
-      unidentified: "위임 대상 미확인", related: "관련 조항",
+      direct: "직접 위임 미확인", twoWay: "직접 위임관계", citation: "단순 인용·준용", other: "다른 조항 참조",
+      unidentified: "위임 대상 미확인", related: "간접 관련",
     })[article.relation] : "note" in article && article.note ? article.note : item.label === "적용 요건" ? "요건 문언" : item.label === "세부 기준(별표)" ? "세부 기준 인용 조항" : "법적 근거";
     add({
       law: article.law, jo: article.jo, title: article.title,

@@ -118,6 +118,81 @@ function structuredRefs(refs: readonly BodyRef[]): TaskEvidenceBodyRef[] {
   return [...new Map(refs.map((ref) => [JSON.stringify([ref.law, ref.jo, ref.title, ref.body]),
     { law: ref.law, jo: ref.jo, title: ref.title, excerpt: ref.body, ...(ref.note ? { note: ref.note } : {}) }] as const)).values()];
 }
+/** Preserve the operative clause, not a title, update history or an entire
+ * unrelated article. A numbered violation may only be named if the question
+ * and the retrieved source both identify it. */
+function operativeClause(body: string): string {
+  const first = body.indexOf("①");
+  const numbered = first >= 0 ? body.slice(first + 1).split(/[②-⑳]|<개정/u)[0] : body.split(/<개정/u)[0];
+  const closing = /(?:할 수 있다|하여야 한다|해야 한다|정한다|된다)\./u.exec(numbered);
+  const sentence = closing ? numbered.slice(0, closing.index + closing[0].length)
+    : numbered.match(/^[\s\S]*?[.。](?=\s|$|다만|<)/u)?.[0] ?? numbered;
+  return sentence.trim().slice(0, 1_400);
+}
+
+function legalAnswer(ref: BodyRef, query?: string): string {
+  const clause = operativeClause(ref.body);
+  const tokens = query ? questionSubjectTerms(query).filter((term) => term.length >= 3 && !isLawName(term)
+    && !/정지|허가|처분|기준|요건|위반|영업|별표/u.test(term)) : [];
+  const numbered = tokens.length ? [...ref.body.matchAll(/(?:^|[.\n])\s*(\d+)\.\s*([^.\n]{5,250})/gu)]
+    .find((match) => tokens.some((term) => match[2].includes(term))) : undefined;
+  return `${ref.law} ${ref.jo}${ref.title ? `(${ref.title})` : ""}: ${clause}${numbered ? ` 해당 위반 항목: ${numbered[1]}. ${numbered[2].trim()}` : ""}`;
+}
+
+/** An authority must confer the act being asked about; permission revocation
+ * is not permission to grant, and a subordinate criteria rule is not the
+ * enabling statute. */
+function grantsAskedAct(ref: BodyRef, acts: readonly ActionTerm[]): boolean {
+  if (!acts.length || !concernsAction(ref.body, acts)) return false;
+  const permission = acts.some((act) => PERMISSION_CORE.test(act.core));
+  if (permission) return /허가|인가|등록|신고|승인|면허|지정/u.test(ref.body)
+    && /(?:허가|인가|등록|신고|승인|면허|지정)(?:를|을|할 수|하여야)/u.test(ref.body)
+    && !/취소|철회|정지|폐쇄/u.test(ref.title);
+  return /(?:정지|취소|폐쇄|명령|처분|과징금|과태료)/u.test(ref.body)
+    && /(?:할 수 있다|명할 수 있다|하여야 한다|부과할 수 있다)/u.test(ref.body);
+}
+
+/** Identify a table row only when the industry and a distinctive violation
+ * phrase in the question match one unique row in the official original. */
+export function annexCriteriaForQuestion(query: string, original: string, authorities?: readonly string[]): string | undefined {
+  const table = /\nⅡ\.\s*개별기준\s*\n/u.exec(original);
+  if (!table) return undefined;
+  const headings = [...original.slice(table.index + table[0].length).matchAll(/(?:^|\n)(\d+\.\s*([^\n]+?업(?:\s*등)?))\n/gu)]
+    .map((match) => ({ name: match[2].replace(/\s*등$/u, ""), start: table.index + table[0].length + match.index, number: Number(match[1].split(".")[0]) }))
+    .filter((heading, index, all) => index === 0 || all.slice(0, index).every((prior) => prior.number < heading.number));
+  const chosen = headings.filter((heading) => compactLaw(query).includes(compactLaw(heading.name)));
+  if (chosen.length !== 1) return undefined;
+  const next = headings.find((heading) => heading.start > chosen[0].start);
+  const section = original.slice(chosen[0].start, next?.start ?? original.length);
+  const subjects = questionTerms(query).filter((term) => term.length >= 2 && !isLawName(term)
+    && !/기준|처분|위반|영업|업종|법률|별표|[123]차/u.test(term)
+    && !headings.some((heading) => compactLaw(heading.name).includes(compactLaw(term))));
+  if (!subjects.length) return undefined;
+  const tableRows = [...section.matchAll(/<tr>([\s\S]*?)<\/tr>/gu)].map((match) =>
+    [...match[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gu)].map((cell) => cell[1].replace(/<[^>]*>/gu, " ").replace(/\s+/gu, " ").trim()));
+  const matches: Array<{ cells: string[]; parent?: string; basis?: string }> = [];
+  let parent: string | undefined;
+  let basis: string | undefined;
+  for (const cells of tableRows) {
+    if (cells.length < 5) continue;
+    if (cells[1]) basis = cells[1];
+    if (cells[0] && cells.every((cell, index) => index === 0 || !cell)) parent = cells[0];
+    const rowText = compactLaw(cells[0]);
+    const contextText = compactLaw(`${parent ?? ""} ${cells[0]}`);
+    if (subjects.some((term) => rowText.includes(compactLaw(term)))
+      && subjects.every((term) => contextText.includes(compactLaw(term)))) {
+      matches.push({ cells, parent, basis });
+    }
+  }
+  if (matches.length !== 1) return undefined;
+  const { cells: row, parent: rowParent, basis: rowBasis } = matches[0];
+  if (authorities?.length && (!rowBasis || !authorities.some((jo) => rowBasis.includes(jo)))) return undefined;
+  const count = /(\d+)차\s*위반/u.exec(query)?.[1];
+  if (count && !["1", "2", "3"].includes(count)) return undefined;
+  const applicable = count ? row[Number(count) + 1] : undefined;
+  if (count && !applicable) return undefined;
+  return `${chosen[0].name} · ${rowParent ? `${rowParent} · ` : ""}${row[0]} · ${rowBasis ? `근거 법령: ${rowBasis} · ` : ""}${count ? `${count}차 위반: ${applicable}` : `차수별 기준: 1차 ${row[2] || "미기재"} / 2차 ${row[3] || "미기재"} / 3차 ${row[4] || "미기재"}`}`;
+}
 
 export function assessActionBasis(query: string, text: string, enrichment?: ResearchEnrichment, annexes?: readonly AnnexEvidence[]): TaskEvidence {
   if (hasNoUsableSection(text)) {
@@ -154,18 +229,17 @@ export function assessActionBasis(query: string, text: string, enrichment?: Rese
     const subjects = questionSubjectTerms(query).filter((term) => !isLawName(term));
     return (subjects.length ? subjects : questionTerms(query).filter((term) => !isLawName(term))).map((term) => ({ term, head: "", core: term }));
   })();
-  const actBodies = (pattern: RegExp) => bodies.filter((ref) => inScope(ref.law) && concernsAction(`${ref.title}\n${ref.body}`, gate) && pattern.test(ref.body));
+  const actBodies = (pattern: RegExp) => bodies.filter((ref) => inScope(ref.law) && concernsAction(ref.body, gate) && pattern.test(ref.body));
   const annexEntries = document.sections.filter((section) => section.status === "available")
     .flatMap((section) => section.annex?.entries ?? [])
     .filter((entry) => inScope(entry.law));
-  const annexCount = annexEntries.length;
-  const annexLaws = [...new Set(annexEntries.map((entry) => entry.law).filter((law): law is string => Boolean(law)))];
   const decisions = document.sections.filter((section) => section.status === "available")
     .flatMap((section) => section.decisions?.entries ?? []);
   const verified = verifiedDecisionCaseNumbers(text);
   const appealVerified = decisions.some((entry) => entry.caseNumber && verified.has(entry.caseNumber));
   const asksFine = asksSubstituteFine(query);
   const disposition = isDispositionAct(acts);
+  const asksPermission = !disposition && acts.some((act) => PERMISSION_CORE.test(act.core));
   const actWords = acts.map((act) => act.term).join(" ");
   // Supporting, not direct: a provision whose own role is a different
   // institution or an ancillary step for the asked act. Judged from the
@@ -183,10 +257,11 @@ export function assessActionBasis(query: string, text: string, enrichment?: Rese
       : undefined;
     return note ? { ...ref, note } : ref;
   };
-  const basisRefs = actBodies(AUTHORITY).map(tier);
-  const authorityRefs = basisRefs.filter((ref) => !ref.note);
-  const requirementMentioned = /요건|기준|조건|대상|예외/u.test(query) ? actBodies(REQUIREMENT).map(tier) : undefined;
-  const requirementRefs = requirementMentioned?.filter((ref) => REQUIREMENT_CONFIRMED.test(ref.body));
+  const basisRefs = actBodies(AUTHORITY).map(tier).map((ref) =>
+    !ref.note && !grantsAskedAct(ref, acts) ? { ...ref, note: "추가 조회 자료 · 질문한 법적 행위의 권한 문언 미확인" } : ref);
+  const authorityRefs = basisRefs.filter((ref) => !ref.note && grantsAskedAct(ref, acts));
+  const requirementMentioned = /요건|기준|조건|대상|예외|위반/u.test(query) ? actBodies(REQUIREMENT).map(tier) : undefined;
+  const requirementRefs = requirementMentioned?.filter((ref) => REQUIREMENT_CONFIRMED.test(ref.body) && grantsAskedAct(ref, acts));
   const directRequirementRefs = requirementRefs?.filter((ref) => !ref.note);
   // Direct refs first, supporting refs after them: one list, roles marked.
   const ordered = (refs: readonly BodyRef[]) => [...refs.filter((ref) => !ref.note), ...refs.filter((ref) => ref.note)];
@@ -194,41 +269,49 @@ export function assessActionBasis(query: string, text: string, enrichment?: Rese
   const items: TaskEvidence["items"] = [
     { label: "처분·허가 근거", ...(basisTitle !== "처분·허가 근거" ? { title: basisTitle } : {}),
       status: authorityRefs.length ? "found" : basisRefs.length || bodies.length ? "viewed" : "none",
+      ...(authorityRefs[0] ? { answer: legalAnswer(authorityRefs[0], query) } : {}),
+      uncertainty: authorityRefs.length
+        ? asksPermission ? "법정 허가·등록 권한 확인은 신청인의 개별 요건 충족이나 허가·등록 확정이 아닙니다."
+          : "법정 권한 확인은 개별 위반행위의 성립이나 실제 처분 확정이 아닙니다."
+        : asksPermission ? "직접 권한 원문 미확보 — 조회 실패나 제목 일치만으로 허가·등록이 불가능하다고 단정할 수 없습니다."
+          : "직접 근거 원문 미확보 — 조회 실패나 제목 일치만으로 근거가 없다고 단정할 수 없습니다.",
       basisRefs: structuredRefs(ordered(basisRefs)),
-      ...(authorityRefs.length === 0 && basisRefs.length ? { detail: "과징금 갈음 규정만 확인 — 직접 처분 근거 추가 확인 필요" }
+      ...(authorityRefs.length === 0 && basisRefs.length ? { detail: asksPermission
+        ? "조회 조문은 허가·등록 직접 근거로 확인되지 않아 추가 원문 대조가 필요합니다."
+        : "과징금 갈음 규정만 확인 — 직접 처분 근거 추가 확인 필요" }
         : authorityRefs.length === 0 && bodies.length ? { detail: "질문한 법적 행위의 직접 근거 문언 미확인 — 조회된 조문은 관련성이 확인되지 않아 근거로 표시하지 않습니다." } : {}) },
   ];
   if (requirementRefs !== undefined && directRequirementRefs !== undefined) {
     const mentionOnly = (requirementMentioned ?? []).some((ref) => !ref.note) && directRequirementRefs.length === 0;
     items.push({ label: "적용 요건", status: directRequirementRefs.length ? "found" : bodies.length ? "viewed" : "none",
+      ...(directRequirementRefs[0] ? { answer: legalAnswer(directRequirementRefs[0], query) } : {}),
+      uncertainty: asksPermission
+        ? "신청 대상 업종·자격·시설 등 필요한 사실과 예외를 대조해야 하며, 원문 확인만으로 허가·등록 가능 여부를 확정할 수 없습니다."
+        : "위반행위와 영업 종류가 특정되지 않으면 개별 적용 여부를 판단할 수 없습니다. 업종·위반행위·예외 사실을 대조해야 합니다.",
       requirementRefs: structuredRefs(ordered(requirementRefs)),
       ...(mentionOnly ? { detail: "요건 관련 문언 확인 — 실제 요건·기준은 원문에서 대조 필요" }
         : directRequirementRefs.length === 0 && bodies.length ? { detail: "질문한 법적 행위의 요건 문언 미확인" } : {}) });
   }
-  if (/별표|기준표|과태료|벌칙/u.test(query)) {
-    items.push({ label: "세부 기준(별표)", status: annexCount ? "found" : "none",
-      ...(annexCount ? { detail: annexLaws.length === 1 ? `${annexLaws[0]} 별표 항목 ${annexCount}건` : `별표 항목 ${annexCount}건` } : {}) });
-  } else {
-    // Not asked: a verified annex the act's own provision cites is shown as
-    // the detailed disposition criteria, never counted in the verdict.
-    const criteria = (annexes ?? []).filter((annex) => annex.status === "verified" && annex.relevance === "direct" && inScope(annex.law));
-    if (criteria.length) items.push({ label: "세부 기준(별표)", title: isDispositionAct(acts) ? "세부 처분 기준" : "세부 기준", optional: true, status: "found",
-      detail: criteria.map((annex) => `${annex.law} ${annex.label}${annex.title ? `(${annex.title})` : ""}`).join(" · ") });
+  const asksAnnex = /별표|기준표|과태료|벌칙/u.test(query);
+  const criteria = (annexes ?? []).filter((annex) => annex.relevance === "direct" && inScope(annex.law)
+    && (!authorityRefs.length || authorityRefs.some((ref) => sameLawFamily(ref.law, annex.law))));
+  const original = criteria.filter((annex) => annex.status === "verified" && Boolean(annex.text?.trim()));
+  const listed = annexEntries.filter((entry) => criteria.some((annex) => sameLawFamily(annex.law, entry.law ?? "") && entry.title.includes(annex.label))
+    || (asksAnnex && (acts.length === 0 || concernsAction(entry.title, acts) || compactLaw(query).includes(compactLaw(entry.title)))));
+  if (asksAnnex || (disposition && (criteria.length > 0 || listed.length > 0))) {
+    const selected = original[0] ?? criteria[0];
+    const row = original[0]?.text ? annexCriteriaForQuestion(query, original[0].text, authorityRefs.map((ref) => ref.jo)) : undefined;
+    items.push({ label: "세부 기준(별표)", title: disposition ? "세부 처분 기준" : "세부 기준", ...(asksAnnex ? {} : { optional: true }),
+      status: original.length ? "found" : criteria.length || listed.length ? "viewed" : "none",
+      ...(selected ? { answer: `${selected.law} ${selected.sourceArticle}가 인용한 ${selected.label}${selected.title ? `(${selected.title})` : ""} — ${selected.citation.trim()}${row ? ` 해당 표의 확인 행: ${row}` : ""}` } : {}),
+      uncertainty: original.length ? row ? "표의 행·차수 원문 확인. 위반행위 성립·감경·가중 및 개별 사안 적용 여부는 확인되지 않았습니다." : "별표 원문 확보. 위반 유형·업종·차수 또는 유일한 해당 행을 특정하지 못해 개별 기준은 미확인입니다." : "별표 원문 미확보 — 존재·목록 확인만으로 세부 처분 기준을 확인할 수 없습니다.",
+      ...(listed.length ? { detail: `별표 목록 ${listed.length}건 · 원문 ${original.length ? "확보" : "미확보"}` } : {}) });
   }
   if (/불복|심판|소송|이의|구제/u.test(query)) {
     items.push({ label: "불복 자료", status: appealVerified ? "found" : decisions.length ? "viewed" : "none" });
   }
   const required = items.filter((item) => !item.optional);
   const found = required.filter((item) => item.status === "found").length;
-  let base: TaskEvidenceStatus = found === required.length ? "matched" : found > 0 ? "partial" : hasAvailableContent(text) ? "viewed" : "none";
-  // A list verifies the annex kind, never an original: without a verified
-  // annex original of a counted entry's law, an otherwise complete result
-  // is partial, not matched. Entries without any law cannot be attributed
-  // to a verified original, so they never satisfy this gate. Callers that
-  // do not pass annexes keep the previous behaviour.
-  const annexKindFound = required.some((item) => item.label === "세부 기준(별표)" && item.status === "found");
-  const annexVerified = annexes?.some((annex) => annex.status === "verified"
-    && annexLaws.some((law) => sameLawFamily(annex.law, law))) ?? false;
-  if (annexes !== undefined && annexKindFound && !annexVerified && base === "matched") base = "partial";
+  const base: TaskEvidenceStatus = found === required.length ? "matched" : found > 0 ? "partial" : hasAvailableContent(text) ? "viewed" : "none";
   return { status: capForFailure(base, hasFailedSection(text)), items };
 }
