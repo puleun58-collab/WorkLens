@@ -821,6 +821,25 @@ function AxPlanHeading({ no, title, description, id }: { no?: string; title: str
  * 숨기지 않으므로, 목록 길이는 항상 배지 건수와 같다.
  * 항목별 이동 대상 판정(resolvePrecheckTarget)은 단위 테스트가 유지하므로 삭제하지 않는다. */
 export type PrecheckListItem = { title: string; detail: string; target: PrecheckTarget };
+/** 표시 정리: 제목과 설명이 같은 문장이면 제목에서 끝의 상태 표기("(확인 필요)" 등)만 떼어 설명으로 쓰고,
+ * 제목·설명이 모두 같은 항목(같은 확인 조건이 여러 출처에서 온 경우)은 한 번만 보인다. 서로 다른
+ * 조건은 문장이 비슷해도 합치지 않으며, 원본 요약 데이터는 바꾸지 않는다. */
+function tidyPrecheckItems(items: PrecheckListItem[]): PrecheckListItem[] {
+  const norm = (text: string) => text.replace(/\s+/gu, " ").trim();
+  const seen = new Set<string>();
+  return items.flatMap(item => {
+    let { title, detail } = item;
+    if (norm(title) === norm(detail)) {
+      const marker = /\s*\((확인 필요|미확인|확인 전 보류|보류)\)\s*$/u.exec(title);
+      title = marker ? title.slice(0, marker.index).trim() : title;
+      detail = marker ? marker[1] : "확인 필요";
+    }
+    const key = `${norm(title)}\0${norm(detail)}`;
+    if (seen.has(key)) return [];
+    seen.add(key);
+    return [{ ...item, title, detail }];
+  });
+}
 export function precheckListItems(summary: AxPlanSummary): PrecheckListItem[] {
   const pending = <T extends { tone: AxCheckTone }>(items: T[]) => items.filter(item => item.tone === "required" || item.tone === "blocked" || item.tone === "held");
   const items: PrecheckListItem[] = [];
@@ -829,9 +848,11 @@ export function precheckListItems(summary: AxPlanSummary): PrecheckListItem[] {
   for (const check of pending(summary.additionalChecks)) items.push({ title: check.item, detail: check.content, target: resolvePrecheckTarget({ topic: check.item, note: check.content, tone: check.tone, origin: "extra" }) });
   for (const text of summary.conflictingCriteria ?? []) items.push({ title: text, detail: "성공·실패 기준 충돌 — 확인 필요", target: resolvePrecheckTarget({ topic: text, origin: "conflict" }) });
   for (const text of summary.numericConflictCriteria ?? []) items.push({ title: text, detail: "수치·허용 기준 상충 — 확인 필요", target: resolvePrecheckTarget({ topic: text, origin: "conflict" }) });
-  return items;
+  return tidyPrecheckItems(items);
 }
-function AxPrecheckSection({ summary }: { summary: AxPlanSummary }) {
+/** ① 구현 전 확인: 항목마다 실제 확인·수정 위치로 가는 '확인하러 가기' 버튼을 둔다 (이동 위치가 없는
+ * 항목은 버튼 없이 안내 문구만). 버튼을 누르는 것만으로 완료 처리하지 않는다. */
+function AxPrecheckSection({ summary, onGoToTarget }: { summary: AxPlanSummary; onGoToTarget?: (target: PrecheckTarget, topic: string) => void }) {
   const [open, setOpen] = useState(false);
   const items = precheckListItems(summary);
   const count = items.length;
@@ -839,7 +860,12 @@ function AxPrecheckSection({ summary }: { summary: AxPlanSummary }) {
   return <AxReviewAccordion className="ax-precheck" headClassName="ax-precheck-head" label="구현 전 확인" icon={ClipboardList} meta={<span>{blocked ? "진행 보류" : "미해결"} {count}건</span>} open={open} onOpenChange={setOpen}>
     {count ? <ul className="ax-precheck-items">{items.map((item, i) => {
       const location = item.target.kind === "none" ? "" : precheckTargetLabel(item.target) + (item.target.kind === "decision" && item.target.id ? ` ${item.target.id}` : "");
-      return <li key={i} className="ax-precheck-row"><strong>{item.title}</strong><span>{item.detail}</span>{location ? <small>확인 위치: {location}</small> : null}</li>;
+      const target = item.target;
+      return <li key={i} className="ax-precheck-row">
+        <div className="ax-precheck-row-text"><strong>{item.title}</strong><span>{item.detail}</span>
+          {target.kind === "none" ? <small>{target.guidance}</small> : location ? <small>확인 위치: {location}</small> : null}</div>
+        {target.kind !== "none" && onGoToTarget ? <Button type="button" variant="outline" size="sm" onClick={() => onGoToTarget(target, item.title)}>확인하러 가기</Button> : null}
+      </li>;
     })}</ul> : <p className="ax-muted ax-precheck-empty">필수 확인사항 없음</p>}
   </AxReviewAccordion>;
 }
@@ -1266,7 +1292,7 @@ export function AxFixPromptSection({ diagnosis, plan, taskName, taskContext, pre
   </section>;
 }
 
-export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenerate, reviewProps, genericRules, activeTool: controlledTool, onToolChange }: {
+export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenerate, reviewProps, genericRules, activeTool: controlledTool, onToolChange, onGoToTarget }: {
 
   diagnosis: AxDiagnosis;
   taskName: string;
@@ -1279,6 +1305,8 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
    * 미제공 시 기존 내부 상태 동작을 유지한다. */
   activeTool?: AxToolId;
   onToolChange?: (tool: AxToolId) => void;
+  /** 구현 전 확인 '확인하러 가기' 이동 (선택 업무 기준). */
+  onGoToTarget?: (target: PrecheckTarget, topic: string) => void;
 }) {
   const profile = executionProfile(diagnosis);
   const gate = profile.gate;
@@ -1319,7 +1347,7 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
   return <div className="ax-plan-stack" id="ax-plan-section" role="region" aria-label="자동화 구현 계획"><section className="ax-surface ax-plan-overview-surface">
     <div className="ax-plan-head"><BarChart3 size={24} aria-hidden="true" className="ax-plan-head-icon" /><h3>자동화 구현 계획</h3></div>
     <AxStatCards cards={PLAN_OVERVIEW_CARDS.map(card => ({ ...card, count: card.key === "check" ? precheckListItems(summary).length : diagnosis.stepAssessments.filter(step => step.verdict === card.key).length }))} />
-    <AxPrecheckSection summary={summary} />
+    <AxPrecheckSection summary={summary} onGoToTarget={onGoToTarget} />
   </section>
   <section className="ax-surface ax-plan-groups-surface" id="ax-plan-review" aria-label="구현 계획">
     <div className="ax-plan-groups-head">

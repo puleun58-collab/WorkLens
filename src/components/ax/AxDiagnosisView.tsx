@@ -23,9 +23,16 @@ import type { AxToolId } from "@/lib/ax/guide";
 import { exportAxState, importAxState } from "@/lib/ax/transfer";
 import { emptyAxState, type AxStateV2, type AxTask, type AxDiagnosis, type AxDetails, type FactorKey } from "@/lib/ax/types";
 import { extractReviewableItems, extractPlanReviewableItems, reconcileReviews, validateReviewForConfirm } from "@/lib/ax/hitl";
-import { AxLevelBadge, AxProcess, AxPlanSection, AxCheckIcon, AxStatCards, diagnosisSummaryParts, diagnosisCheckItems, visibleDiagnosisCheckItems, resolveActiveTool, concreteNextAction, formatUnifiedNextAction, type AxCheckItem } from "./AxReport";
-import { UnifiedRulesSection } from "./AxUnifiedRules";
+import { AxLevelBadge, AxProcess, AxPlanSection, AxCheckIcon, AxStatCards, diagnosisSummaryParts, diagnosisCheckItems, visibleDiagnosisCheckItems, resolveActiveTool, concreteNextAction, formatUnifiedNextAction, type AxCheckItem, type PrecheckTarget } from "./AxReport";
+import { applyCheckConfirmations, checkConfirmationState, checkKey, upsertCheckConfirmation } from "@/lib/ax/check-confirmations";
+import { RuleSelect, UnifiedRulesSection } from "./AxUnifiedRules";
 import "./ax.css";
+
+/** 사용자 확인 기록(checkConfirmations)을 반영한 업무 보기. 화면 표시·집계 전용이며 저장하지 않는다. */
+function viewTask<T extends AxTask>(task: T): T {
+  const confirmations = (task as import("@/lib/ax/types").AxTaskV2).checkConfirmations;
+  return task.diagnosis && confirmations?.length ? { ...task, diagnosis: applyCheckConfirmations(task.diagnosis, confirmations) } : task;
+}
 
 const STEPS = ["업무 등록", "업무 진단", "자동화 매트릭스", "결과·로드맵"];
 const STEP_ICONS = [ClipboardList, Stethoscope, LayoutGrid, MapIcon];
@@ -80,14 +87,16 @@ function NeedsCheckLink({ tasks, label, disabled, onGo }: { tasks: AxTask[]; lab
 /** 선택 업무의 결과·로드맵 래퍼: 도구 선택 상태를 소유해 로드맵·01~03·04가
  * 같은 도구의 확정 검토를 따르게 한다. key로 업무 전환 시 remount돼 상태가
  * 초기화되는 점은 기존 AxPlanSection key 동작과 동일하다. */
-function AxSelectedReport({ task, busy, onGenerate, onSaveReview }: {
+function AxSelectedReport({ task, busy, onGenerate, onSaveReview, onGoToTarget }: {
   task: AxTask;
   busy: string | null;
   onGenerate: (target: AxToolId) => void;
   onSaveReview: (r: Omit<import("@/lib/ax/types").HitlReview, "id" | "reviewedAt" | "updatedAt"> & { id?: string }) => { saved: boolean; reason?: string };
+  onGoToTarget: (target: PrecheckTarget, topic: string) => void;
 }) {
-  // 호출 지점은 selected.diagnosis가 있는 경우에만 이 래퍼를 렌더링한다.
-  const diagnosis = task.diagnosis as AxDiagnosis;
+  // 호출 지점은 selected.diagnosis가 있는 경우에만 이 래퍼를 렌더링한다. 구현 계획·구현 전 확인·
+  // 올인원 지시문은 사용자 확인 기록을 반영한 진단 보기를 쓴다 (원본 진단은 그대로).
+  const diagnosis = viewTask(task).diagnosis as AxDiagnosis;
   const plans = { codex: diagnosis.planCodex, claude: diagnosis.planClaude };
   const [selectedTool, setSelectedTool] = useState<AxToolId | null>(null);
   const activeTool = resolveActiveTool(selectedTool, plans);
@@ -96,6 +105,7 @@ function AxSelectedReport({ task, busy, onGenerate, onSaveReview }: {
   return <>
     <AxPlanSection
       diagnosis={diagnosis}
+      onGoToTarget={onGoToTarget}
       taskName={task.name}
       taskContext={[task.description, ...Object.entries(taskDetails(task)).filter(([, value]) => value !== undefined).map(([key, value]) => `${key}: ${value}`)].join("\n")}
       busy={busy}
@@ -135,11 +145,14 @@ export function AxDiagnosisView() {
   const [showMatrixHelp, setShowMatrixHelp] = useState(false);
   // Factor 상세 평가 아코디언: 기본 접힘. 사용자가 펼친 상태는 탭·업무 전환에도 유지한다.
   const [factorsOpen, setFactorsOpen] = useState(false);
-  const [checkScroll, setCheckScroll] = useState<{ taskId: string; nonce: number; target?: "answers" | "checks" } | null>(null);
-  const ranked = priority(state.tasks).map((row, index) => ({ ...row, rank: index + 1 }));
+  const [checkScroll, setCheckScroll] = useState<{ taskId: string; nonce: number; target?: "answers" | "checks"; step?: number; selector?: string } | null>(null);
+  // 화면 집계·우선순위·Gate는 사용자 확인 기록을 반영한 진단 보기(viewTask)로 계산한다. 저장·수정
+  // 경로는 항상 원본 state.tasks를 쓴다 (확인 기록이 AI 진단 원본에 섞여 저장되지 않게).
+  const viewTasks = state.tasks.map(viewTask);
+  const ranked = priority(viewTasks).map((row, index) => ({ ...row, rank: index + 1 }));
   // 매트릭스 목록: 기존 우선순위순 고정 표시 (원본 데이터·계산 변경 없음)
   const matrixListed = ranked;
-  const counts = diagnosisCounts(state.tasks);
+  const counts = diagnosisCounts(viewTasks);
   // 정보 확인 필요 업무: 집계 counts.questions과 같은 판정(needs-check) 기준으로 바로가기 대상을 구성한다.
   const needsCheckTasks = state.tasks.filter(task => task.diagnosis?.informationSufficiency === "needs-check");
   // 상태 문구는 공통 표시 항목(diagnosisStatusItems)을 쓰고, 진단 완료만 완료/전체로 앞에 표기한다.
@@ -155,7 +168,8 @@ export function AxDiagnosisView() {
   const profiles = ranked.map(row => ({ row, profile: executionProfile(row.task.diagnosis) }));
   const displayed = [...profiles].sort((a, b) => gateOrder[a.profile.gate] - gateOrder[b.profile.gate]).map(({ row }) => row);
   const currentSelection = state.tasks.find(task => task.id === state.selectedTaskId);
-  const selected = state.step >= 3 ? currentSelection?.diagnosis ? currentSelection : displayed[0]?.task : currentSelection ?? state.tasks[0];
+  const fallbackId = displayed[0]?.task.id;
+  const selected = state.step >= 3 ? currentSelection?.diagnosis ? currentSelection : state.tasks.find(task => task.id === fallbackId) : currentSelection ?? state.tasks[0];
   const selectedId = selected?.id ?? null;
   useEffect(() => {
     if (ready && state.selectedTaskId !== selectedId) update(current => ({ ...current, selectedTaskId: selectedId }));
@@ -167,16 +181,18 @@ export function AxDiagnosisView() {
   // 동일 좌표 그룹: 하단 표를 두지 않는다. 선택된 업무가 속한 그룹은
   // 우측 업무 목록에서 파생 상태로만 강조한다 (그룹 표·팝업·접힘 카드 없음).
   useEffect(() => {
-    if (!checkScroll || state.step !== 2 || state.selectedTaskId !== checkScroll.taskId) return;
+    if (!checkScroll || state.step !== (checkScroll.step ?? 2) || state.selectedTaskId !== checkScroll.taskId) return;
     const timer = window.setTimeout(() => {
       if (selectedRef.current !== checkScroll.taskId) { setCheckScroll(null); return; }
       requestAnimationFrame(() => {
         const panel = document.querySelector(".ax-step2-grid");
+        // selector가 있으면(구현 전 확인의 '확인하러 가기') 그 항목으로, 없으면 기존 규칙대로:
         // target이 checks면 차단 사유 등이 있는 확인할 사항 영역을 우선하고,
         // 그 외에는 추가 질문 영역이 있으면 그곳, 없으면 확인할 사항 영역으로 이동한다.
-        const target = checkScroll.target === "checks"
-          ? panel?.querySelector(".ax-diag-checks") ?? panel?.querySelector(".ax-diag-card")
-          : panel?.querySelector("#ax-answer-section") ?? panel?.querySelector(".ax-diag-checks") ?? panel?.querySelector(".ax-diag-card");
+        const target = checkScroll.selector ? document.querySelector(checkScroll.selector) ?? (checkScroll.step === 4 ? null : panel?.querySelector(".ax-diag-checks"))
+          : checkScroll.target === "checks"
+            ? panel?.querySelector(".ax-diag-checks") ?? panel?.querySelector(".ax-diag-card")
+            : panel?.querySelector("#ax-answer-section") ?? panel?.querySelector(".ax-diag-checks") ?? panel?.querySelector(".ax-diag-card");
         target?.scrollIntoView({ behavior: "smooth", block: "start" });
         setCheckScroll(null);
       });
@@ -205,6 +221,40 @@ export function AxDiagnosisView() {
     select(taskId);
     changeStep(2);
     setCheckScroll({ taskId, nonce: Date.now() });
+  }
+  // '확인하러 가기'로 열 기술 확인 항목 (업무 진단 카드가 해당 입력을 연다).
+  const [focusCheck, setFocusCheck] = useState<{ taskId: string; topic: string; nonce: number } | null>(null);
+  const jumpSeq = useRef(0);
+  const [focusDecision, setFocusDecision] = useState<{ taskId: string; id: string; nonce: number } | null>(null);
+  /** 구현 전 확인 '확인하러 가기': 현재 선택 업무를 유지한 채 실제 확인·수정 위치로 이동한다.
+   * 이동 대상이 없는 항목(none)은 호출되지 않는다. 다른 업무로는 이동하지 않는다. */
+  function goToPrecheckTarget(taskId: string, target: PrecheckTarget, topic: string) {
+    if (busy || getState().selectedTaskId !== taskId) return;
+    const nonce = ++jumpSeq.current;
+    if (target.kind === "register") { const task = getState().tasks.find(t => t.id === taskId); if (task) editTask(task); return; }
+    if (target.kind === "plan") { setCheckScroll({ taskId, nonce, step: 4, selector: "#ax-plan-review" }); return; }
+    changeStep(2);
+    if (target.kind === "checks") {
+      setFocusCheck({ taskId, topic, nonce });
+      setCheckScroll({ taskId, nonce, selector: `#ax-check-${CSS.escape(encodeURIComponent(checkKey(topic)))}` });
+    } else if (target.kind === "decision") {
+      if (target.id) setFocusDecision({ taskId, id: target.id, nonce });
+      setCheckScroll({ taskId, nonce, selector: target.id ? `#ax-decision-${target.id}` : "#ax-decision-points" });
+    }
+    else if (target.kind === "hitl") setCheckScroll({ taskId, nonce, selector: "#ax-step-review" });
+  }
+  /** 기술 확인 항목 확인 결과 저장: 진단 원본은 그대로 두고 업무의 checkConfirmations만 갱신한다.
+   * 영구 저장이 끝난 뒤 결과 문구를 돌려주고, 실패하면 null (입력은 폼에 남는다). */
+  async function saveCheckConfirmation(taskId: string, topic: string, input: { result: "확인 완료" | "사용 불가" | "미확인"; note: string }): Promise<string | null> {
+    const now = new Date().toISOString();
+    const saved = await updateAndSave(current => ({ ...current, tasks: current.tasks.map(t => {
+      if (t.id !== taskId || !t.diagnosis) return t;
+      const check = t.diagnosis.technicalChecks.find(c => checkKey(c.topic) === checkKey(topic));
+      if (!check) return t;
+      return { ...t, checkConfirmations: upsertCheckConfirmation(t.checkConfirmations, check, input, now), updatedAt: now };
+    }) }));
+    if (!saved) return null;
+    return input.result === "확인 완료" ? "확인 완료 · 확인 필요 건수에서 제외했습니다" : input.result === "사용 불가" ? "사용 불가로 저장했습니다 · 추가 확인 필요" : "확인 내용 저장 완료 · 추가 확인 필요";
   }
 
   /** HITL 검토 저장: v2 reviews 필드에 저장 (중복 방지, ID 유지)
@@ -570,7 +620,9 @@ export function AxDiagnosisView() {
   }
   async function generatePlan(task: AxTask, target: "codex" | "claude") {
     if (!task.diagnosis || activeRun.current) return;
-    if (!planAllowed(task.diagnosis)) { setMessage("현재 조건에서는 구현 계획을 생성할 수 없습니다. 선행 조치를 먼저 해결하세요."); return; }
+    // 계획 생성 가능 여부와 AI에 보내는 확정 진단은 확인 기록을 반영한 보기 기준이다 (요청 기준값 비교는 원본).
+    const effective = viewTask(task).diagnosis ?? task.diagnosis;
+    if (!planAllowed(effective)) { setMessage("현재 조건에서는 구현 계획을 생성할 수 없습니다. 선행 조치를 먼저 해결하세요."); return; }
     activeRun.current = true; activeAi.current = true; setBusy(target); setMessage("");
     // 요청 시점 기준 상태 기록 (오래된 AI 응답 적용 방지)
     const requestBaseline = {
@@ -582,7 +634,7 @@ export function AxDiagnosisView() {
       planExists: target === "codex" ? !!task.diagnosis.planCodex : !!task.diagnosis.planClaude,
     };
     try {
-      const confirmed = confirmedAxDiagnosis(task.diagnosis);
+      const confirmed = confirmedAxDiagnosis(effective);
       const plan = await planAx({ kind: "ax-plan", target, task: { name: task.name, description: task.description, details: taskDetails(task) }, diagnosis: confirmed });
       if (!alive.current) return;
       // 응답 도착 시 최신 상태와 기준 상태 비교 (getState()로 최신 상태 조회 - stale closure 방지)
@@ -769,6 +821,7 @@ export function AxDiagnosisView() {
           <section className="ax-surface" aria-label="등록 업무 목록"><h3>업무 목록</h3>{taskRows(false)}</section>
           <div className="ax-detail-col">{selected ? <>
             <DiagnosisCard task={selected} busy={busy} onDiagnose={() => void diagnose(selected)} onEdit={() => editTask(selected)}
+              onSaveCheck={(topic, input) => saveCheckConfirmation(selected.id, topic, input)} focusTopic={focusCheck?.taskId === selected.id ? focusCheck : null}
               attachment={<TaskAttachment task={selected} busy={busy} ready={new Set(sessionReady[selected.id] ?? [])} onDetachFile={fingerprint => detachFile(selected, fingerprint)} onAttachFiles={files => void attachFiles(files, selected.id)} />} />
             {selected.diagnosis ? <>
               {selected.diagnosis.followUpQuestions.length ? <section className="ax-surface ax-questions" id="ax-answer-section" aria-label="답변할 질문"><h3>답변할 질문 {selected.diagnosis.followUpQuestions.length}개</h3>{selected.diagnosis.followUpQuestions.map((q, i) => <label className="ax-field" key={i}>{q}<Textarea rows={2} maxLength={500} disabled={!!busy} value={answers[selected.id]?.[i] ?? ""} onChange={e => setAnswers(current => { const values = [...(current[selected.id] ?? [])]; values[i] = e.target.value; return { ...current, [selected.id]: values }; })} /></label>)}<Button type="button" className="ax-rediagnose" disabled={!!busy} onClick={() => void diagnose(selected, true)}>답변 반영 후 재진단</Button></section> : null}
@@ -803,6 +856,7 @@ export function AxDiagnosisView() {
                 disabled={!!busy}
                 saveStatus={saveStatus}
                 onSave={(points, rules) => saveUnifiedRules(selected.id, points, rules)}
+                focus={focusDecision?.taskId === selected.id ? focusDecision : null}
               />
             </> : null}
           </> : null}</div>
@@ -862,7 +916,8 @@ export function AxDiagnosisView() {
           </aside>
           {selected?.diagnosis ? <article className="ax-selected-report" aria-label={`${selected.name} 결과·로드맵`}>
             <header className="ax-report-intro"><div><span className="ax-report-eyebrow">선택한 업무 · 결과·로드맵</span><div className="ax-title-group"><h2>{selected.name}</h2><AxLevelBadge level={automationLevel(selected.diagnosis)} className="ax-level-badge" /><Badge className="ax-status-badge">{STATUS[taskDisplayStatus(selected).status]}</Badge>{taskDisplayStatus(selected).needsCheck ? <span className="ax-status-note">추가 질문 필요</span> : null}</div></div></header>
-            <AxSelectedReport key={selected.id} task={selected} busy={busy} onGenerate={target => void generatePlan(selected, target)} onSaveReview={r => saveHitlReview(selected.id, r)} />
+            <AxSelectedReport key={selected.id} task={selected} busy={busy} onGenerate={target => void generatePlan(selected, target)} onSaveReview={r => saveHitlReview(selected.id, r)}
+              onGoToTarget={(target, topic) => goToPrecheckTarget(selected.id, target, topic)} />
           </article> : <p className="ax-muted">우선순위에서 업무 선택 후 상세 결과 확인</p>}
         </>}
       </TabsPanel>
@@ -885,26 +940,95 @@ const VERDICT_CARDS = [
   { verdict: "AI 보조", label: "AI 보조 적합", tone: "violet", icon: Sparkles },
   { verdict: "사람 유지", label: "담당자 수행", tone: "green", icon: UserCheck },
 ] as const;
+/** 확인 결과 입력: 결과(확인 완료·사용 불가·미확인) + 확인 내용. 확인 완료·사용 불가는 근거가 있어야
+ * 저장되고, 저장이 실제로 끝난 뒤에만 결과 문구를 표시한다 (방문·입력만으로 상태가 바뀌지 않음). */
+const CHECK_RESULT_OPTIONS = [
+  { value: "확인 완료" as const, label: "확인 완료" },
+  { value: "사용 불가" as const, label: "사용 불가" },
+  { value: "미확인" as const, label: "미확인" },
+];
+type CheckResult = (typeof CHECK_RESULT_OPTIONS)[number]["value"];
+function CheckConfirmForm({ topic, need, initial, disabled, onSave, onClose }: {
+  topic: string; need?: string; initial?: { result: CheckResult; note: string }; disabled: boolean;
+  onSave: (input: { result: CheckResult; note: string }) => Promise<string | null>;
+  onClose: () => void;
+}) {
+  const [result, setResult] = useState<CheckResult | "">(initial?.result ?? "");
+  const [note, setNote] = useState(initial?.note ?? "");
+  const [error, setError] = useState("");
+  const [status, setStatus] = useState("");
+  const [saving, setSaving] = useState(false);
+  async function save() {
+    if (!result) { setError("확인 결과를 선택하세요"); return; }
+    if (result !== "미확인" && !note.trim()) { setError("확인 근거가 되는 확인 내용을 입력하세요"); return; }
+    setError(""); setStatus(""); setSaving(true);
+    const message = await onSave({ result, note });
+    setSaving(false);
+    if (message === null) { setError("저장하지 못했습니다. 입력 내용은 그대로 두었으니 다시 저장하세요"); return; }
+    setStatus(message);
+  }
+  return <div className="ax-check-form" role="group" aria-label={`${topic} 확인 결과 입력`}>
+    {need ? <p className="ax-check-form-need"><strong>확인이 필요한 내용</strong> {need}</p> : null}
+    <RuleSelect label="확인 결과" value={result} options={CHECK_RESULT_OPTIONS} disabled={disabled || saving} onChange={value => setResult(value)} />
+    <label className="ax-field ax-rule-field">
+      <span>확인 내용</span>
+      <Textarea rows={3} maxLength={2000} value={note} disabled={disabled || saving} placeholder="실제로 확인한 사항(확인 방법·담당자·결과)을 적으세요" onChange={event => setNote(event.target.value)} />
+    </label>
+    {error ? <p className="ax-rule-error" role="alert">{error}</p> : null}
+    {status ? <p className="ax-check-form-status" role="status">{status}</p> : null}
+    <div className="ax-rule-actions">
+      <Button type="button" variant="outline" size="sm" disabled={saving} onClick={onClose}>닫기</Button>
+      <Button type="button" size="sm" disabled={disabled || saving} onClick={() => void save()}>{saving ? "저장 중…" : "확인 결과 저장"}</Button>
+    </div>
+  </div>;
+}
 /** Step 2 selected-task card: name/Gate·Level badges + actions → 진단 결과 요약(판정 분포 3카드·핵심 판단 패널) → 구현 전 확인 사항(미확인 우선, 확인 완료는 접힘). Follow-up questions render once, in the answer section below this card. */
-function DiagnosisCard({ task, busy, onDiagnose, onEdit, attachment }: {
+function DiagnosisCard({ task, busy, onDiagnose, onEdit, attachment, onSaveCheck, focusTopic }: {
   task: AxTask; busy: string | null; onDiagnose: () => void; onEdit: () => void; attachment: ReactNode;
+  /** 확인 결과 저장: 저장 성공 시 결과 문구, 실패 시 null. */
+  onSaveCheck: (topic: string, input: { result: CheckResult; note: string }) => Promise<string | null>;
+  /** 다른 화면의 '확인하러 가기'로 열 항목 (주제). */
+  focusTopic?: { topic: string; nonce: number } | null;
 }) {
   const display = taskDisplayStatus(task);
-  const d = task.diagnosis;
+  const raw = task.diagnosis;
+  const confirmations = (task as import("@/lib/ax/types").AxTaskV2).checkConfirmations;
+  // 표시·집계는 확인 기록을 반영한 진단 보기로 한다 (원본은 raw).
+  const d = viewTask(task).diagnosis;
   const lvl = d ? automationLevel(d) : null;
   const gate = d ? executionGate(d) : null;
   const checks = d ? diagnosisCheckItems(d) : [];
   const summary = d ? diagnosisSummaryParts(d) : undefined;
   // 추가 질문이 같은 주제로 묻고 있는 확인 항목은 질문 영역에서 확인하므로 목록에서 중복 표시하지 않는다.
   const visibleChecks = d ? visibleDiagnosisCheckItems(d) : [];
-  // 미확인 = 확인 필요·보류 사유, 확인 완료 = 확인됨. 상단 건수와 목록 건수는 같은 집계(pending)를 쓴다.
+  // 미확인 = 확인 필요·사용 불가·보류 사유, 확인 완료 = 확인됨. 상단 건수와 목록 건수는 같은 집계(pending)를 쓴다.
   const pendingChecks = visibleChecks.filter(c => c.kind !== "done");
   const doneChecks = visibleChecks.filter(c => c.kind === "done");
-  const checkRow = (c: AxCheckItem, i: number) => <li key={i}>
-    <span className="ax-check-icon"><AxCheckIcon title={c.title} /></span>
-    <span className="ax-check-text"><strong>{c.title}</strong>{c.desc ? <small>{c.desc}</small> : null}</span>
-    <span className="ax-check-badge" data-kind={c.kind}>{c.badge}</span>
-  </li>;
+  const [openTopic, setOpenTopic] = useState<string | null>(null);
+  const [focusNonce, setFocusNonce] = useState<number | null>(null);
+  // 다른 화면에서 '확인하러 가기'로 들어오면 해당 항목의 입력을 연다 (렌더 중 파생 상태 갱신).
+  if (focusTopic && focusTopic.nonce !== focusNonce) { setFocusNonce(focusTopic.nonce); setOpenTopic(checkKey(focusTopic.topic)); }
+  const checkRow = (c: AxCheckItem, i: number) => {
+    const source = raw?.technicalChecks.find(check => checkKey(check.topic) === checkKey(c.title));
+    const state = source && source.status !== "확인됨" ? checkConfirmationState(source, confirmations) : { kind: "none" as const };
+    const badge = state.kind === "applied" ? state.status === "확인됨" ? "담당자 확인" : "사용 불가"
+      : state.kind === "stale" ? "재확인 필요" : state.kind === "recorded" ? "확인 내용 등록" : c.badge;
+    const open = !!source && source.status !== "확인됨" && openTopic === checkKey(c.title);
+    return <li key={i} id={source ? `ax-check-${encodeURIComponent(checkKey(c.title))}` : undefined} className={open ? "is-open" : undefined}>
+      <div className="ax-check-row">
+        <span className="ax-check-icon"><AxCheckIcon title={c.title} /></span>
+        <span className="ax-check-text"><strong>{c.title}</strong>{c.desc ? <small>{c.desc}</small> : null}</span>
+        <span className="ax-check-side">
+          <span className="ax-check-badge" data-kind={state.kind === "applied" && state.status === "불가" ? "block" : c.kind}>{badge}</span>
+          {source && source.status !== "확인됨" ? <Button type="button" variant="outline" size="sm" aria-expanded={open} disabled={!!busy} onClick={() => setOpenTopic(open ? null : checkKey(c.title))}>{state.kind === "none" ? "확인 결과 기록" : "기록 수정"}</Button>
+            : c.kind === "block" ? <Button type="button" variant="outline" size="sm" disabled={!!busy} onClick={onEdit}>확인하러 가기</Button> : null}
+        </span>
+      </div>
+      {open && source ? <CheckConfirmForm key={`${task.id}:${checkKey(c.title)}`} topic={source.topic} need={source.note || undefined}
+        initial={state.kind === "none" ? undefined : { result: state.confirmation.result, note: state.confirmation.note }} disabled={!!busy}
+        onSave={input => onSaveCheck(source.topic, input)} onClose={() => setOpenTopic(null)} /> : null}
+    </li>;
+  };
   return <section className="ax-surface ax-diag-card" aria-label={`${task.name} 진단`}>
     <div className="ax-diag-head">
       <div className="ax-diag-title">

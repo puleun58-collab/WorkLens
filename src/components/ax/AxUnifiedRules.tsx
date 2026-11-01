@@ -105,7 +105,7 @@ interface NewRuleErrors {
 const emptyNewRule: GenericRuleFieldValues = { name: "", category: "", applicability: "", status: "미확정", detail: "", source: "", step: "" };
 
 /** 규칙 선택창: D규칙·범용 규칙의 모든 선택 항목이 같은 COSS 흰색 Select를 쓴다. */
-function RuleSelect<T extends string>({ label, value, options, placeholder = "선택하세요", disabled, error, onChange }: {
+export function RuleSelect<T extends string>({ label, value, options, placeholder = "선택하세요", disabled, error, onChange }: {
   label: string;
   value: T | "";
   options: readonly { value: T | ""; label: string }[];
@@ -202,13 +202,15 @@ function GenericRuleFields({ value, onChange, disabled, errors, detailsOpen, onD
   </>;
 }
 
-export function UnifiedRulesSection({ diagnosis, genericRules, disabled: externallyDisabled, saveStatus, onSave }: {
+export function UnifiedRulesSection({ diagnosis, genericRules, disabled: externallyDisabled, saveStatus, onSave, focus }: {
   diagnosis: AxDiagnosis;
   /** 범용 규칙 (저장된 값 기준). */
   genericRules?: GenericRule[];
   disabled?: boolean;
   saveStatus: string;
   onSave: (points: DecisionPoint[], rules: GenericRule[]) => Promise<boolean>;
+  /** 구현 전 확인 '확인하러 가기'로 펼칠 결정 지점 (D1~D7). */
+  focus?: { id: string; nonce: number } | null;
 }) {
   // 저장 후 부모가 새 값을 내려주면 초안을 동기화한다 (effect가 아닌 렌더 중 조정 패턴).
   const draftsKey = JSON.stringify({ d: diagnosis.decisionPoints ?? [], g: resolveGenericRules(genericRules) });
@@ -227,6 +229,8 @@ export function UnifiedRulesSection({ diagnosis, genericRules, disabled: externa
   // 펼침 상태는 초안과 별개로 유지한다: 접었다 펴도 미저장 입력값이 사라지지 않는다.
   // 기본값은 모두 접힘(한 번에 한 항목만 펼침).
   const [openKey, setOpenKey] = useState<string | null>(null);
+  const [focusNonce, setFocusNonce] = useState<number | null>(null);
+  if (focus && focus.nonce !== focusNonce) { setFocusNonce(focus.nonce); setOpenKey(focus.id); }
   // 항목별 추가 정보 펼침 (기본 접힘).
   const [detailsOpen, setDetailsOpen] = useState<ReadonlySet<string>>(() => new Set());
   // 인라인 신규 항목: "추가" 전까지 초안 목록과 분리된 작성 중 상태다.
