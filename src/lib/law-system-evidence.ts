@@ -188,7 +188,10 @@ export function assessLawSystem(text: string, question?: string, articles?: stri
       const paragraph = citedParagraph ?? (matching.length === 1
         ? String("①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳".indexOf(matching[0].trim()[0]) + 1) : undefined);
       const combinedSubject = subjectWord && new RegExp(`${subjectWord.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}(?:와|과|·| 및 )\\s*([가-힣]{2,10})`, "u").exec(operative);
-      const subject = combinedSubject ? `${subjectWord}·${combinedSubject[1].replace(/의$/u, "")}` : subjectWord;
+      const submission = /([가-힣]{2,10}(?:장|서))(?:을|를)\s+제출(?:하여야|해야)/u.exec(article.body)?.[1];
+      const subject = submission && /범위/u.test(article.title)
+        ? `${article.title.replace(/\s*등$/u, "").trim()}와 ${submission} 제출`
+        : combinedSubject ? `${subjectWord}·${combinedSubject[1].replace(/의$/u, "")}` : subjectWord;
       return { parentJo: entry.cited, ...(paragraph && paragraph !== "0" ? { parentParagraph: paragraph } : {}),
         ...(subject && matching.length ? { subject } : {}) };
     };
