@@ -29,12 +29,13 @@ const promptFor = (diagnosis: AxDiagnosis, opts: { genericRules?: GenericRule[];
   buildAllInOnePrompt(planFixture, "codex", { diagnosis, taskName: "테스트 업무", context: opts.context ?? "", genericRules: opts.genericRules });
 
 describe("AX 1차 MVP 개선 — 고정 결정 지점 D1~D7", () => {
-  it("진단 결과에 D1~D7이 항상 포함되고 기본값이 미확정이다", () => {
+  it("저장 계약은 D1~D7을 유지하되 지시문은 진단 근거가 있는 미저장 항목만 표시한다", () => {
     const points = resolveDecisionPoints(diagnosisFixture);
     expect(points.map(point => point.id)).toEqual(["D1", "D2", "D3", "D4", "D5", "D6", "D7"]);
     expect(points.every(point => point.status === "미확정")).toBe(true);
     const prompt = promptFor(diagnosisFixture);
-    for (const id of ["D1", "D2", "D3", "D4", "D5", "D6", "D7"]) expect(prompt).toContain(id);
+    for (const id of ["D3", "D4", "D5", "D6"]) expect(prompt).toContain(`${id} `);
+    for (const id of ["D1", "D2", "D7"]) expect(prompt).not.toMatch(new RegExp(`${id} [^\\n]+ — 미확정`, "u"));
   });
 
   it("사용자가 확정하지 않은 항목의 detail이 지시문에 확정 규칙으로 들어가지 않는다", () => {
@@ -155,7 +156,9 @@ describe("AX 1차 MVP 개선 — 생성 지시문", () => {
     const undecidedSection = prompt.split("### 미확정 항목 처리")[1].split("### ")[0];
     expect(undecidedSection).toContain("D2");
     expect(undecidedSection).toContain("D6");
-    expect(undecidedSection).toContain("미확정 항목: D1, D2, D3, D5, D6, D7");
+    expect(undecidedSection).toContain("미확정 항목: D2, D3, D5, D6");
+    expect(undecidedSection).not.toContain("D1,");
+    expect(undecidedSection).not.toContain("D7");
   });
 
   it("D5가 확정되면 미확정 처리 부분에 D5의 실제 상태명이 치환되고, 미확정이면 임의 생성하지 않는다", () => {

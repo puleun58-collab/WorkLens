@@ -12,7 +12,7 @@
  *   범용 규칙의 적용 "해당 없음"은 적용 제외로 분모에서 빠진다.
  */
 import { DECISION_POINT_IDS, GENERIC_RULE_APPLICABILITY, GENERIC_RULE_CATEGORIES, GENERIC_RULE_STATUSES } from "./schema";
-import type { GenericRule, GenericRuleApplicability, GenericRuleStatus } from "./types";
+import type { GenericRule } from "./types";
 import type { ResolvedDecisionPoint } from "./decision-points";
 
 const DECISION_IDS = new Set<string>(DECISION_POINT_IDS);
@@ -111,6 +111,15 @@ export function missingConfirmedGenericRules(prompt: string, rules: readonly Gen
 }
 
 const normalizeName = (name: string): string => name.replace(/\s+/gu, " ").trim();
+
+/** 같은 처리 조건을 명시한 경우에만 중복 판단에 사용한다. 역할·수치·조건은 제거하지 않는다. */
+export function genericRuleConditionKey(text: string): string {
+  return normalizeName(text)
+    .replace(/^담당자(?:가)?\s+/u, "")
+    .replace(/\s*(?:한다|합니다|함|유지)[.。]?$/u, "")
+    .replace(/[.。]$/u, "")
+    .trim();
+}
 
 /**
  * 동일 정규화 규칙명에 상이한 상세가 있는 확정 규칙 쌍 (§9.2 의미 중복·충돌 검출).

@@ -5,6 +5,7 @@ import { applyStateDefinition, confirmedStateNames, declaredStateCount, isUndeci
 import { applicabilityPendingGenericRules, confirmedGenericRules, duplicateGenericRuleConflicts, pendingGenericRules, resolveGenericRules } from "./generic-rules";
 import { checkPromptRuleDelivery, type PromptDeliveryReport } from "./prompt-delivery";
 import { extractPlanReviewableItems, extractReviewableItems, getValidConfirmedReviews, buildPlanReviewKeyMap } from "./hitl";
+import { deriveUnifiedRules } from "./rule-questions";
 
 export type AxToolId = "codex" | "claude";
 
@@ -1853,11 +1854,21 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
     confirm: finalClassified.filter(item => item.role === "conditions" && !permitted(item) && item.scope !== "future"),
   } : conditions;
 
+  // 화면에서 검토하는 관련 후보와 저장된 사용자 결정만 지시문에 전달한다.
+  const displayedDecisions = d ? new Map(deriveUnifiedRules(d, options.genericRules)
+    .filter(item => item.kind === "decision").map(item => [item.id, item])) : undefined;
+  const decisionPoints = d ? resolveDecisionPoints(d)
+    .filter(point => displayedDecisions?.has(point.id))
+    .map(point => {
+      const display = displayedDecisions?.get(point.id);
+      return { ...point, title: display?.displayTitle ?? point.title, question: display?.displayQuestion ?? point.question };
+    }) : undefined;
+
   return { profile, level, gate, scopeLevel, steps: finalSteps, methods: finalMethodEvidence.map(item => item.method), methodReasons: finalMethodEvidence.map(item => item.reason), methodUserReasons: finalMethodEvidence.map(item => item.userReason),
     methodChains: finalMethodEvidence.map(item => item.chain), methodOrders: finalMethodEvidence.map(item => item.order), conditions: finalConditions, classified: finalClassified,
     ambiguous: finalClassified.filter(item => item.scope === "confirm" && item.role !== "reference"),
     scoped: finalScoped, diagnosis: d, plan: guarded, prerequisites: options.prerequisites ?? [], gaps,
-    decisionPoints: d ? resolveDecisionPoints(d) : undefined, genericRules: resolveGenericRules(options.genericRules),
+    decisionPoints, genericRules: resolveGenericRules(options.genericRules),
     hitlApplied: hitlActuallyApplied, hitlDetails };
 }
 
@@ -2723,6 +2734,8 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
   const stateList = stateNames?.join(" · ");
   const decisionBlock = decisionPoints.length ? protectUserBlock(`### 결정 지점 (D1~D7)\n\n${bullets(decisionPoints.map(point => point.status === "미확정"
     ? `${point.id} ${point.title} — 미확정 (임의로 정하지 않음)`
+    : point.status === "해당 없음"
+      ? `${point.id} ${point.title} — 해당 없음 (구현·검증 대상에서 제외)`
     : point.id === "D5" && d5StateInvalid
       ? "D5 판단 불가 — 확정: D5 상태명 미확정 (D4 결과 상태 목록에 없는 상태명이므로 판정 불가 행을 보낼 상태를 임의로 정하지 않는다)"
     : point.id === "D4" && stateList ? `${point.id} ${point.title} — ${point.status}: ${stateList}`

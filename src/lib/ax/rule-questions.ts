@@ -10,21 +10,22 @@
  * - 기존 D1~D7 ID·의미·확정 상태·상세를 보존한다. 저장된 행이 있는 측면은 후보를
  *   만들지 않으며, 의미가 일부만 겹치는 규칙은 자동 병합하지 않는다.
  * - 완료 현황은 실제 확인 대상 기준이다. 고정 7을 분모로 쓰지 않고, 숨김으로
- *   완료율을 높이지 않으며, 적용 여부 미확정 규칙은 분모 외 별도 건수로 표시한다.
+ *   완료율을 높이지 않으며, 적용 여부 미확정 규칙과 미터치 후보도 분모에 포함한다.
  */
 import { DECISION_POINT_IDS } from "./schema";
 import type { AxDiagnosis, DecisionPoint, DecisionPointId, DecisionPointStatus, GenericRule, GenericRuleApplicability, GenericRuleCategory, GenericRuleStatus } from "./types";
-import { resolveGenericRules, type RuleProgress } from "./generic-rules";
+import { genericRuleConditionKey, resolveGenericRules } from "./generic-rules";
+import type { RuleProgress } from "./generic-rules";
 import { parseStateNames } from "./decision-points";
 
 /** 표시 전용 D1~D7 제목·설명. 지시문 생성은 기존 DEFS 제목을 쓰므로 여기를 바꿔도 지시문은 바뀌지 않는다. */
 export const DECISION_DISPLAY: Record<DecisionPointId, { title: string; question: string }> = {
   D1: { title: "대조 기준", question: "어떤 자료와 항목을 기준으로 비교하나요?" },
   D2: { title: "중복 처리", question: "동일한 항목이 여러 번 나타나면 어떻게 처리하나요?" },
-  D3: { title: "예외값 처리", question: "빈칸·음수·0 등은 어떻게 처리하나요?" },
+  D3: { title: "예외 처리", question: "비정상 값·형식 오류·조건 불일치가 발생하면 어떻게 처리하나요?" },
   D4: { title: "결과 상태", question: "처리 결과를 어떤 상태로 구분하나요?" },
-  D5: { title: "판단 불가 처리", question: "판정할 수 없는 데이터는 어떻게 표시하나요?" },
-  D6: { title: "빈 파일 처리", question: "데이터가 없을 때 어떻게 처리하나요?" },
+  D5: { title: "판단 불가 처리", question: "정보가 부족하거나 판단할 수 없을 때 어떻게 처리하나요?" },
+  D6: { title: "빈 입력 처리", question: "수신할 파일이나 데이터가 없을 때 어떻게 처리하나요?" },
   D7: { title: "계산 기준", question: "합계·반올림·단위의 기준은 무엇인가요?" },
 };
 
@@ -32,10 +33,10 @@ export const DECISION_DISPLAY: Record<DecisionPointId, { title: string; question
 export const DECISION_DETAIL_FIELD: Record<DecisionPointId, { label: string; placeholder: string }> = {
   D1: { label: "대조 기준", placeholder: "기준 파일·시트·대조 키·누락·초과 판단 방향을 적으세요" },
   D2: { label: "중복 처리 기준", placeholder: "같은 항목이 여러 번 나타날 때 판단 키와 처리 방법을 적으세요" },
-  D3: { label: "예외 처리 기준", placeholder: "예외값·빈칸·음수·0 등을 어떻게 처리할지 적으세요" },
+  D3: { label: "예외 처리 기준", placeholder: "비정상 값·형식 오류·조건 불일치의 처리 방법을 적으세요" },
   D4: { label: "상태 구분 기준", placeholder: "처리 결과를 어떤 상태로 구분할지 적으세요" },
-  D5: { label: "판단 불가 처리 기준", placeholder: "판단할 수 없는 데이터의 처리 기준을 적으세요" },
-  D6: { label: "빈 파일 처리 기준", placeholder: "빈 파일 또는 데이터 없음 상황의 처리 기준을 적으세요" },
+  D5: { label: "판단 불가 처리 기준", placeholder: "정보 부족·판단 불가 상황의 처리 기준을 적으세요" },
+  D6: { label: "빈 입력 처리 기준", placeholder: "파일 미수신·빈 파일과 데이터 없음 상황을 구분해 적으세요" },
   D7: { label: "계산 기준", placeholder: "합계·반올림·단위 기준을 적으세요" },
 };
 export function decisionPanelLabel(id: string, kind: "상태" | "상세"): string {
@@ -55,6 +56,8 @@ export interface UnifiedDecisionDraft {
   sourceLabel?: string;
   /** 후보일 때만 있다. 도출 근거 문장. */
   provenance?: string;
+  displayTitle?: string;
+  displayQuestion?: string;
 }
 
 export interface UnifiedGenericDraft {
@@ -72,6 +75,8 @@ export interface UnifiedGenericDraft {
   origin: UnifiedRuleOrigin;
   sourceLabel?: string;
   provenance?: string;
+  /** 이름·근거 표시 문구와 독립적인 후보 식별자. 저장 ID와 별도 공간이다. */
+  candidateKey?: string;
   /**
    * 컴포넌트 로컬 플래그. 저장 페이로드 판정용이다 (저장되지 않음):
    * - stored 행은 항상 페이로드에 포함한다 (제외하면 저장된 규칙이 삭제되기 때문).
@@ -128,13 +133,62 @@ function storedDecisionRows(diagnosis: AxDiagnosis): UnifiedDecisionDraft[] {
   return out;
 }
 
-/** 기술적 확인 항목이 지목하는 D 측면. D 측면 자체의 표시 제목과의 부분 일치로만 판정한다
- * (업무 키워드 타이핑이 아니다). 지목하지 않으면 null이다. */
-function decisionAspectOfCheck(topic: string): DecisionPointId | null {
-  for (const id of DECISION_POINT_IDS) {
-    if (topic.includes(DECISION_DISPLAY[id].title)) return id;
+interface RuleEvidence {
+  text: string;
+  source: string;
+  step: string;
+}
+
+const meaningful = (text: string): boolean =>
+  Boolean(text.trim()) && !/^(?:(?:예외|특이사항|오류)\s*(?:사항)?\s*)?(?:없음|해당\s*없음|없다|불필요|미해당|해당하지\s*않음)[.。]?$/u.test(text.trim());
+
+/** 업무명·확장자·입력 개수가 아니라, 처리 단계와 그 조건을 함께 읽는다. */
+function processEvidence(diagnosis: AxDiagnosis): RuleEvidence[] {
+  const asIs = diagnosis.asIs;
+  const rows: RuleEvidence[] = [];
+  const add = (text: string | undefined, source: string, step = ""): void => {
+    if (text && meaningful(text) && !isConfirmationQuestion(text)) rows.push({ text: text.trim(), source, step });
+  };
+  add(asIs?.purpose, "AS-IS 목적");
+  add(asIs?.trigger, "AS-IS 시작 조건");
+  for (const step of cleanList(asIs?.steps)) add(step, "AS-IS 업무 단계", step);
+  for (const item of diagnosis.stepAssessments ?? []) {
+    add(item.step, "단계별 판단", item.step);
+    add(item.note, "단계별 판단 근거", item.step);
   }
-  return null;
+  for (const item of diagnosis.toBe ?? []) {
+    add(item.step, "TO-BE 업무 단계", item.step);
+    add(item.description, "TO-BE 처리 조건", item.step);
+  }
+  for (const item of cleanList(diagnosis.poc?.inScope)) add(item, "PoC 구현 범위");
+  for (const item of cleanList(diagnosis.risks)) {
+    if (RUNTIME.test(item) || UNKNOWN.test(item)) add(item, "진단 위험·처리 조건");
+  }
+  return rows;
+}
+
+const EXCEPTION = /누락|누설|비정상|오류|불일치|미일치|잘못|유효하지|불충족|미충족|위험\s*(?:징후|발생|감지)|초과|미달|음수|빈칸|결측|이상\s*값|실패|중단/u;
+const UNKNOWN = /정보(?:가|는)?\s*(?:부족|누락)|자료(?:가|는)?\s*(?:부족|미비)|판단\s*(?:불가|불능|어려)|판정\s*(?:불가|불능)|(?:판단|판정)(?:할)?\s*수\s*없|확인\s*불가|불명확|알\s*수\s*없|근거(?:가|는)?\s*(?:부족|없)|누락|미비/u;
+const CALCULATION = /계산|집계|합산|합계|산출|산식|평균|반올림|절사|가동\s*(?:률|율)|비율|수치\s*판(?:단|정)|수량.*(?:초과|미달)|(?:금액|수치|측정값|온도|압력).*(?:이상|이하|초과|미만|임계|기준값)/u;
+const REVIEW = /검토|심사|승인|결재|판단|판정|안전\s*점검|위험.*(?:평가|점검)|점검.*위험/u;
+const DUPLICATE = /중복|재접수|재요청|이중|반복\s*(?:요청|실행|접수)|동일한?.*(?:요청|거래|건|입력).*(?:여러|다시|재실행)/u;
+const INTAKE = /(?:파일|데이터|자료|기록|내역|피드|로그|응답|표).*(?:수신|수집|취합|업로드|불러|읽|입력받|전송받)|(?:수신|수집|취합|업로드|불러|읽).*(?:파일|데이터|자료|기록|내역|피드|로그|표)/u;
+const RUNTIME = /(?:실패|오류|누락|불가|위험|중복|초과|미달|미충족|불일치|기한|마감|지연|반려|승인|검토).*(?:시(?:에는|에|는)?|하면|되면|경우|후|전|유지|한다|처리|기록|알림|재시도|중단|보류|배정|분리)|(?:재시도|오류\s*기록|담당자\s*알림|수동\s*처리)/u;
+
+/** 기술 선행 조건은 그대로 확인 영역에 남기고, 명시된 실행 중 처리 절만 규칙으로 읽는다. */
+function runtimeCheckEvidence(diagnosis: AxDiagnosis): RuleEvidence[] {
+  const out: RuleEvidence[] = [];
+  for (const check of diagnosis.technicalChecks ?? []) {
+    for (const text of [check.topic, check.note]) {
+      const clauses = text.split(/[;；\n]|[.。](?:\s|$)|\s+및\s+|(?:API|권한)[^;；\n.。]*?확인(?:하고|한\s*후|과|,)\s*/u);
+      for (const clause of clauses) {
+        if (meaningful(clause) && !isConfirmationQuestion(clause) && RUNTIME.test(clause)) {
+          out.push({ text: clause.trim(), source: `기술적 확인 항목 "${check.topic}"`, step: "" });
+        }
+      }
+    }
+  }
+  return out;
 }
 
 /**
@@ -145,181 +199,116 @@ function decisionAspectOfCheck(topic: string): DecisionPointId | null {
 export function deriveUnifiedRules(diagnosis: AxDiagnosis, storedGeneric?: readonly GenericRule[] | null): UnifiedRuleDraft[] {
   const asIs = diagnosis.asIs ?? {};
   const poc = diagnosis.poc ?? {};
+  const process = processEvidence(diagnosis);
   const inputs = cleanList(asIs.inputs);
-  const systems = cleanList(asIs.systems);
-  const exceptions = cleanList(asIs.exceptions);
   const outputs = cleanList(asIs.outputs);
-  const humanDecisions = cleanList(asIs.humanDecisions);
-  const pocInputs = cleanList(poc.inputs);
-  const success = cleanList(poc.success);
-  const failure = cleanList(poc.failure);
-  const checks = (diagnosis.technicalChecks ?? []).filter(
-    item => item && typeof item.topic === "string" && item.topic.trim()
-      && (item.status === "확인 필요" || item.status === "불가"),
-  );
-  // 진단 추가 질문(followUpQuestions)은 사용자의 답이 필요한 확인 질문이므로 규칙 후보를
-  // 만들지 않는다 (답변할 질문 영역에서 처리). 질문 문구가 규칙명이 되거나 답변 없이
-  // 처리 기준이 생성되는 것을 막는다.
-
-  const storedD = storedDecisionRows(diagnosis);
-  const storedDIds = new Set(storedD.map(row => row.id));
-  const storedDMap = new Map(storedD.map(row => [row.id, row]));
-
-  // D 측면 신호 (구조적 필드만 사용).
-  const d1Signal = inputs.length >= 2 || systems.length >= 2;
-  const seenInputs = new Set<string>();
-  let d2Signal = false;
-  for (const item of [...inputs, ...pocInputs]) {
-    const key = normalize(item);
-    if (!key) continue;
-    if (seenInputs.has(key)) { d2Signal = true; break; }
-    seenInputs.add(key);
-  }
-  const d3Signal = exceptions.length >= 1;
-  const d4Signal = success.length >= 1 || failure.length >= 1;
-  const d6Signal = inputs.length >= 1;
-  // 기술적 확인 항목이 지목하는 측면은 해당 D의 신호가 된다 (흡수 — 별도 범용 후보를 만들지 않는다).
-  const checkAspect = new Map<string, DecisionPointId>();
-  for (const check of checks) {
-    const aspect = decisionAspectOfCheck(check.topic);
-    if (aspect) checkAspect.set(check.topic, aspect);
-  }
-  const d7Signal = [...checkAspect.values()].includes("D7");
-  const storedConfirmedD4 = storedDMap.get("D4")?.status === "확정";
-  const d5Signal = (d4Signal || storedConfirmedD4)
-    && (diagnosis.decisionGate?.verdict !== "go"
-      || diagnosis.informationSufficiency !== "sufficient"
-      || checks.length >= 1);
-  const signals: Partial<Record<DecisionPointId, { sourceLabel: string; provenance: string }>> = {
-    ...(d1Signal ? { D1: { sourceLabel: "진단에서 도출", provenance: `다중 입력·시스템(${inputs.length}건 입력, ${systems.length}건 시스템)에서 도출` } } : {}),
-    ...(d2Signal ? { D2: { sourceLabel: "진단에서 도출", provenance: "입력 항목에 중복된 값이 있어 도출" } } : {}),
-    ...(d3Signal ? { D3: { sourceLabel: "진단에서 도출", provenance: `AS-IS 예외 항목 ${exceptions.length}건에서 도출` } } : {}),
-    ...(d4Signal ? { D4: { sourceLabel: "진단에서 도출", provenance: "예상 성공·실패 기준이 있어 도출" } } : {}),
-    ...(d5Signal ? { D5: { sourceLabel: "진단에서 도출", provenance: "결과 상태(D4) 확정 후 판단 불가 처리가 필요해 도출" } } : {}),
-    ...(d6Signal ? { D6: { sourceLabel: "진단에서 도출", provenance: "입력 항목이 있어 빈 입력 처리가 필요해 도출" } } : {}),
-    ...(d7Signal ? { D7: { sourceLabel: "진단에서 도출", provenance: "기술적 확인 항목에서 계산 기준이 지목되어 도출" } } : {}),
+  const exceptions: RuleEvidence[] = cleanList(asIs.exceptions).filter(meaningful)
+    .filter(text => !isConfirmationQuestion(text)).map(text => ({ text, source: "AS-IS 예외", step: "" }));
+  const human: RuleEvidence[] = [
+    ...cleanList(asIs.humanDecisions).map(text => ({ text, source: "AS-IS 사람 판단", step: "" })),
+    ...cleanList(diagnosis.humanInLoop).map(text => ({ text, source: "사람 개입(HITL)", step: "" })),
+  ].filter(item => meaningful(item.text) && !isConfirmationQuestion(item.text));
+  const runtime = runtimeCheckEvidence(diagnosis);
+  const conditions = [...process, ...exceptions, ...human, ...runtime];
+  const outcomes: RuleEvidence[] = [
+    ...cleanList(poc.success).map(text => ({ text, source: "PoC 성공 기준", step: "" })),
+    ...cleanList(poc.failure).map(text => ({ text, source: "PoC 실패 기준", step: "" })),
+  ].filter(item => meaningful(item.text) && !isConfirmationQuestion(item.text));
+  const storedDMap = new Map(storedDecisionRows(diagnosis).map(row => [row.id, row]));
+  const signals = new Map<DecisionPointId, RuleEvidence[]>();
+  const signal = (id: DecisionPointId, rows: RuleEvidence[]): void => {
+    if (rows.length) signals.set(id, rows);
   };
-  for (const [topic, aspect] of checkAspect) {
-    if (!signals[aspect]) {
-      signals[aspect] = {
-        sourceLabel: "진단에서 도출",
-        provenance: `기술적 확인 항목 "${topic}"에서 도출`,
-      };
-    }
-  }
+  // 대조 동작과 실제 대상이 모두 필요하다. 시스템 수·확장자·명칭만으로는 도출하지 않는다.
+  const comparisons = process.filter(item => /비교|대조|대사|매칭/u.test(item.text));
+  signal("D1", comparisons.filter(item => new Set(inputs.map(normalize)).size >= 2
+    || /(?:기준|원본|수동\s*결과|두\s*(?:자료|표|데이터)|서로|내역.*(?:와|과)|대장.*(?:와|과)).*(?:비교|대조|대사|매칭)|(?:비교|대조).*(?:기준|원본|대상)/u.test(item.text)));
+  signal("D2", conditions.filter(item => DUPLICATE.test(item.text)));
+  signal("D3", [...exceptions, ...conditions.filter(item => EXCEPTION.test(item.text) && RUNTIME.test(item.text))]);
+  signal("D4", [...outcomes, ...conditions.filter(item => /(?:상태|결과).*(?:구분|분류|표시|판정)|(?:승인|반려|정상|위험|보류).*(?:구분|분류)/u.test(item.text))]);
+  // 구현 권한·API 확인 필요(Gate)와 실행 중 정보 부족은 서로 다른 문제다.
+  signal("D5", conditions.filter(item => UNKNOWN.test(item.text)
+    && (REVIEW.test(item.text) || conditions.some(row => REVIEW.test(row.text)) || /판단|판정|확인\s*불가/u.test(item.text))));
+  const intake = process.filter(item => INTAKE.test(item.text));
+  const emptyInput = exceptions.filter(item => /빈\s*(?:파일|입력|데이터)|파일.*(?:없|미수신)|데이터.*없|수신.*없/u.test(item.text));
+  signal("D6", intake.length ? [...intake, ...emptyInput] : []);
+  signal("D7", conditions.filter(item => CALCULATION.test(item.text)));
 
-  // D 행: D1~D7 순서. 저장 행이 있으면 저장 행, 없으면 신호가 있는 측면만 후보로.
   const dRows: UnifiedDecisionDraft[] = [];
   for (const id of DECISION_POINT_IDS) {
     const stored = storedDMap.get(id);
     if (stored) { dRows.push(stored); continue; }
-    const signal = signals[id];
-    if (!signal) continue;
-    dRows.push({ kind: "decision", id, status: "미확정", detail: "", origin: "candidate", sourceLabel: signal.sourceLabel, provenance: signal.provenance });
+    const evidence = signals.get(id);
+    if (!evidence) continue;
+    const fileIntake = id === "D6" && intake.some(item => /파일|업로드/u.test(item.text));
+    const provenance = [...new Set(evidence.map(item => `${item.source}${item.step ? ` · 단계 "${item.step}"` : ""}: ${item.text}`))].join(" / ");
+    dRows.push({
+      kind: "decision", id, status: "미확정", detail: "", origin: "candidate",
+      sourceLabel: "진단에서 도출", provenance,
+      ...(id === "D6" ? {
+        displayTitle: fileIntake ? "빈 파일 처리" : "빈 데이터 처리",
+        displayQuestion: fileIntake
+          ? "파일 미수신과 수신한 파일의 데이터가 빈 경우를 각각 어떻게 처리하나요?"
+          : "수신·수집할 데이터가 없거나 입력이 비어 있으면 어떻게 처리하나요?",
+      } : {}),
+    });
   }
 
-  // 범용 행: 저장 행(저장 순서) + 후보.
   const resolvedStored = resolveGenericRules(storedGeneric);
-  const storedNames = new Set(resolvedStored.map(rule => normalize(rule.name)));
   const genericRows: UnifiedGenericDraft[] = resolvedStored.map(rule => ({
-    kind: "generic" as const,
-    id: rule.id,
-    name: rule.name,
-    category: rule.category,
-    applicability: rule.applicability,
-    status: rule.status,
-    detail: rule.detail ?? "",
-    source: rule.source ?? "",
-    step: rule.step ?? "",
+    kind: "generic", id: rule.id, name: rule.name, category: rule.category,
+    applicability: rule.applicability, status: rule.status, detail: rule.detail ?? "",
+    source: rule.source ?? "", step: rule.step ?? "",
     ...(rule.linkedDecisionId ? { linkedDecisionId: rule.linkedDecisionId } : {}),
-    origin: "stored" as const,
+    origin: "stored",
   }));
-  const candidateNames = new Set<string>();
-  const pushGenericCandidate = (candidate: UnifiedGenericDraft): void => {
-    const key = normalize(candidate.name);
-    if (!key || candidateNames.has(key)) return;
-    if (storedNames.has(key)) {
-      // 저장된 규칙이 진단 도출 후보와 같은 이름이면 그 후보에서 저장된 것이다: 화면 표시용
-      // 도출 근거만 붙이고(저장 계약에는 없음) 후보를 다시 만들지 않는다.
-      const stored = genericRows.find(row => row.origin === "stored" && normalize(row.name) === key);
-      if (stored && !stored.provenance) stored.provenance = candidate.provenance;
+  const pushCandidate = (evidence: RuleEvidence, category: GenericRuleCategory, name = evidence.text): void => {
+    if (!meaningful(name) || isConfirmationQuestion(name)) return;
+    const key = genericRuleConditionKey(evidence.text);
+    // 이름만으로 병합하지 않는다. 명시된 전체 조건과 업무 단계가 충돌하지 않아야 한다.
+    const existing = genericRows.find(row => {
+      if (row.step && evidence.step && normalize(row.step) !== normalize(evidence.step)) return false;
+      if (row.candidateKey === JSON.stringify([key, normalize(row.step)])) return true;
+      const generatedSource = /^(?:AS-IS 사람 판단|사람 개입\(HITL\)|기술적 확인 항목 "[^"]*"|AS-IS 업무 단계|단계별 판단(?: 근거)?|TO-BE (?:업무 단계|처리 조건)|AS-IS 예외): (.+)$/u.exec(row.source);
+      return genericRuleConditionKey(row.detail || generatedSource?.[1] || row.name) === key;
+    });
+    const provenance = `${evidence.source}${evidence.step ? ` · 단계 "${evidence.step}"` : ""}: ${evidence.text}`;
+    if (existing) {
+      existing.provenance = existing.provenance ? `${existing.provenance} / ${provenance}` : provenance;
       return;
     }
-    // 확인 질문(정보 요청)은 처리 기준이 아니므로 어떤 출처에서 오든 후보로 만들지 않는다.
-    if (isConfirmationQuestion(candidate.name)) return;
-    candidateNames.add(key);
-    genericRows.push(candidate);
+    genericRows.push({
+      kind: "generic", id: null, name: name.slice(0, 120), category,
+      applicability: "적용 여부 미확정", status: "미확정", detail: "",
+      source: `${evidence.source}: ${evidence.text}`.slice(0, 500), step: evidence.step.slice(0, 500),
+      origin: "candidate", sourceLabel: "진단에서 도출", provenance,
+      candidateKey: JSON.stringify([key, normalize(evidence.step)]),
+    });
   };
-  // 측면을 지목하지 않은 기술적 확인 항목 → 범용 후보.
-  for (const check of checks) {
-    if (checkAspect.has(check.topic)) continue;
-    pushGenericCandidate({
-      kind: "generic",
-      id: null,
-      name: check.topic.trim(),
-      category: "예외·확인 기준",
-      applicability: "적용 여부 미확정",
-      status: "미확정",
-      detail: "",
-      source: "",
-      step: "",
-      origin: "candidate",
-      sourceLabel: "진단에서 도출",
-      provenance: `기술적 확인 항목 "${check.topic.trim()}"(${check.status})에서 도출`,
-    });
+  for (const item of human) pushCandidate(item, "권한·검토 기준");
+  // 선행 확인은 규칙으로 승격하지 않는다. 실행 중 처리 조건만 보존한다.
+  for (const item of runtime) pushCandidate(item, "예외·확인 기준");
+  for (const item of process) {
+    if (!item.step || !RUNTIME.test(item.text)
+      || /(?:상태|결과).*(?:구분|분류)|(?:구분|분류).*상태/u.test(item.text)) continue;
+    if (REVIEW.test(item.text)) pushCandidate(item, "권한·검토 기준");
+    else if (EXCEPTION.test(item.text) || /알림|재시도|마감|기한/u.test(item.text)) pushCandidate(item, "처리·판단 기준");
   }
-  // AS-IS 사람 판단 항목 → 범용 후보.
-  for (const item of humanDecisions) {
-    pushGenericCandidate({
-      kind: "generic",
-      id: null,
-      name: item,
-      category: "권한·검토 기준",
-      applicability: "적용 여부 미확정",
-      status: "미확정",
-      detail: "",
-      source: "",
-      step: "",
-      origin: "candidate",
-      sourceLabel: "진단에서 도출",
-      provenance: `AS-IS 사람 판단 항목 "${item}"에서 도출`,
-    });
+  for (const item of exceptions) {
+    if (RUNTIME.test(item.text)) pushCandidate(item, "예외·확인 기준");
   }
-  // 출력은 있으나 완료 기준이 정리되지 않은 경우 → 범용 후보 1개.
-  if (outputs.length >= 1 && success.length === 0) {
-    pushGenericCandidate({
-      kind: "generic",
-      id: null,
-      name: "완료 기준 정리",
-      category: "출력·완료 기준",
-      applicability: "적용 여부 미확정",
-      status: "미확정",
-      detail: "",
-      source: "",
-      step: "",
-      origin: "candidate",
-      sourceLabel: "진단에서 도출",
-      provenance: "출력 항목은 있으나 완료 기준이 정리되지 않아 도출",
-    });
+  if (outputs.length && !cleanList(poc.success).filter(meaningful).length) {
+    pushCandidate({ text: "완료 기준 정리", source: `AS-IS 출력: ${outputs.join(", ")} · 성공 기준 미정`, step: "" }, "출력·완료 기준");
   }
-
   return [...dRows, ...genericRows];
 }
 
-/** 도출 신호 출처가 하나라도 있는지. 빈 목록의 성격을 구분하는 데 쓴다.
- * 추가 질문은 규칙 후보를 만들지 않으므로 도출 신호가 아니다. */
+/** 후보가 없을 때에만 사용하는 정보 충족 판정. 구현 가능 여부나 검토 완료 판정은 아니다. */
 export function hasDerivationSignals(diagnosis: AxDiagnosis): boolean {
-  const asIs = diagnosis.asIs ?? {};
-  const poc = diagnosis.poc ?? {};
-  return cleanList(asIs.inputs).length >= 1
-    || cleanList(asIs.systems).length >= 1
-    || cleanList(asIs.outputs).length >= 1
-    || cleanList(asIs.exceptions).length >= 1
-    || cleanList(asIs.humanDecisions).length >= 1
-    || cleanList(poc.inputs).length >= 1
-    || cleanList(poc.success).length >= 1
-    || cleanList(poc.failure).length >= 1
-    || (diagnosis.technicalChecks ?? []).some(item => item && (item.status === "확인 필요" || item.status === "불가"));
+  return diagnosis.informationSufficiency === "sufficient"
+    && Boolean(diagnosis.asIs?.purpose?.trim())
+    && cleanList(diagnosis.asIs?.steps).some(meaningful)
+    && !(diagnosis.followUpQuestions ?? []).some(question => question.trim());
 }
 
 /**
