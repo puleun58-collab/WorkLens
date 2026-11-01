@@ -3,7 +3,7 @@ import { taskAttachments } from "./attachments";
 import type { AxTask } from "./types";
 import { inputLimitFor } from "@/lib/parsers/policy";
 export function candidateTask(description: string): AxTask {
-  if (!description.trim() || description.length > AX_LIMITS.description) throw new Error("업무 설명은 1~3,000자로 입력하세요.");
+  if (!description.trim() || description.length > AX_LIMITS.description) throw new Error("업무 설명은 1~3,000자로 입력하세요");
   const now = new Date().toISOString();
   return { id: crypto.randomUUID(), name: description.trim().slice(0, 60), description: description.trim(), status: "registered", createdAt: now, updatedAt: now };
 }
@@ -48,9 +48,9 @@ export function legacyDetailValues(task: AxTask): Partial<Pick<AxTask, "people" 
 
 export function validateAttachmentPreflight(file: { name: string; size: number }): "csv" | "xlsx" | "docx" | "pptx" | "pdf" {
   const extension = /\.(csv|xlsx|docx|pptx|pdf)$/iu.exec(file.name.normalize("NFC").trim());
-  if (!extension) throw new Error("지원하지 않는 파일 형식입니다. CSV·XLSX·DOCX·PPTX·PDF 파일을 선택하세요.");
+  if (!extension) throw new Error("지원하지 않는 파일 형식입니다. CSV·XLSX·DOCX·PPTX·PDF 파일을 선택하세요");
   const kind = extension[1].toLowerCase() as "csv" | "xlsx" | "docx" | "pptx" | "pdf";
-  if (file.size === 0) throw new Error("빈 파일은 첨부할 수 없습니다.");
-  if (file.size > inputLimitFor(kind)) throw new Error("파일 크기가 허용 한도를 초과했습니다.");
+  if (file.size === 0) throw new Error("빈 파일은 첨부할 수 없습니다");
+  if (file.size > inputLimitFor(kind)) throw new Error("파일 크기가 허용 한도를 초과했습니다");
   return kind;
 }

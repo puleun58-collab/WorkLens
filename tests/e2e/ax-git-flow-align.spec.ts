@@ -65,7 +65,7 @@ test("Git flow header logo appears once and bottom boxes align 2:1 with top card
   // ① Logo: trigger only. The panel header must not carry a second GitHub logo.
   await expect(terms.locator('img[src="/brand/github-mark.svg"]')).toHaveCount(1);
   await expect(flow.locator('img[src="/brand/github-mark.svg"]')).toHaveCount(0);
-  await expect(flow.locator(".ax-git-flow-head p")).toHaveText("코드 변경부터 배포까지의 전체 과정을 순서대로 확인하세요.");
+  await expect(flow.locator(".ax-git-flow-head p")).toHaveText("코드 변경부터 배포까지의 전체 과정을 순서대로 확인하세요");
 
   // ② 2:1 alignment: each group box must start where its first card starts and end where its second card ends.
   await expect.poll(async () => {
@@ -88,7 +88,7 @@ test("Git flow keeps order and no page overflow on mobile 390px", async ({ page 
 
   await expect(terms.locator('img[src="/brand/github-mark.svg"]')).toHaveCount(1);
   await expect(flow.locator('img[src="/brand/github-mark.svg"]')).toHaveCount(0);
-  await expect(flow.locator(".ax-git-flow-head p")).toHaveText("코드 변경부터 배포까지의 전체 과정을 순서대로 확인하세요.");
+  await expect(flow.locator(".ax-git-flow-head p")).toHaveText("코드 변경부터 배포까지의 전체 과정을 순서대로 확인하세요");
 
   // Order and 2:1 correspondence survive the stacked layout: cards 01..10, groups 01~02..09~10.
   const cardNos = await flow.locator(".ax-git-flow-no").allTextContents();

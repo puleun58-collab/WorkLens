@@ -142,7 +142,7 @@ test("duplicated agent-request intros are gone from the setup guide", async ({ p
   expect(text).not.toContain("PowerShell에서 Codex 또는 Claude Code를 실행한 후 아래 요청문을 입력하세요.");
   expect(text).not.toContain("이 요청문은 PowerShell에서 직접 실행하는 명령이 아니라 실행 중인 코딩 에이전트에 붙여넣는 내용입니다.");
   // The preserved copy note below each request box stays.
-  expect(text).toContain("코딩 에이전트에게 요청할 때 복사해서 사용하세요.");
+  expect(text).toContain("코딩 에이전트에게 요청할 때 복사해서 사용하세요");
 });
 
 test("spacing holds on a narrow viewport without overflow", async ({ page }) => {

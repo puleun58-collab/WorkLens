@@ -77,7 +77,7 @@ test("scenario C: no-change registration edit preserves diagnosis", async ({ pag
   await seedAndOpen(page, [{ ...task, cycle: "매월", minutesPerRun: 240 }], 2);
   await page.getByRole("button", { name: "등록 정보 수정", exact: true }).click();
   await page.getByRole("button", { name: "수정 등록", exact: true }).click();
-  await expect(page.getByText("변경된 내용이 없습니다.")).toBeVisible();
+  await expect(page.getByText("변경된 내용이 없습니다")).toBeVisible();
   await page.getByRole("tab", { name: "업무 진단", exact: true }).click();
   await expect(page.getByRole("tab", { name: "업무 진단", exact: true })).toHaveAttribute("data-active", "");
   await page.waitForTimeout(500);

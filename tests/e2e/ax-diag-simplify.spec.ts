@@ -52,7 +52,7 @@ test("AX 진단 간소화: D1~D7 아코디언 단일 펼침·진행률·저장·
   // 통합 저장 1회로 D 변경값과 범용 규칙이 함께 저장된다. 미터치 범용 후보는
   // 저장되지 않아 다음 렌더링에서 다시 도출된다.
   await decision.getByRole("button", { name: "저장", exact: true }).click();
-  await expect(decision.getByText("업무 규칙을 저장했습니다.", { exact: true })).toBeVisible();
+  await expect(decision.getByText("업무 규칙을 저장했습니다", { exact: true })).toBeVisible();
   await expect(decision.getByText("1/6 완료", { exact: true })).toBeVisible();
   // useAxState 저장은 디바운스되므로 플러시될 때까지 poll한 뒤 새로고침한다 (즉시 새로고침하면 저장 전 상태로 복원된다).
   await expect.poll(async () => {
@@ -94,8 +94,8 @@ test("AX 진단 간소화: 통합 규칙 인라인 추가·아코디언 초안 �
   await expect(newRow.getByRole("combobox", { name: "확정 상태" })).toHaveText("미확정");
   await expect(newRow.getByRole("combobox", { name: "업무 적용 여부" })).toHaveText("선택하세요");
   await newRow.getByRole("button", { name: "추가", exact: true }).click();
-  await expect(newRow.getByText("규칙명을 입력하세요.")).toBeVisible();
-  await expect(newRow.getByText("분류를 선택하세요.")).toBeVisible();
+  await expect(newRow.getByText("규칙명을 입력하세요")).toBeVisible();
+  await expect(newRow.getByText("분류를 선택하세요")).toBeVisible();
   // 취소하면 작성 중인 신규 항목만 사라진다.
   await newRow.getByRole("button", { name: "취소", exact: true }).click();
   await expect(newRow).toHaveCount(0);
@@ -112,7 +112,7 @@ test("AX 진단 간소화: 통합 규칙 인라인 추가·아코디언 초안 �
   await expect(unified.getByText("규칙 A")).toHaveCount(0);
   await expect(unified.getByText("규칙 B")).toBeVisible();
   await unified.getByRole("button", { name: "저장", exact: true }).click();
-  await expect(unified.getByText("업무 규칙을 저장했습니다.", { exact: true })).toBeVisible();
+  await expect(unified.getByText("업무 규칙을 저장했습니다", { exact: true })).toBeVisible();
   // useAxState 저장은 디바운스되므로 플러시될 때까지 poll한 뒤 새로고침한다 (즉시 새로고침하면 저장 전 상태로 복원된다).
   await expect.poll(async () => {
     const value = await page.evaluate(async () => {
@@ -215,7 +215,7 @@ test("AX 업무 규칙 검토 완료율: 미적용 결정은 완료, 선택 전�
   await expect(unified.getByText("0/6 완료", { exact: true })).toBeVisible();
   await chooseOption(row, "업무 적용 여부", "미적용");
   await unified.getByRole("button", { name: "저장", exact: true }).click();
-  await expect(unified.getByText("업무 규칙을 저장했습니다.", { exact: true })).toBeVisible();
+  await expect(unified.getByText("업무 규칙을 저장했습니다", { exact: true })).toBeVisible();
   await expect.poll(async () => page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>(resolve => { const req = indexedDB.open("worklens-ax", 1); req.onsuccess = () => resolve(req.result); });
     const record = await new Promise<{ tasks?: Array<{ genericRules?: Array<{ applicability: string }> }> } | undefined>(resolve => { const req = db.transaction("state", "readonly").objectStore("state").get("current"); req.onsuccess = () => resolve(req.result); });

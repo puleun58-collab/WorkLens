@@ -22,7 +22,7 @@ describe("ax to-be menu", () => {
     expect(css).not.toContain("ax-tobe-check");
     // 단계명·담당·설명·화살표·아이콘 렌더링 경로는 그대로 남는다.
     expect(report).toContain("TO-BE · 역할과 흐름 (목표 프로세스)");
-    expect(report).toContain("<strong>{s.step}</strong>");
+    expect(report).toContain("<strong>{uiText(s.step)}</strong>");
     expect(report).toContain("ax-tobe-icon");
     expect(report).toContain("ax-tobe-arrow");
     expect(report).toContain("{OWNER_LABELS[s.owner]}");

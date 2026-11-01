@@ -185,15 +185,15 @@ describe("AX Tier 1 pure registration helpers", () => {
     expect(validateAttachmentPreflight(file)).toBe(kind);
     expect(file).toEqual(before);
     expect(() => validateAttachmentPreflight({ ...file, size: inputLimitFor(kind) + 1 }))
-      .toThrow("파일 크기가 허용 한도를 초과했습니다.");
+      .toThrow("파일 크기가 허용 한도를 초과했습니다");
   });
 
   it.each(["자료.xlsm", "자료.txt", "자료.csv.exe", "csv", "자료.pdf.", ""])("rejects unsupported extension %j before checking size", name => {
     expect(() => validateAttachmentPreflight({ name, size: 0 }))
-      .toThrow("지원하지 않는 파일 형식입니다. CSV·XLSX·DOCX·PPTX·PDF 파일을 선택하세요.");
+      .toThrow("지원하지 않는 파일 형식입니다. CSV·XLSX·DOCX·PPTX·PDF 파일을 선택하세요");
   });
 
   it("rejects an empty supported attachment before reading its content", () => {
-    expect(() => validateAttachmentPreflight({ name: "자료.pdf", size: 0 })).toThrow("빈 파일은 첨부할 수 없습니다.");
+    expect(() => validateAttachmentPreflight({ name: "자료.pdf", size: 0 })).toThrow("빈 파일은 첨부할 수 없습니다");
   });
 });
