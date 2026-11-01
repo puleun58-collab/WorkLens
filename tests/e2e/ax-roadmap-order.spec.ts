@@ -69,31 +69,45 @@ for (const [name, viewport] of [
     const scope = plan.locator('[data-scope-group="scope"]');
     const criteria = plan.locator('[data-scope-group="criteria"]');
     const sections = scope.locator(".ax-scope-section");
-    await expect(sections).toHaveCount(5);
-    const labels = ["구현 대상", "담당자 수행", "보류·제외", "적용 방식", "산출물"];
+    await expect(sections).toHaveCount(4);
+    const labels = ["구현 대상", "담당자 수행", "보류·제외", "적용 방식"];
+    await expect(scope.locator(".ax-scope-tiles > div")).toHaveCount(4);
+    await expect(scope.locator(".ax-scope-tiles dt")).toHaveText(labels);
+    await expect(scope.getByRole("button", { name: /전체 보기|전체 접기/ })).toHaveCount(0);
+    await expect(sections.first().locator('[data-slot="accordion-trigger"]')).toHaveAttribute("aria-expanded", "true");
+    for (const trigger of await sections.locator('[data-slot="accordion-trigger"]').all().then(items => items.slice(1))) {
+      await expect(trigger).toHaveAttribute("aria-expanded", "false");
+    }
+    await plan.locator(".ax-scope-summary").evaluate(element => {
+      (element as HTMLElement).style.scrollMarginTop = "90px";
+      element.scrollIntoView({ block: "start", behavior: "instant" });
+    });
+    await page.screenshot({ path: `artifacts/roadmap-ref2/roadmap-${name}-default.png` });
     const counts: number[] = [];
     for (const [index, label] of labels.entries()) {
       const section = sections.nth(index);
       const trigger = section.locator('[data-slot="accordion-trigger"]');
-      await expect(trigger).toHaveAttribute("aria-expanded", "false");
+      await expect(trigger).toHaveAttribute("aria-expanded", index === 0 ? "true" : "false");
       await expect(trigger).toContainText(new RegExp(`${label} \\(\\d+개\\)`));
       counts.push(Number(/\((\d+)개\)/.exec(await trigger.innerText())![1]));
-      await expect(section.locator("li:visible")).toHaveCount(0);
+      if (index > 0) await trigger.click();
+      await expect(section.locator("tbody tr")).toHaveCount(counts[index]);
+      for (const item of await section.locator("tbody tr").all()) await expect(item).toBeVisible();
     }
-    expect(counts[3]).toBe(integrations.length);
-    expect(counts[4]).toBe(outputs.length);
-    await scope.getByRole("button", { name: "전체 보기", exact: true }).click();
-    for (const [index, count] of counts.entries()) {
-      await expect(sections.nth(index).locator('[data-slot="accordion-trigger"]')).toHaveAttribute("aria-expanded", "true");
-      await expect(sections.nth(index).locator("li")).toHaveCount(count);
-      for (const item of await sections.nth(index).locator("li").all()) await expect(item).toBeVisible();
+    expect(counts[3]).toBe(integrations.length + outputs.length);
+    await expect(sections.nth(3).locator("tbody tr td:last-child")).toHaveText([
+      ...integrations.map(text => `${text} (계획안 · 확정 전)`),
+      ...outputs.map(text => `산출물: ${text}`),
+    ]);
+    const rows = criteria.locator("tr.ax-criteria-item.ax-criteria-row");
+    expect(await rows.count()).toBeGreaterThan(0);
+    await expect(rows.locator("td.ax-criteria-text")).toHaveCount(await rows.count());
+    await expect(rows.locator("span.ax-criteria-no")).toHaveText(
+      Array.from({ length: await rows.count() }, (_, index) => String(index + 1)),
+    );
+    for (const number of await rows.locator(".ax-criteria-no").all()) {
+      expect(await number.evaluate(element => Number.parseFloat(getComputedStyle(element).borderTopLeftRadius))).toBeGreaterThan(0);
     }
-    await expect(sections.nth(4).locator("li")).toHaveText(outputs);
-    await expect(sections.nth(3).locator("li")).toHaveText(integrations.map(text => `${text} (계획안 · 확정 전)`));
-
-    const icons = criteria.locator(".ax-criteria-icon");
-    expect(await icons.count()).toBeGreaterThan(0);
-    for (const icon of await icons.all()) await expect(icon).toHaveCSS("fill", "rgb(191, 219, 254)");
     const layout = plan.locator(".ax-scope-summary");
     await expect(layout).toHaveCSS("align-items", "start");
     const scopeBox = (await scope.boundingBox())!;
@@ -101,7 +115,6 @@ for (const [name, viewport] of [
     if (name === "desktop") {
       expect(Math.abs(scopeBox.y - criteriaBox.y)).toBeLessThanOrEqual(1);
       expect(criteriaBox.x).toBeGreaterThanOrEqual(scopeBox.x + scopeBox.width);
-      expect(Math.abs(scopeBox.height - criteriaBox.height)).toBeGreaterThan(10);
     } else {
       expect(Math.abs(scopeBox.x - criteriaBox.x)).toBeLessThanOrEqual(1);
       expect(Math.abs(scopeBox.width - criteriaBox.width)).toBeLessThanOrEqual(1);
@@ -109,8 +122,8 @@ for (const [name, viewport] of [
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
     await layout.scrollIntoViewIfNeeded();
-    await page.screenshot({ path: `artifacts/roadmap2/roadmap-${name}-expanded-full.png`, fullPage: true });
-    await scope.getByRole("button", { name: "전체 접기", exact: true }).click();
+    await page.screenshot({ path: `artifacts/roadmap-ref2/roadmap-${name}-expanded-full.png`, fullPage: true });
+    for (const trigger of await sections.locator('[data-slot="accordion-trigger"]').all()) await trigger.click();
     for (const trigger of await sections.locator('[data-slot="accordion-trigger"]').all()) {
       await expect(trigger).toHaveAttribute("aria-expanded", "false");
     }
@@ -119,7 +132,7 @@ for (const [name, viewport] of [
       (element as HTMLElement).style.scrollMarginTop = "90px";
       element.scrollIntoView({ block: "start", behavior: "instant" });
     });
-    await page.screenshot({ path: `artifacts/roadmap2/roadmap-${name}.png` });
+    await page.screenshot({ path: `artifacts/roadmap-ref2/roadmap-${name}-collapsed.png` });
   });
 }
 
@@ -163,7 +176,5 @@ test("an interleaved implementation review persists on its original step after r
   }
   await selected.getByRole("button", { name: "보기", exact: true }).click();
   await expect(selected.locator(".ax-plan-review-panel")).toContainText("원본 03 단계만 확인 완료");
-  for (const icon of await plan.locator(".ax-criteria-icon").all()) {
-    await expect(icon).toHaveCSS("fill", "rgb(191, 219, 254)");
-  }
+  await expect(plan.locator("tr.ax-criteria-item .ax-criteria-no")).toHaveCount(2);
 });
