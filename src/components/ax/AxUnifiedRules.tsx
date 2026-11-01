@@ -14,6 +14,7 @@ import { uiText } from "@/lib/ax/display-text";
 import {
   DECISION_DISPLAY,
   decisionPanelLabel,
+  DECISION_DETAIL_FIELD,
   deriveUnifiedRules,
   draftStateNames,
   hasDerivationSignals,
@@ -141,8 +142,7 @@ const LINKED_DECISION_OPTIONS = [
  * 저장 행·후보·신규 항목이 같은 UI를 쓴다. 미적용이면 처리 기준·확정 상태 입력을 숨기되 값은
  * 지우지 않는다(다시 적용으로 바꾸면 그대로 복구된다). 후보 도출 근거는 내부 데이터로만 유지한다.
  * derived: 진단에서 도출된 규칙(후보, 또는 후보에서 저장된 규칙)은 규칙명·분류가 카드 제목·보조
- * 문구에 이미 보이므로 입력창을 기본 숨기고 "규칙명·분류 수정"으로만 연다. 값은 그대로 유지된다
- * (분류가 비어 있으면 숨기지 않는다). */
+ * 문구에 이미 보이므로 입력창을 두지 않는다. 값은 그대로 유지된다 (값이 비어 있으면 입력창을 보인다). */
 function GenericRuleFields({ value, onChange, disabled, errors, detailsOpen, onDetailsOpenChange, derived = false }: {
   value: GenericRuleFieldValues;
   onChange: (patch: Partial<GenericRuleFieldValues>) => void;
@@ -153,13 +153,9 @@ function GenericRuleFields({ value, onChange, disabled, errors, detailsOpen, onD
   derived?: boolean;
 }) {
   const notApplicable = value.applicability === "해당 없음";
-  const [editIdentity, setEditIdentity] = useState(false);
-  const showName = !derived || editIdentity || !value.name.trim();
-  const showCategory = !derived || editIdentity || !value.category;
+  const showName = !derived || !value.name.trim();
+  const showCategory = !derived || !value.category;
   return <>
-    {derived && !editIdentity ? <div className="ax-rule-identity-edit">
-      <Button type="button" variant="ghost" size="xs" disabled={disabled} onClick={() => setEditIdentity(true)}>규칙명·분류 수정</Button>
-    </div> : null}
     {showName ? <label className="ax-field ax-rule-field">
       <span>규칙명</span>
       <Input value={value.name} maxLength={RULE_NAME_MAX_LENGTH} disabled={disabled} aria-invalid={errors?.name || errors?.duplicate ? true : undefined}
@@ -386,7 +382,7 @@ export function UnifiedRulesSection({ diagnosis, genericRules, disabled: externa
                   onChange={detail => { updateDecision(item.id, { detail }); setSaveState("idle"); }} />
                 {d5Mismatch ? <p className="ax-muted" role="status">현재 값이 결과 상태 (D4) 목록에 없습니다. 결과 상태 (D4) 중 하나로 수정하세요. 수정 전까지 기존값이 유지됩니다</p> : null}
               </> : <label className="ax-field">{decisionPanelLabel(item.id, "상세")}
-                <Textarea rows={4} maxLength={DECISION_DETAIL_MAX_LENGTH} aria-label={decisionPanelLabel(item.id, "상세")} placeholder={uiText(def.detailHint)} disabled={disabled}
+                <Textarea rows={4} maxLength={DECISION_DETAIL_MAX_LENGTH} aria-label={decisionPanelLabel(item.id, "상세")} placeholder={DECISION_DETAIL_FIELD[item.id].placeholder} disabled={disabled}
                   value={item.detail ?? ""} onChange={e => { updateDecision(item.id, { detail: e.target.value }); setSaveState("idle"); }} />
                 <span className="ax-decision-counter">{(item.detail ?? "").length} / {DECISION_DETAIL_MAX_LENGTH}</span>
               </label>}

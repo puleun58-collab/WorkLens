@@ -25,11 +25,11 @@ test("AX 1차 MVP 개선: 업무 등록 → 결정 지점 답변 → 범용 규�
   // 아코디언 행을 펼쳐야 내부 입력이 보인다.
   await page.getByRole("button", { name: /D4 결과 상태/ }).click();
   await chooseOption(page.locator("#ax-decision-D4"), "상태", "확정");
-  await page.locator("#ax-decision-D4").getByLabel("대조 기준").fill("정상, 오류(확정), 확인 필요");
+  await page.locator("#ax-decision-D4").getByLabel("상태 구분 기준").fill("정상, 오류(확정), 확인 필요");
   await page.getByRole("button", { name: /D5 판단 불가 처리/ }).click();
   await chooseOption(page.locator("#ax-decision-D5"), "상태", "확정");
   // D4 확정 후 D5 상세는 D4 목록 선택형으로 표시된다.
-  await chooseOption(page.locator("#ax-decision-D5"), "대조 기준", "확인 필요");
+  await chooseOption(page.locator("#ax-decision-D5"), "판단 불가 처리 기준", "확인 필요");
   await page.locator('section[aria-label="업무 규칙 확인"]').getByRole("button", { name: "저장", exact: true }).click();
   // 저장 확인 문구는 상단 메시지와 섹션 내 문구 2곳에 나타나므로 섹션으로 한정한다.
   await expect(page.locator('section[aria-label="업무 규칙 확인"]').getByText("업무 규칙을 저장했습니다", { exact: true })).toBeVisible();
@@ -45,7 +45,7 @@ test("AX 1차 MVP 개선: 업무 등록 → 결정 지점 답변 → 범용 규�
 
   // D4 변경 후에도 범용 규칙은 그대로 유지된다.
   await page.getByRole("button", { name: /D4 결과 상태/ }).click();
-  await page.locator("#ax-decision-D4").getByLabel("대조 기준").fill("정상, 확인 필요");
+  await page.locator("#ax-decision-D4").getByLabel("상태 구분 기준").fill("정상, 확인 필요");
   await page.locator('section[aria-label="업무 규칙 확인"]').getByRole("button", { name: "저장", exact: true }).click();
 
   // 저장 확인: IndexedDB 레코드에 결정 지점·범용 규칙이 들어간다.
