@@ -944,25 +944,27 @@ const VERDICT_CARDS = [
 ] as const;
 /** 확인 결과 입력: 결과(확인 완료·사용 불가·미확인) + 확인 내용. 확인 완료·사용 불가는 근거가 있어야
  * 저장되고, 저장이 실제로 끝난 뒤에만 결과 문구를 표시한다 (방문·입력만으로 상태가 바뀌지 않음). */
+// 표시 문구만 간소화한다 (저장 값은 기존 확인 완료/사용 불가/미확인 그대로).
 const CHECK_RESULT_OPTIONS = [
-  { value: "확인 완료" as const, label: "확인 완료" },
-  { value: "사용 불가" as const, label: "사용 불가" },
+  { value: "확인 완료" as const, label: "확인" },
+  { value: "사용 불가" as const, label: "불가" },
   { value: "미확인" as const, label: "미확인" },
 ];
 type CheckResult = (typeof CHECK_RESULT_OPTIONS)[number]["value"];
-function CheckConfirmForm({ topic, need, initial, disabled, onSave, onClose }: {
-  topic: string; need?: string; initial?: { result: CheckResult; note: string }; disabled: boolean;
+function CheckConfirmForm({ topic, initial, disabled, onSave, onClose }: {
+  topic: string; initial?: { result: CheckResult; note: string }; disabled: boolean;
   onSave: (input: { result: CheckResult; note: string }) => Promise<string | null>;
   onClose: () => void;
 }) {
-  const [result, setResult] = useState<CheckResult | "">(initial?.result ?? "");
+  // 신규 항목 기본값은 미확인 (선택만으로 상태가 바뀌지 않고, 저장해야 기록된다).
+  const [result, setResult] = useState<CheckResult | "">(initial?.result ?? "미확인");
   const [note, setNote] = useState(initial?.note ?? "");
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
   const [saving, setSaving] = useState(false);
   async function save() {
     if (!result) { setError("확인 결과를 선택하세요"); return; }
-    if (result !== "미확인" && !note.trim()) { setError("확인 근거가 되는 확인 내용을 입력하세요"); return; }
+    if (result !== "미확인" && !note.trim()) { setError("확인한 내용과 근거를 입력하세요"); return; }
     setError(""); setStatus(""); setSaving(true);
     const message = await onSave({ result, note });
     setSaving(false);
@@ -970,17 +972,17 @@ function CheckConfirmForm({ topic, need, initial, disabled, onSave, onClose }: {
     setStatus(message);
   }
   return <div className="ax-check-form" role="group" aria-label={`${topic} 확인 결과 입력`}>
-    {need ? <p className="ax-check-form-need"><strong>확인이 필요한 내용</strong> {uiText(need)}</p> : null}
+    {/* 항목 제목 아래에 확인이 필요한 내용이 이미 보이므로 입력 영역에서는 반복하지 않는다. */}
     <RuleSelect label="확인 결과" value={result} options={CHECK_RESULT_OPTIONS} disabled={disabled || saving} onChange={value => setResult(value)} />
     <label className="ax-field ax-rule-field">
       <span>확인 내용</span>
-      <Textarea rows={3} maxLength={2000} value={note} disabled={disabled || saving} placeholder="실제로 확인한 사항(확인 방법·담당자·결과)을 적으세요" onChange={event => setNote(event.target.value)} />
+      <Textarea rows={3} maxLength={2000} value={note} disabled={disabled || saving} placeholder="확인한 내용과 근거를 입력하세요" onChange={event => setNote(event.target.value)} />
     </label>
     {error ? <p className="ax-rule-error" role="alert">{error}</p> : null}
     {status ? <p className="ax-check-form-status" role="status">{status}</p> : null}
     <div className="ax-rule-actions">
       <Button type="button" variant="outline" size="sm" disabled={saving} onClick={onClose}>닫기</Button>
-      <Button type="button" size="sm" disabled={disabled || saving} onClick={() => void save()}>{saving ? "저장 중…" : "확인 결과 저장"}</Button>
+      <Button type="button" size="sm" disabled={disabled || saving} onClick={() => void save()}>{saving ? "저장 중…" : "저장"}</Button>
     </div>
   </div>;
 }
@@ -1022,11 +1024,11 @@ function DiagnosisCard({ task, busy, onDiagnose, onEdit, attachment, onSaveCheck
         <span className="ax-check-text"><strong>{uiText(c.title)}</strong>{c.desc ? <small>{uiText(c.desc)}</small> : null}</span>
         <span className="ax-check-side">
           <span className="ax-check-badge" data-kind={state.kind === "applied" && state.status === "불가" ? "block" : c.kind}>{badge}</span>
-          {source && source.status !== "확인됨" ? <Button type="button" variant="outline" size="sm" aria-expanded={open} disabled={!!busy} onClick={() => setOpenTopic(open ? null : checkKey(c.title))}>{state.kind === "none" ? "확인 결과 기록" : "기록 수정"}</Button>
+          {source && source.status !== "확인됨" ? <Button type="button" variant="outline" size="sm" aria-expanded={open} disabled={!!busy} onClick={() => setOpenTopic(open ? null : checkKey(c.title))}>결과 입력</Button>
             : c.kind === "block" ? <Button type="button" variant="outline" size="sm" disabled={!!busy} onClick={onEdit}>확인하러 가기</Button> : null}
         </span>
       </div>
-      {open && source ? <CheckConfirmForm key={`${task.id}:${checkKey(c.title)}`} topic={source.topic} need={source.note || undefined}
+      {open && source ? <CheckConfirmForm key={`${task.id}:${checkKey(c.title)}`} topic={source.topic}
         initial={state.kind === "none" ? undefined : { result: state.confirmation.result, note: state.confirmation.note }} disabled={!!busy}
         onSave={input => onSaveCheck(source.topic, input)} onClose={() => setOpenTopic(null)} /> : null}
     </li>;
@@ -1066,7 +1068,7 @@ function DiagnosisCard({ task, busy, onDiagnose, onEdit, attachment, onSaveCheck
           </div>
           <div className="ax-judgement-foot">
             <p><strong>확인 필요</strong> · {pendingChecks.length}건</p>
-            {pendingChecks.length ? <Button type="button" variant="outline" size="sm" onClick={scrollToChecks}>확인 필요 항목 보기</Button> : null}
+            {pendingChecks.length ? <Button type="button" variant="outline" size="sm" onClick={scrollToChecks}>항목 보기</Button> : null}
           </div>
         </div>
         {/* 기본 출처 문구("사용자 등록 정보 기반 진단")는 표시하지 않고, 재첨부 안내가 담긴 첨부 파일 기반 문구만 남긴다. */}

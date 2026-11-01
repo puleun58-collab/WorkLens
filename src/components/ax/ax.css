@@ -816,10 +816,10 @@
 .ax-diag-checks li { padding: 12px 0; border-bottom: 1px solid var(--border); }
 .ax-check-row { display: flex; gap: 12px; align-items: flex-start; }
 .ax-check-side { flex: none; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-.ax-check-form { display: flex; flex-direction: column; gap: 10px; margin: 12px 0 0 30px; padding-top: 12px; border-top: 1px dashed var(--border); max-width: 640px; }
-.ax-check-form textarea { min-height: 84px; }
-.ax-check-form-need { margin: 0; font-size: 13px; color: var(--muted-foreground); }
-.ax-check-form-need strong { margin-right: 6px; color: var(--foreground); font-weight: 600; }
+/* 확인 결과 입력: 좌측은 항목 텍스트 시작선, 우측은 상단 '결과 입력' 버튼 끝선까지 (행 전체 폭 사용). */
+.ax-check-form { display: flex; flex-direction: column; gap: 10px; margin: 12px 0 0 30px; padding-top: 12px; border-top: 1px dashed var(--border); }
+.ax-check-form .ax-rule-field:has(textarea) { width: 100%; max-width: none; }
+.ax-check-form textarea { width: 100%; min-height: 84px; }
 .ax-check-form-status { margin: 0; font-size: 13px; color: var(--primary); }
 @media (max-width: 700px) {
   .ax-check-row { flex-wrap: wrap; }
@@ -1098,18 +1098,16 @@
 .ax-decision-badge[data-status="해당 없음"] { background: #edf1f6; color: #43536b; border-color: #d5dce6; }
 .ax-decision-row-head > svg { flex: none; color: var(--muted-foreground); transition: transform 150ms ease; }
 .ax-decision-row-head > svg.is-open { transform: rotate(180deg); }
-.ax-decision-panel { display: flex; flex-direction: column; gap: 12px; padding: 12px 14px 16px; border-top: 1px solid var(--border); }
-/* D규칙·범용 규칙 입력 폼: 폼 전체를 카드 가로 중앙의 한 열(최대 640px)에 두고, 그 안의 라벨·입력창은
-   모두 같은 좌측 시작선에 둔다 (개별 입력창 중앙 정렬 없음). */
-.ax-decision-panel > *, .ax-generic-panel > * { width: 100%; max-width: 640px; align-self: center; }
+/* D규칙·범용 규칙 입력 폼: 시작선을 카드 제목(배지 다음) 시작선에 맞추고, 오른쪽 여백도 같은 폭으로 둔다. */
+.ax-decision-panel { display: flex; flex-direction: column; gap: 12px; padding: 12px 62px 16px; border-top: 1px solid var(--border); }
+.ax-decision-panel > *, .ax-generic-panel > * { width: 100%; }
 .ax-decision-panel textarea { min-height: 96px; padding: 10px 12px; }
 .ax-decision-counter { margin-left: auto; font-size: var(--font-size-xs); color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
 .ax-decision-save { display: flex; align-items: center; justify-content: flex-end; gap: 12px; flex-wrap: wrap; margin-top: 16px; }
 .ax-decision-save p { margin: 0; margin-right: auto; }
 
 /* 범용 업무 규칙 — 규칙명·분류(직접 추가 규칙)·업무 적용 여부·처리 기준·확정 상태 + 추가 정보(선택, 기본 접힘) */
-.ax-generic-panel { display: flex; flex-direction: column; gap: 12px; padding: 12px 14px 16px; border-top: 1px solid var(--border); }
-.ax-rule-identity-edit { display: flex; justify-content: flex-end; margin-bottom: -8px; }
+.ax-generic-panel { display: flex; flex-direction: column; gap: 12px; padding: 12px 62px 16px; border-top: 1px solid var(--border); }
 .ax-generic-panel textarea { min-height: 96px; padding: 10px 12px; }
 /* D규칙·범용 규칙 공통 선택창: COSS Select 흰색 배경·같은 높이·테두리·라운드·패딩·화살표. */
 .ax-rule-field .ax-rule-select { max-width: 360px; min-height: 36px; background: var(--card); font-weight: 400; }

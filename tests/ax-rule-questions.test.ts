@@ -29,10 +29,11 @@ describe("AX 통합 규칙 도출 — 표시 문구 (기존 파일에서 verbati
     });
   });
 
-  it("패널 라벨에 D번호를 반복하지 않는다", () => {
+  it("패널 라벨에 D번호를 반복하지 않고 카드별 기준을 쓴다", () => {
     expect(decisionPanelLabel("D1", "상태")).toBe("상태");
-    expect(decisionPanelLabel("D1", "상세")).toBe("대조 기준");
-    expect(decisionPanelLabel("D5", "상세")).toBe("대조 기준");
+    expect((["D1", "D2", "D3", "D4", "D5", "D6", "D7"] as const).map(id => decisionPanelLabel(id, "상세"))).toEqual([
+      "대조 기준", "중복 처리 기준", "예외 처리 기준", "상태 구분 기준", "판단 불가 처리 기준", "빈 파일 처리 기준", "계산 기준",
+    ]);
   });
 });
 

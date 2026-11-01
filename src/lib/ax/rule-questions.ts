@@ -28,10 +28,18 @@ export const DECISION_DISPLAY: Record<DecisionPointId, { title: string; question
   D7: { title: "계산 기준", question: "합계·반올림·단위의 기준은 무엇인가요?" },
 };
 
-/** 표시 전용 패널 라벨: D번호 없이 간결한 라벨을 쓴다 (지시문 생성과 무관).
- * #365 레퍼런스 교정 문구("D1 상태"/"D1 상세")를 의도적으로 대체한다. */
-export function decisionPanelLabel(_id: string, kind: "상태" | "상세"): string {
-  return kind === "상세" ? "대조 기준" : kind;
+/** 표시 전용: D카드별 상세 입력 제목·안내 문구 (지시문 생성과 무관). 모든 카드에 '대조 기준'을 반복하지 않는다. */
+export const DECISION_DETAIL_FIELD: Record<DecisionPointId, { label: string; placeholder: string }> = {
+  D1: { label: "대조 기준", placeholder: "기준 파일·시트·대조 키·누락·초과 판단 방향을 적으세요" },
+  D2: { label: "중복 처리 기준", placeholder: "같은 항목이 여러 번 나타날 때 판단 키와 처리 방법을 적으세요" },
+  D3: { label: "예외 처리 기준", placeholder: "예외값·빈칸·음수·0 등을 어떻게 처리할지 적으세요" },
+  D4: { label: "상태 구분 기준", placeholder: "처리 결과를 어떤 상태로 구분할지 적으세요" },
+  D5: { label: "판단 불가 처리 기준", placeholder: "판단할 수 없는 데이터의 처리 기준을 적으세요" },
+  D6: { label: "빈 파일 처리 기준", placeholder: "빈 파일 또는 데이터 없음 상황의 처리 기준을 적으세요" },
+  D7: { label: "계산 기준", placeholder: "합계·반올림·단위 기준을 적으세요" },
+};
+export function decisionPanelLabel(id: string, kind: "상태" | "상세"): string {
+  return kind === "상세" ? DECISION_DETAIL_FIELD[id as DecisionPointId]?.label ?? "처리 기준" : kind;
 }
 
 export type UnifiedRuleOrigin = "stored" | "candidate" | "user";

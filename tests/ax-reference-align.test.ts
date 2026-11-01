@@ -75,9 +75,11 @@ describe("AX 레퍼런스 동일화 — 업무 규칙 확인 표시", () => {
     expect(component()).not.toContain("+ 예시 추가");
   });
 
-  it("지시문 §10.5에 따라 패널 라벨은 D번호 없는 상태/대조 기준이며 예시 필드 문구는 남지 않는다", () => {
+  it("패널 라벨은 D번호 없는 카드별 기준이며 예시 필드 문구는 남지 않는다", () => {
     expect(decisionPanelLabel("D1", "상태")).toBe("상태");
-    expect(decisionPanelLabel("D1", "상세")).toBe("대조 기준");
+    expect((["D1", "D2", "D3", "D4", "D5", "D6", "D7"] as const).map(id => decisionPanelLabel(id, "상세"))).toEqual([
+      "대조 기준", "중복 처리 기준", "예외 처리 기준", "상태 구분 기준", "판단 불가 처리 기준", "빈 파일 처리 기준", "계산 기준",
+    ]);
     expect(component()).not.toContain("업무 규칙 확인 필요");
     expect(component()).not.toContain("예상 결과 상태");
   });

@@ -31,13 +31,13 @@ test("AX 진단 간소화: D1~D7 아코디언 단일 펼침·진행률·저장·
   // 다시 D3을 펼쳐도 미저장 입력이 유지된다.
   await page.getByRole("button", { name: /D3 예외값 처리/ }).click();
   await chooseOption(page.locator("#ax-decision-D3"), "상태", "확정");
-  await page.locator("#ax-decision-D3").getByLabel("대조 기준").fill("판매내역.xlsx / Sheet1, 주문번호, 누락·초과 판단");
+  await page.locator("#ax-decision-D3").getByLabel("예외 처리 기준").fill("판매내역.xlsx / Sheet1, 주문번호, 누락·초과 판단");
   await expect(decision.locator(".ax-decision-counter")).toContainText("/ 2000");
   await page.getByRole("button", { name: /D4 결과 상태/ }).click();
-  await expect(page.locator("#ax-decision-D3").getByLabel("대조 기준")).toBeHidden();
-  await expect(page.locator("#ax-decision-D4").getByLabel("상태")).toBeVisible();
+  await expect(page.locator("#ax-decision-D3").getByLabel("예외 처리 기준")).toBeHidden();
+  await expect(page.locator("#ax-decision-D4").getByRole("combobox", { name: "상태", exact: true })).toBeVisible();
   await page.getByRole("button", { name: /D3 예외값 처리/ }).click();
-  await expect(page.locator("#ax-decision-D3").getByLabel("대조 기준")).toHaveValue("판매내역.xlsx / Sheet1, 주문번호, 누락·초과 판단");
+  await expect(page.locator("#ax-decision-D3").getByLabel("예외 처리 기준")).toHaveValue("판매내역.xlsx / Sheet1, 주문번호, 누락·초과 판단");
 
   // D규칙 상태 선택지는 확정 → 미확정 두 가지이고 기본값은 미확정이다.
   await page.getByRole("button", { name: /D4 결과 상태/ }).click();
@@ -46,7 +46,7 @@ test("AX 진단 간소화: D1~D7 아코디언 단일 펼침·진행률·저장·
   await d4Status.click();
   await expect(page.getByRole("option")).toHaveText(["확정", "미확정"]);
   await page.keyboard.press("Escape");
-  await expect(page.locator("#ax-decision-D4").getByLabel("대조 기준")).toBeVisible();
+  await expect(page.locator("#ax-decision-D4").getByLabel("상태 구분 기준")).toBeVisible();
 
   // 저장 후 진행률 갱신 + 저장 플러시 확인 후 새로고침 후 재조회.
   // 통합 저장 1회로 D 변경값과 범용 규칙이 함께 저장된다. 미터치 범용 후보는
@@ -73,7 +73,7 @@ test("AX 진단 간소화: D1~D7 아코디언 단일 펼침·진행률·저장·
   await expect(page.getByRole("heading", { name: "업무 규칙 확인" })).toBeVisible();
   await page.getByRole("button", { name: /D3 예외값 처리/ }).click();
   await expect(page.locator("#ax-decision-D3").getByRole("combobox", { name: "상태" })).toHaveText("확정");
-  await expect(page.locator("#ax-decision-D3").getByLabel("대조 기준")).toHaveValue("판매내역.xlsx / Sheet1, 주문번호, 누락·초과 판단");
+  await expect(page.locator("#ax-decision-D3").getByLabel("예외 처리 기준")).toHaveValue("판매내역.xlsx / Sheet1, 주문번호, 누락·초과 판단");
 });
 
 test("AX 진단 간소화: 통합 규칙 인라인 추가·아코디언 초안 유지·삭제·저장", async ({ page }) => {
@@ -201,12 +201,10 @@ test("AX 업무 규칙 검토 완료율: 미적용 결정은 완료, 선택 전�
   // 미선택 상태는 "선택하세요"로 보이고, 후보 근거 문구는 표시하지 않는다.
   await expect(row.getByRole("combobox", { name: "업무 적용 여부" })).toHaveText("선택하세요");
   await expect(row).not.toContainText("후보 근거");
-  // 도출 규칙은 카드 제목·보조 문구에 이미 있는 규칙명·분류 입력창을 기본 숨기고, 수정 버튼으로만 연다.
+  // 도출 규칙의 규칙명·분류 입력과 수정 버튼은 표시하지 않는다. 기존 값은 저장 후에도 보존된다.
   await expect(row.getByLabel("규칙명")).toHaveCount(0);
   await expect(row.getByRole("combobox", { name: "분류" })).toHaveCount(0);
-  await row.getByRole("button", { name: "규칙명·분류 수정" }).click();
-  await expect(row.getByLabel("규칙명")).toHaveValue("시스템 접근");
-  await expect(row.getByRole("combobox", { name: "분류" })).toHaveText("예외·확인 기준");
+  await expect(row.getByRole("button", { name: "규칙명·분류 수정" })).toHaveCount(0);
   await chooseOption(row, "업무 적용 여부", "미적용");
   await expect(row.locator(".ax-decision-badge")).toHaveText("미적용");
   await expect(unified.getByText("1/6 완료", { exact: true })).toBeVisible();
@@ -231,6 +229,7 @@ test("AX 업무 규칙 검토 완료율: 미적용 결정은 완료, 선택 전�
   await expect(saved).toContainText("예외·확인 기준");
   await saved.locator(".ax-decision-row-head").click();
   await expect(saved.getByLabel("규칙명")).toHaveCount(0);
+  await expect(saved.getByRole("combobox", { name: "분류" })).toHaveCount(0);
 });
 
 test("AX D규칙 과거 '해당 없음' 저장값은 미적용으로 그대로 보이고, 확정/미확정으로 바꿀 수 있다 (자동 변환 없음)", async ({ page }) => {
@@ -252,7 +251,7 @@ test("AX D규칙 과거 '해당 없음' 저장값은 미적용으로 그대로 �
   await status.click();
   await expect(page.getByRole("option")).toHaveText(["확정", "미확정", "미적용"]);
   await page.getByRole("option", { name: "미확정", exact: true }).click();
-  await expect(d4.getByLabel("대조 기준")).toBeVisible();
+  await expect(d4.getByLabel("상태 구분 기준")).toBeVisible();
   // 다른 값으로 바꾼 뒤에는 일반 D규칙과 같은 두 가지 선택지만 남는다.
   await status.click();
   await expect(page.getByRole("option")).toHaveText(["확정", "미확정"]);
@@ -292,9 +291,27 @@ test("AX 진단 결과 요약: 판정 3카드는 실제 건수, 확인 필요 ·
   await expect(checks.getByText("계산 로직 구현 환경")).toBeVisible();
   await expect(checks.getByText("Python 스크립트 사용 가능")).toBeVisible();
   // 바로가기: 구현 전 확인 사항 제목이 고정 헤더 아래에 보이도록 이동한다.
-  await page.getByRole("button", { name: "확인 필요 항목 보기", exact: true }).click();
+  await page.getByRole("button", { name: "항목 보기", exact: true }).click();
   await expect.poll(async () => (await checks.getByRole("heading", { name: "구현 전 확인 사항" }).boundingBox())?.y ?? 9999).toBeLessThan(200);
   await expect.poll(async () => (await checks.getByRole("heading", { name: "구현 전 확인 사항" }).boundingBox())?.y ?? 0).toBeGreaterThan(60);
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
 });
+
+for (const width of [1440, 390]) {
+  test(`AX D규칙 패널 정렬: ${width}px에서 제목 시작선과 대칭 여백`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await registerAndDiagnose(page, "운송장 검증", "운송장 데이터를 입력받아 누락·중복을 검사하고 검증 결과를 출력한다.");
+    const row = page.locator("#ax-decision-D3");
+    await row.locator(".ax-decision-row-head").click();
+    const geometry = await row.evaluate(element => {
+      const panel = element.querySelector(".ax-decision-panel")!;
+      const title = element.querySelector(".ax-decision-title strong")!.getBoundingClientRect();
+      const label = panel.querySelector("label")!.getBoundingClientRect();
+      const style = getComputedStyle(panel);
+      return { titleX: title.x, labelX: label.x, paddingLeft: parseFloat(style.paddingLeft), paddingRight: parseFloat(style.paddingRight) };
+    });
+    expect(Math.abs(geometry.paddingLeft - geometry.paddingRight), JSON.stringify(geometry)).toBeLessThanOrEqual(1);
+    if (width === 1440) expect(Math.abs(geometry.labelX - geometry.titleX), JSON.stringify(geometry)).toBeLessThanOrEqual(2);
+  });
+}
