@@ -17,7 +17,7 @@ import { mcpReviewSources, reviewContract } from "@/server/contract-review";
 import { interpretResearchQuery, verifyResearchAdoption } from "@/server/groq";
 import { ApiError } from "@/server/http";
 import {
-  enrichResearch, explicitArticlePairs, lookupIssue, mcpEnrichmentSources, rereadShownArticles, sharedSources,
+  articleExcerpt, enrichResearch, explicitArticlePairs, lookupIssue, mcpEnrichmentSources, rereadShownArticles, sharedSources,
   type EnrichmentSources, type IssueLookup,
 } from "@/server/research-enrichment";
 import { compareOrdinances, mcpOrdinanceSources } from "@/server/ordinance-compare";
@@ -577,7 +577,8 @@ async function fullResearch(
           const alreadyInChain = shownArticles.some((article) => article.law === candidate.law && article.jo === candidate.jo
             && article.excerpt === candidate.text
             && (article.effective?.replace(/\D/gu, "") ?? "") === (candidate.effectiveDate?.replace(/\D/gu, "") ?? ""));
-          if (!alreadyInChain) semanticArticles.push({ law: candidate.law, jo: candidate.jo, title: candidate.title ?? "", excerpt: candidate.text,
+          if (!alreadyInChain) semanticArticles.push({ law: candidate.law, jo: candidate.jo, title: candidate.title ?? "",
+            excerpt: articleExcerpt(candidate.text, candidate.jo), original: candidate.text,
             effectiveDate: candidate.effectiveDate?.replace(/\D/gu, ""), matched: [],
             ...(candidate.stage === "chain" ? {} : { stage: candidate.stage as SupplementArticle["stage"] }) });
           identityKeys.add(`${candidate.law}\0${candidate.jo}`);
