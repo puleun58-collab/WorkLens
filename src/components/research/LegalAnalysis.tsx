@@ -16,13 +16,13 @@ import {
 } from "@/lib/law-analysis";
 import {
   applicableLawPresentation, citeCheckResult, impactMapPresentation, verifyCitationsResult,
-  type AnalysisSection, type ImpactAxisState, type ImpactAxisView, type ImpactMapPresentation,
+  type AnalysisSection, type ApplicableLawPresentation, type ApplicableLawVersion, type ImpactAxisState, type ImpactMapPresentation,
 } from "@/lib/law-analysis-parse";
 import { lawDisplayText } from "@/lib/law-display";
 import { lawTextOutcome, type LawTextOutcome } from "@/lib/law-search";
 import { LawTextBlock } from "./LawTextBlock";
 import "./legal-analysis.css";
-import { CitationResult } from "./CitationEvidence";
+import { AnalysisResultCard, CitationResult } from "./CitationEvidence";
 import { SourceToggleSummary } from "./SourceToggleSummary";
 
 /** A request opened from a law article or a decision detail; `origin` drives the return action. */
@@ -299,26 +299,24 @@ function ToneIcon({ tone }: { tone: CitationTone }) {
 /** 인용 현황: one white box — title and summary badges, a 자료 유형 · 검색 결과 · 확인 내용 table, one scope note. */
 function CitationStatus({ axes, total, notes }: Pick<ImpactMapPresentation, "axes" | "total" | "notes">) {
   const id = useId();
-  // Counts keep their own basis: the confirmed total is the MCP's article-matched figure; the others count 자료 유형 rows.
-  const followUp = axes.filter((axis) => axis.state === "partial" || axis.state === "law_only").length;
   const failed = axes.filter((axis) => axis.state === "failed").length;
   const summary: { tone: CitationTone; label: string; title: string }[] = [
-    // Zero confirmed citations is a count, not a confirmation, so it stays neutral.
-    ...(total ? [{ tone: total.count > 0 ? "success" as const : "neutral" as const, label: `확인 ${total.count}건`, title: total.headline }] : []),
-    ...(followUp ? [{ tone: "warning" as const, label: `추가 확인 ${followUp}개 유형`, title: "일부만 확인했거나 조문 단위 일치가 확인되지 않은 자료 유형" }] : []),
-    ...(failed ? [{ tone: "error" as const, label: `조회 실패 ${failed}개 유형`, title: "조회하지 못한 자료 유형" }] : []),
+    ...(total ? [{ tone: total.confirmedCount > 0 ? "success" as const : "neutral" as const, label: `확인 ${total.confirmedCount}건`, title: total.headline }] : []),
+    ...(total ? [{ tone: total.pendingCount ? "warning" as const : "neutral" as const, label: `추가 확인 ${total.pendingCount}건`, title: "법령명 또는 조문 단위 일치의 추가 확인이 필요한 개별 자료" }] : []),
+    ...(failed ? [{ tone: "error" as const, label: `조회 실패 ${failed}개 유형`, title: "조회하지 못한 자료 유형 · 0건을 뜻하지 않습니다" }] : []),
   ];
-  // The failed rows already say they are unchecked, not zero; every other note is kept once.
-  const otherNotes = notes.filter((note) => !(failed && note === FAILED_AXIS_NOTE));
-  const shown = (axis: ImpactAxisView) => /^확인된 결과 (\d+)건$/u.exec(axis.headline)?.[1];
+  const otherNotes = [...notes, ...(total?.lines ?? [])].filter((note) => !(failed && (note === FAILED_AXIS_NOTE || note === "조회에 실패한 자료 유형은 0건이 아니라 확인하지 못한 상태입니다.")));
   return <section className="legal-analysis-section impact-citations" aria-labelledby={`${id}-title`}>
     <header className="impact-citations-head">
-      <div>
-        <h3 id={`${id}-title`}>인용 현황</h3>
-        <p className="impact-citations-desc">이 조문을 인용한 판례·헌재 결정례·법령해석례·행정심판례와 이 법령을 언급한 자치법규 확인</p>
-      </div>
+      <AnalysisResultCard
+        status={failed || total?.pendingCount ? "확인 필요" : total?.confirmedCount ? "확인됨" : "미확인"}
+        title={<h3 id={`${id}-title`}>인용 현황</h3>}
+        help="이 조문을 인용한 판례·헌재 결정례·법령해석례·행정심판례와 이 법령을 언급한 자치법규 확인"
+        meta="인용 현황 조회 · 법적 영향의 판단이 아닙니다"
+        tone={failed || total?.pendingCount ? "unknown" : total?.confirmedCount ? "verified" : "muted"}
+      />
       {summary.length > 0 && <div className="impact-citations-summary">
-        {summary.map((item) => <Badge key={item.tone} variant={BADGE_VARIANT[item.tone]} data-tone={item.tone} title={item.title} aria-label={item.title === total?.headline ? item.title : `${item.label} · ${item.title}`}>
+        {summary.map((item) => <Badge key={item.label} variant={BADGE_VARIANT[item.tone]} data-tone={item.tone} title={item.title} aria-label={item.title === total?.headline ? item.title : `${item.label} · ${item.title}`}>
           <ToneIcon tone={item.tone} />{item.label}
         </Badge>)}
       </div>}
@@ -326,30 +324,24 @@ function CitationStatus({ axes, total, notes }: Pick<ImpactMapPresentation, "axe
     <table className="legal-analysis-axes impact-citations-table">
       <thead><tr><th scope="col">자료 유형</th><th scope="col">검색 결과</th><th scope="col">확인 내용</th></tr></thead>
       <tbody>{axes.map((axis) => {
-        const tone = AXIS_TONE[axis.state], count = shown(axis);
+        const tone = AXIS_TONE[axis.state];
         return <tr key={axis.label} className={axis.state === "failed" ? "is-failed" : undefined} data-state={axis.state}>
           <th scope="row"><AxisLabel label={axis.label} /></th>
-          <td><Badge variant={BADGE_VARIANT[tone]} data-tone={tone} className="impact-citation-result"><ToneIcon tone={tone} />{count ? `확인 ${count}건` : axis.headline}</Badge></td>
+          <td><Badge variant={BADGE_VARIANT[tone]} data-tone={tone} className="impact-citation-result"><ToneIcon tone={tone} />{axis.headline}</Badge></td>
           <td className="impact-citation-detail">{axis.detail ?? (axis.state === "empty" ? "검색 결과가 없습니다." : "")}</td>
         </tr>;
       })}</tbody>
     </table>
-    <Alert variant="info" className="impact-citations-note">
+    {otherNotes.length > 0 && <Alert variant="info" className="impact-citations-note">
       <Info aria-hidden="true" />
       <AlertDescription>
-        <p>법제처 검색 결과에는 유사 조문이나 다른 법령이 포함될 수 있어, 실제 법령명과 조문이 일치하는 결과만 집계합니다.</p>
-        {/* "이 건수" in these lines refers to the confirmed total, so they stay under its existing headline. */}
-        {total && total.lines.length > 0 && <div className="impact-citations-total">
-          <p>{total.headline}</p>
-          <ul>{total.lines.map((line) => <li key={line}>{line}</li>)}</ul>
-        </div>}
-        {otherNotes.length > 0 && <ul>{otherNotes.map((line) => <li key={line}>{line}</li>)}</ul>}
+        <ul>{otherNotes.map((line) => <li key={line}>{line}</li>)}</ul>
       </AlertDescription>
-    </Alert>
+    </Alert>}
   </section>;
 }
 
-function AnalysisResult({ data, request, completedAt, onRelatedSearch }: { data: LawAnalysisData; request: LawAnalysisRequest; completedAt: number; onRelatedSearch?: (search: RelatedSearch) => void }) {
+export function AnalysisResult({ data, request, completedAt, onRelatedSearch }: { data: LawAnalysisData; request: LawAnalysisRequest; completedAt: number; onRelatedSearch?: (search: RelatedSearch) => void }) {
   let body: ReactNode;
   let source: ReactNode;
   if (data.mode === "verify_citations") {
@@ -372,12 +364,14 @@ function AnalysisResult({ data, request, completedAt, onRelatedSearch }: { data:
     const targetSummary = detailStart < 0 ? result.target : result.target.slice(0, detailStart);
     const targetDetails = detailStart < 0 ? [] : result.target.slice(detailStart);
     body = <>
-      {result.title && <h3 className="legal-analysis-title">{analysisTitle(result.title)}</h3>}
+      {!result.verdict && result.title && <h3 className="legal-analysis-title">{analysisTitle(result.title)}</h3>}
+      {result.verdict && <AnalysisResultCard
+        status={result.verdict.tone === "critical" ? "확인 필요" : "미확인"}
+        title={<h3 className="legal-analysis-title">{result.title ? analysisTitle(result.title) : "후속 판례 인용 확인"}</h3>}
+        help={<Lines lines={result.verdict.lines} />}
+        tone={result.verdict.tone}
+      />}
       <Lines lines={targetSummary} />
-      {result.verdict && <div className={`legal-analysis-verdict is-${result.verdict.tone}`}>
-        <span className="legal-analysis-status">판정</span>
-        <Lines lines={result.verdict.lines} />
-      </div>}
       {result.limitation.length > 0 && <Lines lines={result.limitation.map((line) => `⚠️ 한계: ${line}`)} />}
     </>;
     source = <details className="law-detail-source">
@@ -392,7 +386,7 @@ function AnalysisResult({ data, request, completedAt, onRelatedSearch }: { data:
     const sourceSections = view.sources.filter((section) => !/\[(?:NOT_FOUND|FAILED|ERROR|UPSTREAM_NO_DATA)\]/u.test(section.heading ?? "") && section.lines.length > 0);
     const sourceFailures = view.sources.filter((section) => !sourceSections.includes(section));
     const references = view.axes.filter((axis) => axis.items.length > 0);
-    const related = view.related.filter((item) => item.domain);
+    const related = view.related.filter((item) => item.domain && item.query.trim());
     body = <>
       {view.title && <h3 className="legal-analysis-title">{analysisTitle(view.title)}</h3>}
       {view.law && <p className="legal-analysis-lines">법령: {lawDisplayText(view.law)}</p>}
@@ -404,10 +398,10 @@ function AnalysisResult({ data, request, completedAt, onRelatedSearch }: { data:
         </div>}
       {view.citedLaws.length > 0 && <Sections sections={[{ heading: `이 조문이 인용한 다른 법령 ${view.citedLaws.length}건`, lines: view.citedLaws }]} />}
       {related.length > 0 && onRelatedSearch && <div className="legal-analysis-section">
-        <h3>관련 조회</h3>
+        <h3>관련 자료 검색</h3>
         <div className="law-related-actions">
           {related.map((item) => <Button variant="link" key={item.query + item.label} type="button" className="h-auto w-fit max-w-full justify-self-start justify-start whitespace-normal px-0 text-left" onClick={() => onRelatedSearch({ query: item.query, domain: item.domain! })}>
-            {item.label}
+            {item.label} · {item.domain === "precedent" ? "판례 검색" : "해석례 검색"}
           </Button>)}
         </div>
       </div>}
@@ -420,12 +414,8 @@ function AnalysisResult({ data, request, completedAt, onRelatedSearch }: { data:
       {references.length > 0 && <Sections sections={references.map((axis) => ({ heading: `${axis.label} · 조회된 항목`, lines: axis.items }))} />}
     </details>;
   } else {
-    const parsed = applicableLawPresentation(data.text);
-    body = <>
-      {parsed.title && <h3 className="legal-analysis-title">{analysisTitle(parsed.title)}</h3>}
-      <Sections sections={parsed.sections} />
-    </>;
-    source = <ApplicableLawSource parsed={parsed} jo={request.mode === "applicable_law" ? request.jo : undefined} />;
+    const parsed = applicableLawPresentation(data.text, data.temporal);
+    body = <ApplicableLawResult key={`${request.mode === "applicable_law" ? `${request.lawName}/${request.date}/${request.jo ?? ""}` : ""}/${completedAt}`} parsed={parsed} request={request.mode === "applicable_law" ? request : undefined} />;
   }
   return <div className="legal-analysis-output" data-mode={data.mode} data-markers={data.markers.join(" ")}>
     {body}
@@ -434,51 +424,141 @@ function AnalysisResult({ data, request, completedAt, onRelatedSearch }: { data:
   </div>;
 }
 
-function ApplicableLawSource({ parsed, jo }: { parsed: ReturnType<typeof applicableLawPresentation>; jo?: string }) {
-  const [open, setOpen] = useState(false);
-  const [source, setSource] = useState<LawTextOutcome | null>(null);
-  const article = jo ?? parsed.jo;
-  const mst = parsed.mst;
+function ApplicableLawResult({ parsed, request }: {
+  parsed: ApplicableLawPresentation;
+  request?: Extract<LawAnalysisRequest, { mode: "applicable_law" }>;
+}) {
+  const [loaded, setLoaded] = useState<{ key: string; outcome: LawTextOutcome } | null>(null);
+  const article = request?.jo ?? parsed.jo;
+  const selected = parsed.selected;
+  const mst = selected?.mst ?? parsed.mst;
+  const referenceDate = request?.date.replace(/-/gu, "") ?? parsed.referenceDate;
+  const effectiveDate = selected?.effectiveDate;
+  const promulgationDate = selected?.promulgationDate;
+  const identity = `${mst ?? ""}/${referenceDate ?? ""}/${effectiveDate ?? ""}/${promulgationDate ?? ""}/${article ?? ""}`;
+  const source = loaded?.key === identity ? loaded.outcome : null;
 
   useEffect(() => {
-    if (!open || !mst) return;
+    if (!mst || !referenceDate || !effectiveDate) return;
     const controller = new AbortController();
     void (async () => {
+      let outcome: LawTextOutcome;
       try {
         const response = await fetch("/api/law/text", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ mst, ...(article ? { jo: article } : {}) }),
+          body: JSON.stringify({
+            mst, efYd: referenceDate, expectedEffectiveDate: effectiveDate,
+            ...(promulgationDate ? { expectedPromulgationDate: promulgationDate } : {}),
+            ...(article ? { jo: article } : {}),
+          }),
           signal: controller.signal,
         });
         const body: unknown = await response.json().catch(() => null);
-        if (!controller.signal.aborted) setSource(lawTextOutcome(response.ok, body));
+        outcome = lawTextOutcome(response.ok, body);
       } catch {
-        if (!controller.signal.aborted) setSource({ kind: "error", message: "원문을 불러오지 못했습니다." });
+        outcome = { kind: "error", message: "기준일 원문을 확보하지 못했습니다." };
       }
+      if (!controller.signal.aborted) setLoaded({ key: identity, outcome });
     })();
     return () => controller.abort();
-  }, [open, mst, article]);
+  }, [mst, referenceDate, effectiveDate, promulgationDate, article, identity]);
 
-  const hasSource = source?.kind === "found" && Boolean(source.data.text.trim());
-  const excerpts = hasSource && source.data.mode === "article"
-    ? parsed.excerpts.filter((section) => section.heading !== "조문 원문")
-    : parsed.excerpts;
-  const evidence = [
-    ...(hasSource ? [`${source.data.mode === "toc" ? "법령 목차" : article ? "조문 원문" : "법령 원문"}\n${source.data.text}`] : []),
-    ...excerpts.map((section) => `${section.heading}\n${section.lines.join("\n")}`),
-  ].join("\n\n");
-  return <details className="law-detail-source" onToggle={(event) => {
-    setOpen(event.currentTarget.open);
-    if (event.currentTarget.open) setSource(null);
-  }}>
-    <SourceToggleSummary />
-    {open && <>
-      {mst && !source && <p className="law-search-note" role="status">법령 원문을 불러오는 중…</p>}
-      {evidence && <LawTextBlock className="legal-analysis-raw" text={evidence} />}
-      {(source?.kind === "error" || (source?.kind === "found" && !hasSource)) && <p className="law-search-note" role="status">원문을 불러오지 못했습니다.</p>}
-      {source?.kind === "missing" && <p className="law-search-note" role="status">요청한 {article ? "조문" : "법령"} 원문을 찾지 못했습니다.</p>}
-      {!mst && !evidence && <p className="law-search-note" role="status">원문을 불러오지 못했습니다.</p>}
-    </>}
+  const hasSource = source?.kind === "found" && Boolean(source.data.text.trim())
+    && source.data.effectiveDate?.replace(/\D/gu, "") === effectiveDate
+    && (!promulgationDate || source.data.promulgationDate?.replace(/\D/gu, "") === promulgationDate)
+    && (!selected?.lawName || source.data.name === selected.lawName);
+  const waiting = Boolean(mst && referenceDate && effectiveDate && !source);
+  const sourceLabel = hasSource && source.data.mode === "toc" ? "법령 목차" : "기준일 적용 법령 원문";
+  const future = parsed.future;
+  return <>
+    <div className="legal-analysis-section">
+      <h3 className="legal-analysis-title">{request?.lawName ?? selected?.lawName ?? "시점별 적용 법령"}</h3>
+      <p className="legal-analysis-lines">기준일: {request?.date ?? parsed.referenceDate ?? "확인되지 않음"}{article ? ` · ${article}` : ""}</p>
+    </div>
+    <AnalysisResultCard
+      status={hasSource ? "확인됨" : waiting ? "확인 중" : "미확인"}
+      title={selected?.line ?? "기준일에 해당하는 판본을 확인하지 못했습니다."}
+      help={hasSource ? "기준일에 시행 중인 법령입니다." : waiting ? "선택 판본과 기준일 원문의 일치 여부를 확인하고 있습니다." : "선택 판본과 기준일 원문의 일치를 확인하지 못했습니다."}
+      meta="선택 판본"
+      tone={hasSource ? "verified" : "unknown"}
+    />
+    {(future.count > 0 || future.error) && <details className="law-detail-source">
+      <SourceToggleSummary label={`${future.complete ? `향후 시행 예정 버전 ${future.count}건` : `향후 시행 예정 버전 · 확인된 목록 ${future.versions.length}건`}${future.versions[0] ? ` · ${future.complete ? "가장 빠른 시행 예정일:" : "제공된 시행일:"} ${future.versions[0].effectiveDate.replace(/^(\d{4})(\d{2})(\d{2})$/u, "$1.$2.$3")}` : ""}`} openLabel="향후 시행 예정 버전 접기" />
+      {future.versions.map((version) => <div className="legal-analysis-section" key={`${version.mst ?? ""}/${version.effectiveDate}`}>
+        <Lines lines={[version.line]} />
+        <FutureLawSource key={`${version.mst ?? ""}/${version.effectiveDate}/${article ?? ""}`} version={version} article={article} lawName={selected?.lawName ?? request?.lawName} />
+      </div>)}
+      {future.error ? <p className="law-search-note" role="status">향후 예정 판본 조회에 실패했습니다. 전체 예정 판본과 가장 빠른 시행일을 확정할 수 없습니다.</p>
+        : !future.complete && <p className="law-search-note">제공된 예정 판본 정보만 표시합니다. 전체 목록과 가장 빠른 시행일은 추가 확인이 필요합니다.</p>}
+    </details>}
+    {!article && <p className="law-search-note">조문을 지정하지 않아 법령 판본만 확인합니다. 개별 조문의 적용 여부는 확인하지 않았습니다.</p>}
+    {article && hasSource && source.data.mode === "toc" && <p className="law-search-note">요청 조문의 원문은 제공되지 않아 법령 목차만 표시합니다.</p>}
+    <details className="law-detail-source">
+      <SourceToggleSummary label={sourceLabel} openLabel={`${sourceLabel} 접기`} />
+      {waiting ? <p className="law-search-note" role="status">기준일 원문을 불러오는 중…</p>
+        : hasSource ? <><LawTextBlock className="legal-analysis-raw" text={source.data.text} /><OfficialSourceLinks text={source.data.text} lawName={source.data.name} version={selected} /></>
+          : <p className="law-search-note" role="status">기준일 원문을 확보하지 못했습니다. 다른 시점의 원문으로 대체하지 않습니다.</p>}
+      {parsed.excerpts.length > 0 && <Sections sections={parsed.excerpts.filter((section) => section.heading !== "조문 원문")} />}
+    </details>
+    <Sections sections={parsed.sections.filter((section) => !/^(?:기준일에 시행 중이던 버전|기준일 시행 조문)/u.test(section.heading ?? ""))} />
+    <div className="legal-analysis-section">
+      <p className="law-search-note">적용 법령은 행위·처분 시점과 부칙 등에 따라 달라질 수 있습니다.</p>
+      {parsed.cautions.length > 0 && <details className="law-detail-source">
+        <SourceToggleSummary label="법 적용 시 주의사항" openLabel="주의사항 접기" />
+        <Sections sections={parsed.cautions} />
+      </details>}
+    </div>
+  </>;
+}
+
+/** Historical route documented by the official LAW OPEN DATA 한글주소 contract. */
+function OfficialSourceLinks({ text, lawName, version }: { text: string; lawName?: string; version?: ApplicableLawVersion }) {
+  const urls = [...new Set(text.match(/https:\/\/(?:www\.)?law\.go\.kr\/[^\s<>"')\]]+/gu) ?? [])];
+  if (!urls.length && lawName && version && /^\d{8}$/u.test(version.effectiveDate)
+    && /^\d{8}$/u.test(version.promulgationDate ?? "") && /^\d+$/u.test(version.promulgationNumber ?? "")) {
+    urls.push(`https://www.law.go.kr/법령/${encodeURIComponent(lawName.replace(/\s+/gu, ""))}/(${version.effectiveDate},${version.promulgationNumber},${version.promulgationDate})`);
+  }
+  return urls.length ? <p className="law-search-note">{urls.map((url) => <a key={url} href={url} target="_blank" rel="noopener noreferrer" className="law-search-link">국가법령정보센터 공식 출처</a>)}</p> : null;
+}
+
+function FutureLawSource({ version, article, lawName }: { version: ApplicableLawVersion; article?: string; lawName?: string }) {
+  const [open, setOpen] = useState(false);
+  const [loaded, setLoaded] = useState<{ identity: string; outcome: LawTextOutcome } | null>(null);
+  const { mst, effectiveDate, promulgationDate } = version;
+  const identity = `${mst ?? ""}/${effectiveDate}/${promulgationDate ?? ""}/${article ?? ""}/${lawName ?? ""}`;
+  const source = loaded?.identity === identity ? loaded.outcome : null;
+  useEffect(() => {
+    if (!open || !mst || source) return;
+    const controller = new AbortController();
+    void (async () => {
+      let outcome: LawTextOutcome;
+      try {
+        const response = await fetch("/api/law/text", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            mst, efYd: effectiveDate, expectedEffectiveDate: effectiveDate,
+            ...(promulgationDate ? { expectedPromulgationDate: promulgationDate } : {}),
+            ...(article ? { jo: article } : {}),
+          }), signal: controller.signal,
+        });
+        outcome = lawTextOutcome(response.ok, await response.json().catch(() => null));
+      } catch {
+        outcome = { kind: "error", message: "예정 버전 원문을 확보하지 못했습니다." };
+      }
+      if (!controller.signal.aborted) setLoaded({ identity, outcome });
+    })();
+    return () => controller.abort();
+  }, [open, mst, effectiveDate, promulgationDate, article, identity, source]);
+  const confirmed = source?.kind === "found" && Boolean(source.data.text.trim())
+    && source.data.effectiveDate?.replace(/\D/gu, "") === effectiveDate
+    && (!promulgationDate || source.data.promulgationDate?.replace(/\D/gu, "") === promulgationDate)
+    && (!lawName || source.data.name === lawName);
+  const label = confirmed && source.data.mode === "toc" ? "예정 버전 법령 목차" : "예정 버전 공식 원문";
+  return <details className="law-detail-source" onToggle={(event) => setOpen(event.currentTarget.open)}>
+    <SourceToggleSummary label={label} openLabel={`${label} 접기`} />
+    {open && (mst && !source ? <p className="law-search-note" role="status">예정 버전 원문을 불러오는 중…</p>
+      : confirmed ? <><LawTextBlock className="legal-analysis-raw" text={source.data.text} /><OfficialSourceLinks text={source.data.text} lawName={source.data.name} version={version} /></>
+        : <p className="law-search-note" role="status">예정 버전 원문을 확보하지 못했습니다. 다른 시행일의 원문으로 대체하지 않습니다.</p>)}
   </details>;
 }

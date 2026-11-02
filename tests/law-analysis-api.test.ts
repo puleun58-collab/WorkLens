@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { POST } from "@/app/api/law/analysis/route";
 import { LAW_ANALYSIS_BODY_MAX_BYTES } from "@/lib/law-analysis";
+import { scheduledLawVersions } from "@/server/law-analysis-mcp";
+import scheduledSearch from "./fixtures/law-traffic-scheduled-search.json";
+import trafficAnalysis from "./fixtures/law-traffic-applicable.json";
+import trafficSource from "./fixtures/law-text-traffic-reference.json";
 
 const KEY = "test-law-key-1234";
 const ENDPOINT = "https://mcp.example.test/law";
@@ -97,6 +101,69 @@ describe("fixed legal_analysis API", () => {
     expect(JSON.stringify(logs)).not.toContain(verify.text);
     expect(JSON.stringify(logs)).not.toContain(cite.caseNumber);
     expect(JSON.stringify(logs)).not.toContain(applicable.lawName);
+  });
+  it("expands real official staged effective dates and excludes the similarly named decree and rule", () => {
+    const source = scheduledSearch.response.result.content.map((entry) => entry.text).join("\n");
+    const referenceDate = trafficSource.provenance.arguments.efYd;
+    const versions = scheduledLawVersions(source, scheduledSearch.provenance.arguments.query, referenceDate);
+    const expectedCount = Number(/시행 예정 개정 (\d+)건/u.exec(trafficAnalysis.text)![1]);
+    expect(versions).toHaveLength(expectedCount);
+    expect(versions.every((version) => version.lawName === scheduledSearch.provenance.arguments.query
+      && version.effectiveDate > referenceDate)).toBe(true);
+    expect(versions.map((version) => version.effectiveDate))
+      .toEqual(versions.map((version) => version.effectiveDate).sort());
+    expect(new Set(versions.map((version) => version.mst)).size).toBeLessThan(versions.length);
+    expect(scheduledLawVersions(`${source}\n${source}`, scheduledSearch.provenance.arguments.query, referenceDate))
+      .toEqual(versions);
+  });
+
+  it("preserves raw analysis while attaching the complete date-separated official future metadata", async () => {
+    const source = scheduledSearch.response.result.content.map((entry) => entry.text).join("\n");
+    const fetcher = vi.fn().mockResolvedValueOnce(toolText(trafficAnalysis.text)).mockResolvedValueOnce(toolText(source));
+    vi.stubGlobal("fetch", fetcher);
+    const response = await call({ ...applicable, date: trafficSource.provenance.arguments.efYd });
+    expect(response.status).toBe(200);
+    expect(response.json.data).toMatchObject({ text: trafficAnalysis.text,
+      temporal: { futureComplete: true, futureSourceText: source,
+        futureVersions: scheduledLawVersions(source, applicable.lawName, trafficSource.provenance.arguments.efYd) } });
+    expect(toolCall(fetcher, 1).params).toEqual({ name: "search_law", arguments: { query: applicable.lawName } });
+  });
+  it("checks published coverage before filtering dates already effective at the chosen reference date", async () => {
+    const source = scheduledSearch.response.result.content.map((entry) => entry.text).join("\n");
+    const published = scheduledLawVersions(source, applicable.lawName, "");
+    const fetcher = vi.fn().mockImplementation((_url: URL, init: RequestInit) => {
+      const name = JSON.parse(String(init.body)).params.name;
+      return Promise.resolve(toolText(name === "legal_analysis" ? trafficAnalysis.text : source));
+    });
+    vi.stubGlobal("fetch", fetcher);
+    // Every boundary comes from captured official commencement metadata, not a guessed law calendar.
+    for (const boundary of published) {
+      const response = await call({ ...applicable, date: boundary.effectiveDate });
+      expect(response.json.data).toMatchObject({ temporal: { futureComplete: true,
+        futureVersions: published.filter((version) => version.effectiveDate > boundary.effectiveDate) } });
+    }
+  });
+
+  it("does not declare a partial published schedule complete after reference-date filtering", async () => {
+    const source = scheduledSearch.response.result.content.map((entry) => entry.text).join("\n");
+    const published = scheduledLawVersions(source, applicable.lawName, "");
+    const partialSource = source.split("\n").filter((line) => line !== published[0].line).join("\n");
+    const fetcher = vi.fn().mockResolvedValueOnce(toolText(trafficAnalysis.text))
+      .mockResolvedValueOnce(toolText(partialSource));
+    vi.stubGlobal("fetch", fetcher);
+    const response = await call({ ...applicable, date: published[0].effectiveDate });
+    expect(response.json.data).toMatchObject({ temporal: { futureComplete: false,
+      futureVersions: scheduledLawVersions(partialSource, applicable.lawName, published[0].effectiveDate) } });
+  });
+
+  it("keeps missing future metadata explicitly incomplete rather than inventing a version list", async () => {
+    const fetcher = vi.fn().mockResolvedValueOnce(toolText(trafficAnalysis.text))
+      .mockResolvedValueOnce(toolText("[UPSTREAM_NO_DATA] 공식 자료 없음"));
+    vi.stubGlobal("fetch", fetcher);
+    const response = await call({ ...applicable, date: trafficSource.provenance.arguments.efYd });
+    expect(response.json.data).toMatchObject({ text: trafficAnalysis.text,
+      temporal: { futureComplete: false, futureVersions: [], futureError: expect.any(String) } });
+    expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
   it("reports hallucination detection as a result even with isError and keeps distinct markers in first-occurrence order", async () => {

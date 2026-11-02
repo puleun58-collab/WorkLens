@@ -23,6 +23,26 @@ describe("lawSystemTopSummary", () => {
     expect(lawSystemTopSummary(item([{ ...direct, subject: "대리인의 범위와 위임장 제출", parentParagraph: "1" }]))).toContain("제45조\n대리인의 범위와 위임장 제출에 관한 사항");
     expect(lawSystemTopSummary(item([{ ...direct, jo: "제47조", parentParagraph: "3", subject: "수수료·우송료" }, direct]))).toMatch(/제1항 → 시행령 제45조[\s\S]*제3항 → 시행령 제47조/u);
   });
+
+  it("omits the parent-law prefix only within the same identified law context", () => {
+    const direct = { ...article("twoWay", "제45조"), parentJo: "제38조", parentParagraph: "1", subject: "대리인" };
+    const before = structuredClone(direct);
+    expect(lawSystemTopSummary(item([direct]), "개인정보 보호법")).toBe("제38조 제1항 → 시행령 제45조\n대리인에 관한 사항");
+    expect(lawSystemTopSummary(item([direct]), "식품위생법")).toContain("개인정보 보호법 제38조");
+    expect(lawSystemTopSummary(item([direct]))).toContain("법 제38조");
+    expect(direct).toEqual(before);
+  });
+
+  it("keeps each delegated provision and its subject in a separate display group", () => {
+    const direct = { ...article("twoWay", "제45조"), parentJo: "제38조", parentParagraph: "1", subject: "대리인" };
+    const summary = lawSystemTopSummary(item([
+      { ...direct, jo: "제47조", parentParagraph: "3", subject: "수수료·우송료" }, direct,
+    ]), "개인정보 보호법");
+    expect(summary?.split("\n\n")).toEqual([
+      "제38조 제1항 → 시행령 제45조\n대리인에 관한 사항",
+      "제38조 제3항 → 시행령 제47조\n수수료·우송료에 관한 사항",
+    ]);
+  });
 });
 
 describe("groupLawSystemArticles", () => {

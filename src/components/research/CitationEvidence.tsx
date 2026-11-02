@@ -165,6 +165,24 @@ function applyClaimSupport(
   return { items, reasons };
 }
 
+/** A single final status at left; classifications and explanatory text stay with the title. */
+export function AnalysisResultCard({ status, title, help, meta, tone }: {
+  status: string;
+  title: ReactNode;
+  help?: ReactNode;
+  meta?: ReactNode;
+  tone?: string;
+}) {
+  return <div className={`legal-analysis-result-card${tone ? ` is-${tone}` : ""}`}>
+    <span className="legal-analysis-status">{status}</span>
+    <div className="legal-analysis-result-copy">
+      <div className="legal-analysis-citation-text">{title}</div>
+      {meta && <div className="legal-analysis-result-meta">{meta}</div>}
+      {help && <div className="law-search-note">{help}</div>}
+    </div>
+  </div>;
+}
+
 export function CitationResult({ items, groups, overallMarker, notes, input, verifiedAt, claimSupport }: {
   items: readonly CitationItem[];
   groups: readonly CitationGroupSummary[];
@@ -217,9 +235,13 @@ export function CitationResult({ items, groups, overallMarker, notes, input, ver
       <h3>{group === "law" ? "법령 인용" : "판례 인용"}</h3>
       <ul className="legal-analysis-citations">
         {entries.map(({ target, item }) => <li key={target.key} className={`is-${item.tone}`} data-markers={item.markers.join(" ")}>
-          <span className="legal-analysis-status">{item.label}</span>
-          <span className="legal-analysis-citation-text">{lawDisplayText(citationLabel(target))}</span>
-          {claimReasons.get(target.key) && <span className="law-search-note">{claimReasons.get(target.key)}</span>}
+          <AnalysisResultCard
+            status={item.label === "직접 근거 미확인" ? "미확인" : item.label}
+            title={lawDisplayText(citationLabel(target))}
+            meta={[group === "case" ? "판례 인용" : undefined, item.label === "직접 근거 미확인" ? "직접 근거" : undefined].filter(Boolean).join(" · ")}
+            help={claimReasons.get(target.key) || item.detail || undefined}
+            tone={item.tone}
+          />
         </li>)}
       </ul>
     </div> : null)}

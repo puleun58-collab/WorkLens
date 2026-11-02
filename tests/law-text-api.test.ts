@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { POST } from "@/app/api/law/text/route";
+import trafficReference from "./fixtures/law-text-traffic-reference.json";
 
 const KEY = "test-law-key-1234";
 const HEADER = "법령명: 근로기준법\n공포일: 20260219\n시행일: 20260820\n";
@@ -68,6 +69,69 @@ describe("POST /api/law/text", () => {
     expect(JSON.stringify(vi.mocked(console.info).mock.calls)).not.toContain(KEY);
     expect(JSON.stringify(vi.mocked(console.info).mock.calls)).not.toContain("283457");
   });
+  it("anchors the official source by reference date and checks returned metadata without rewriting raw text", async () => {
+    const text = trafficReference.response.result.content.map((entry) => entry.text).join("\n");
+    const effectiveDate = /^시행일:\s*(\d{8})$/mu.exec(text)![1];
+    const promulgationDate = /^공포일:\s*(\d{8})$/mu.exec(text)![1];
+    const fetcher = vi.fn().mockResolvedValue(toolText(text));
+    vi.stubGlobal("fetch", fetcher);
+    const input = { ...trafficReference.provenance.arguments, expectedEffectiveDate: effectiveDate,
+      expectedPromulgationDate: promulgationDate };
+    const response = await call(input);
+    expect(response.status).toBe(200);
+    expect(response.json.data).toMatchObject({ mode: "toc", text, effectiveDate, promulgationDate,
+      sourceIdentity: { ...trafficReference.provenance.arguments, effectiveDate, promulgationDate } });
+    expect(JSON.parse(String((fetcher.mock.calls[0] as [URL, RequestInit])[1].body)).params.arguments)
+      .toEqual(trafficReference.provenance.arguments);
+  });
+
+  it("does not reuse an MST-only source or fall back when a different effective-date identity cannot be confirmed", async () => {
+    const text = trafficReference.response.result.content.map((entry) => entry.text).join("\n");
+    const effectiveDate = /^시행일:\s*(\d{8})$/mu.exec(text)![1];
+    const fetcher = vi.fn().mockImplementation(() => Promise.resolve(toolText(text)));
+    vi.stubGlobal("fetch", fetcher);
+    const first = await call({ ...trafficReference.provenance.arguments, expectedEffectiveDate: effectiveDate });
+    expect(first.status).toBe(200);
+    // Deliberately mismatched selector, derived from the official fixture rather than a guessed law boundary.
+    const second = await call({ ...trafficReference.provenance.arguments,
+      efYd: effectiveDate, expectedEffectiveDate: trafficReference.provenance.arguments.efYd });
+    expect([second.status, second.json.error?.code]).toEqual([502, "LAW_VERSION_UNCONFIRMED"]);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(second.json.data).toBeUndefined();
+  });
+
+  it("rejects missing version metadata and upstream failures instead of substituting a planned source", async () => {
+    const text = trafficReference.response.result.content.map((entry) => entry.text).join("\n");
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(toolText(text.replace(/^시행일:.*\n/mu, "")))
+      .mockResolvedValueOnce(toolText("[UPSTREAM_NO_DATA] 원문 조회 실패"));
+    vi.stubGlobal("fetch", fetcher);
+    const missing = await call(trafficReference.provenance.arguments);
+    expect([missing.status, missing.json.error?.code]).toEqual([502, "LAW_VERSION_UNCONFIRMED"]);
+    const failure = await call(trafficReference.provenance.arguments);
+    expect([failure.status, failure.json.error?.code]).toEqual([502, "LAW_MCP_ERROR"]);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps article and supplementary-provision requests date anchored", async () => {
+    const text = trafficReference.response.result.content.map((entry) => entry.text).join("\n");
+    const header = text.slice(0, text.indexOf("\n목차"));
+    const fetcher = vi.fn().mockResolvedValueOnce(toolText(`${header}\n제1조 목적`))
+      .mockResolvedValueOnce(toolText(`${header}\n부칙`));
+    vi.stubGlobal("fetch", fetcher);
+    for (const jo of ["제1조", "부칙"]) {
+      const result = await call({ ...trafficReference.provenance.arguments, jo });
+      expect(result.json.data).toMatchObject({ found: true, mode: "article" });
+    }
+    expect(fetcher.mock.calls.map((entry) => JSON.parse(String((entry as [URL, RequestInit])[1].body)).params.arguments))
+      .toEqual(["제1조", "부칙"].map((jo) => ({ ...trafficReference.provenance.arguments, jo })));
+  });
+  it("does not label a returned table of contents as full article text merely because jo was requested", async () => {
+    const text = trafficReference.response.result.content.map((entry) => entry.text).join("\n");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(toolText(text)));
+    const response = await call({ ...trafficReference.provenance.arguments, jo: "제1조" });
+    expect(response.json.data).toMatchObject({ found: true, mode: "toc", text });
+  });
   it("accepts historical MSTs shorter than 6 digits (serial numbers of old law versions)", async () => {
     // 시점별 적용 분석이 반환하는 구 법령 버전 MST (예: 1965년 시행 민법 58432)도
     // 원문 조회 식별자로 쓸 수 있어야 한다. lawId는 고정 6자리라 별도다.
@@ -131,6 +195,8 @@ describe("POST /api/law/text", () => {
       { lawId: "1a1872" }, { lawId: "01872" }, { mst: "283457", lawId: "001872" },
       { mst: "283457", jo: "74" }, { mst: "283457", jo: "제0조" }, { mst: "283457", jo: "제10조의0" }, { mst: "283457", jo: "제74조; delete" }, { mst: "283457", jo: "제12345조" },
       { mst: "283457", tool: "search_law" }, { mst: "283457", url: "https://evil.test" }, { mst: "283457", apikey: KEY },
+      { mst: "283457", efYd: "20260230" }, { mst: "283457", efYd: "2026-11-02" },
+      { mst: "283457", expectedEffectiveDate: "20261102" },
     ]) {
       const failure = await call(body);
       expect([failure.status, failure.json.error?.code]).toEqual([400, "LAW_INVALID_REQUEST"]);

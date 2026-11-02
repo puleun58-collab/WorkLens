@@ -25,7 +25,8 @@ describe("server core completion versus additional retrieval", () => {
   });
   it("keeps a missing application requirement partial despite an available basis", async () => {
     vi.mocked(callLawTool).mockResolvedValue({ text: basis.replace(" 영업정지 요건은 해당 기준에 따른다.", ""), isError: false });
-    expect(await runLegalResearch({ task: "action_basis", query: "식품위생법 영업정지 근거와 요건" }, { requestId: "completion-unit" })).toMatchObject({ actionBasis: { status: "partial", items: [{ status: "found" }, { status: "viewed" }] } });
+    // The unretrieved detailed-criteria item stays visible as optional/missing without changing the partial verdict.
+    expect(await runLegalResearch({ task: "action_basis", query: "식품위생법 영업정지 근거와 요건" }, { requestId: "completion-unit" })).toMatchObject({ actionBasis: { status: "partial", items: [{ status: "found" }, { status: "viewed" }, { status: "none", optional: true }] } });
   });
   it.each(["law_system", "action_basis"] as const)("preserves confirmed %s checks even when extra candidate reads fail", async (task) => {
     vi.mocked(callLawTool).mockResolvedValue({ text: task === "law_system" ? system : basis, isError: false });

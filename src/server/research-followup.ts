@@ -10,6 +10,7 @@ export interface FollowupReport {
   status: "complete" | "partial" | "failed" | "not-searched";
   attempted: number;
   failed: number;
+  /** Attempted lookups without usable evidence; excludes unread limited entries. */
   missing: number;
   /** Unread candidates/budget exhaustion, not evidence of legal absence. */
   limited: boolean;
@@ -36,24 +37,23 @@ export async function retrieveResearchFollowup(
   const expired = () => now() - started >= 15_000;
   const articles = new Map<string, FollowupArticle>();
   const missing = (type: "조문" | "법령", name: string, reason: NonNullable<FollowupReport["unavailable"]>[number]["reason"]) => {
-    report.missing++;
+    if (reason !== "limited") report.missing++;
     (report.unavailable ??= []).push({ type, name, reason });
   };
   const readKeys = new Set<string>();
-  const safe = async <T>(read: () => Promise<T>): Promise<T | undefined> => {
-    if (expired()) { report.limited = true; return undefined; }
+  const safe = async <T>(read: () => Promise<T>): Promise<{ value?: T; reason?: "limited" | "failed" }> => {
+    if (expired()) { report.limited = true; return { reason: "limited" }; }
     report.attempted++;
-    try { return await read(); } catch { report.failed++; return undefined; }
+    try { return { value: await read() }; } catch { report.failed++; return { reason: "failed" }; }
   };
   const read = async (law: { name: string; mst: string }, jo: string): Promise<FollowupArticle | undefined> => {
     const key = `${compactLaw(law.name)}\0${jo}`;
     if (readKeys.has(key)) return articles.get(key);
-    if (readKeys.size >= 18 || expired()) { report.limited = true; return undefined; }
-    readKeys.add(key);
-    const failedBefore = report.failed;
-    const fetched = await safe(() => sources.article(law.mst, jo));
     const name = `${law.name} ${jo}`;
-    if (!fetched) { missing("조문", name, report.failed > failedBefore ? "failed" : report.limited ? "limited" : "not-found"); return undefined; }
+    if (readKeys.size >= 18 || expired()) { report.limited = true; missing("조문", name, "limited"); return undefined; }
+    readKeys.add(key);
+    const { value: fetched, reason } = await safe(() => sources.article(law.mst, jo));
+    if (!fetched) { missing("조문", name, reason ?? "not-found"); return undefined; }
     if (fetched.name && compactLaw(fetched.name) !== compactLaw(law.name)) { missing("조문", name, "mismatch"); return undefined; }
     const head = new RegExp(`^${jo}(?:\\s|\\()`, "mu");
     if (!head.test(fetched.text)) { missing("조문", name, "mismatch"); return undefined; }
@@ -109,17 +109,18 @@ export async function retrieveResearchFollowup(
       .map((article) => lawRoot(article.law)))].slice(0, 2);
   }
   for (const name of names) {
-    const failedBefore = report.failed;
-    const laws = await safe(() => sources.laws(name));
-    let exact = laws?.find((law) => compactLaw(law.name) === compactLaw(name));
+    const lookup = await safe(() => sources.laws(name));
+    let lookupReason = lookup.reason;
+    let exact = lookup.value?.find((law) => compactLaw(law.name) === compactLaw(name));
     // A joined spaced name that resolves to nothing falls back to its
     // fragment key, so a wrong join cannot lose a real law. One missing
     // per logical law, not per key tried.
     if (!exact && fallbackByName.has(compactLaw(name))) {
       const alt = await safe(() => sources.laws(fallbackByName.get(compactLaw(name))!));
-      exact = alt?.find((law) => compactLaw(law.name) === compactLaw(fallbackByName.get(compactLaw(name))!));
+      exact = alt.value?.find((law) => compactLaw(law.name) === compactLaw(fallbackByName.get(compactLaw(name))!));
+      lookupReason = lookupReason === "failed" ? "failed" : alt.reason ?? lookupReason;
     }
-    if (!exact) { missing("법령", name, report.failed > failedBefore ? "failed" : "not-found"); continue; }
+    if (!exact) { missing("법령", name, lookupReason ?? "not-found"); continue; }
     const parents: FollowupArticle[] = [];
     // A law-system followup that names a law-article pair keeps that pair's
     // own article as the parent set: chain-adopted seeds of the same law
@@ -139,7 +140,8 @@ export async function retrieveResearchFollowup(
     }
     // Procedure coverage includes periods and forms, which short chain previews omit.
     if (mode === "procedure_detail") {
-      const toc = await safe(() => sources.toc(exact.mst));
+      const { value: toc, reason } = await safe(() => sources.toc(exact.mst));
+      if (!toc) missing("법령", `${exact.name} 목차`, reason ?? "not-found");
       const candidates = (toc ?? []).filter((a) => /기간|기한|청구|신청|서식|서류/u.test(a.title));
       candidates.sort((a, b) => Number(/기간|기한/u.test(b.title)) - Number(/기간|기한/u.test(a.title)));
       report.limited ||= candidates.length > 4;
@@ -176,8 +178,8 @@ export async function retrieveResearchFollowup(
       for (const candidate of expandable.slice(0, 2)) {
         if (expired()) { report.limited = true; break; }
         const found = await safe(() => sources.laws(candidate.law));
-        const lawObj = found?.find((law) => compactLaw(law.name) === compactLaw(candidate.law));
-        if (!lawObj) continue;
+        const lawObj = found.value?.find((law) => compactLaw(law.name) === compactLaw(candidate.law));
+        if (!lawObj) { missing("법령", candidate.law, found.reason ?? "not-found"); continue; }
         const fetched = await read(lawObj, candidate.jo);
         if (!fetched) continue;
         if (![...parentJos].some((jo) => citesParent(fetched.body, jo))) continue;
@@ -207,10 +209,11 @@ export async function retrieveResearchFollowup(
     const tierPlans: Array<{ lower: { name: string; mst: string }; candidates: Array<{ jo: string; title: string; score: number }>; read: number }> = [];
     for (const tier of tiers) {
       const targetName = `${exact.name} ${tier}`;
-      const failedBefore = report.failed;
-      const lower = (await safe(() => sources.laws(targetName)))?.find((law) => compactLaw(law.name) === compactLaw(targetName));
-      if (!lower) { missing("법령", targetName, report.failed > failedBefore ? "failed" : "not-found"); continue; }
-      const toc = await safe(() => sources.toc(lower.mst));
+      const lookup = await safe(() => sources.laws(targetName));
+      const lower = lookup.value?.find((law) => compactLaw(law.name) === compactLaw(targetName));
+      if (!lower) { missing("법령", targetName, lookup.reason ?? "not-found"); continue; }
+      const { value: toc, reason } = await safe(() => sources.toc(lower.mst));
+      if (!toc) missing("법령", `${targetName} 목차`, reason ?? "not-found");
       const candidates = (toc ?? []).map((entry) => {
         const words = questionTerms(entry.title).filter((t) => !isLawName(t) && isSubjectTerm(t) && !lawNameCompact.includes(compactLaw(t)));
         const score = words.reduce((n, t) => n + (compactLaw(parentText).includes(compactLaw(t)) ? Math.min(t.length, 6) : 0), 0)

@@ -735,7 +735,7 @@ const ANALYSIS_TEXT: Record<string, string> = {
   verify_citations: "[PARTIAL_VERIFIED] == 인용 검증 결과 ==\n법령 인용 3건 | ✓ 1 실존 | ✗ 1 오류 | ⌛ 0 폐지 | ⚠ 1 확인필요\n판례 인용 0건 | ✓ 0 실존 | ✗ 0 실존불가 | ⚠ 0 미확인\n\n▶ 법령 인용\n✓ 민법 제750조(불법행위의 내용) 실존\n✗ 형법 제9999조 — [NOT_FOUND] 해당 조문 없음 (존재 범위: 제1조~제372조)\n⚠ 같은 법 시행규칙 제2조 — 법령명 불명확\n\n💡 ⚠ 항목은 법령명 불명확/부분 매칭/API 일시 실패 등. 법령명을 명시하거나 재시도하세요.",
   cite_check: "═══ 판례 인용 추적 (Citator): 2013다61381 ═══\n대상: 대법원 2018.10.30 선고 2013다61381 전원합의체 판결\n사건명: 손해배상(기)\n판시사항: [1] 조약의 해석 방법과 당사국 사이에 이루어진 합의의 적용 범위\n  기준 사건에서 당사자가 주장한 청구권의 적용 대상에 관한 설명\n\n📊 판정: ✅ 후속 인용 2건, 변경·폐기 신호 미감지 — 계속 인용되는 것으로 추정\n\n▶ 이 판례를 인용한 후속 판례 (2건, 최신순)\n  1. 대법원 2024.01.25 2019다3226 — 손해배상\n\n⚠️ 한계: 법제처 수록 판례(대법원 중심) 범위 내 검색입니다.",
   applicable_law: "═══ 행위시법 판단: 도로교통법 @ 2023.05.10 ═══\n\n▶ 기준일에 시행 중이던 버전\n  도로교통법 [시행 2023.04.04] (MST 247265)\n\n▶ 현행과 비교: △ 변경됨 — 현행 본문과 다릅니다.\n\n▶ 적용례·경과조치 발췌 (기준일 사건에 영향 가능 — 반드시 확인)\n  ◆ 부칙 <제20864호, 2025.04.01>\n    제2조(운전면허의 결격사유에 관한 적용례) 긴 부칙 문장이 줄바꿈 없이 이어지는 경우에도 화면 폭 안에서 줄바꿈되어야 합니다",
-  impact_map: "═══ Impact Map: 민법 제103조 ═══\n\n▶ 대상 조문 본문\n제103조(반사회질서의 법률행위) 선량한 풍속 기타 사회질서에 위반한 사항을 내용으로 하는 법률행위는 무효로 한다.\n\n▶ 영향 그래프 (이 조문이 인용된 곳)\n├─ 📚 대법원 판례: 7건 확인 / 검색 42건 — 표본 10건만 경계 확인, 나머지는 미확인\n│   • [245007] 반사회적 법률행위 · 사건번호: 대법원-2023-다-302036\n├─ ⚖️ 헌재 결정례: 조회 실패 (업스트림 오류로 확인 못 함, 0건이 아님)\n└─ 🏛️ 자치법규(법령 단위·조번호 미반영): 2건\n\n▶ 총 영향 건수(경계 확인분): 9건 — 표본을 넘는 검색 결과가 있어 실제는 더 많을 수 있음",
+  impact_map: "═══ Impact Map: 민법 제103조 ═══\n\n▶ 대상 조문 본문\n제103조(반사회질서의 법률행위) 선량한 풍속 기타 사회질서에 위반한 사항을 내용으로 하는 법률행위는 무효로 한다.\n\n▶ 영향 그래프 (이 조문이 인용된 곳)\n├─ 📚 대법원 판례: 1건 확인 / 검색 42건 — 표본 10건만 경계 확인, 나머지는 미확인\n│   • [245007] 반사회적 법률행위 · 사건번호: 대법원-2023-다-302036\n├─ ⚖️ 헌재 결정례: 조회 실패 (업스트림 오류로 확인 못 함, 0건이 아님)\n└─ 🏛️ 자치법규(법령 단위·조번호 미반영): 2건\n\n▶ 총 영향 건수(경계 확인분): 9건 — 표본을 넘는 검색 결과가 있어 실제는 더 많을 수 있음",
 };
 
 async function routeAnalysis(page: Page, requests: unknown[], failFirst = new Set<string>()) {
@@ -816,7 +816,7 @@ test("RESEARCH analysis runs each fixed mode, keeps MCP meaning and retries with
   await page.getByLabel("사건번호").fill("2013다61381");
   await page.locator(".legal-analysis-form").getByRole("button", { name: "실행" }).click();
   await expect(page.locator(".legal-analysis-title")).toHaveText("판례 인용 추적: 2013다61381");
-  await expect(page.locator(".legal-analysis-verdict")).toContainText("후속 인용 2건에서 변경·폐기 정황을 확인하지 못했습니다. 현재까지 계속 인용되는 것으로 보입니다.");
+  await expect(page.locator(".legal-analysis-result-card")).toContainText("후속 인용 2건에서 변경·폐기 정황을 확인하지 못했습니다. 현재까지 계속 인용되는 것으로 보입니다.");
   await expect(page.locator(".legal-analysis-output")).toContainText("후속 판례를 기준으로 자동 확인한 결과입니다.");
   await expect(page.locator(".legal-analysis-output")).not.toContainText(/신호|휴리스틱|미감지/u);
   const citeOutput = page.locator(".legal-analysis-output");
@@ -838,7 +838,7 @@ test("RESEARCH analysis runs each fixed mode, keeps MCP meaning and retries with
   await expect(applicableSubmit).toBeDisabled();
   await analysisForm.getByLabel("기준일").fill("2023-05-10");
   await applicableSubmit.click();
-  await expect(page.locator(".legal-analysis-title")).toHaveText("행위시법 판단: 도로교통법 · 기준일 2023.05.10");
+  await expect(page.locator(".legal-analysis-title")).toHaveText("도로교통법");
   await expect(page.locator(".legal-analysis-output")).toContainText("현행과 비교: △ 변경됨");
 
   await modes.getByRole("tab", { name: "조문 영향도" }).click();
@@ -850,16 +850,20 @@ test("RESEARCH analysis runs each fixed mode, keeps MCP meaning and retries with
   await expect(failedAxis).toContainText("조회 실패");
   await expect(failedAxis).toContainText("0건이 아니라 확인하지 못한 상태입니다.");
   const partialAxis = page.locator('.legal-analysis-axes tr[data-state="partial"]').first();
-  await expect(partialAxis.locator("td").first()).toHaveText("확인 7건");
+  await expect(partialAxis.locator("td").first()).toHaveText("확인 1건 · 추가 확인 0건");
   await expect(partialAxis.locator(".impact-citation-detail")).toContainText("검색 결과 42건 중 10건을 확인했습니다.");
-  await expect(page.locator('.legal-analysis-axes tr[data-state="law_only"]')).toContainText("조문 단위의 일치 여부는 확인되지 않았습니다.");
-  // The confirmed badge carries the existing article-matched total; follow-up and failures count 자료 유형 rows, never summed.
+  // An aggregate without returned source IDs is never shown as individually confirmed or pending materials.
+  await expect(page.locator(".legal-analysis-axes tbody tr").filter({ hasText: "자치법규" })).toContainText("개별 자료 확인 불가");
+  // Header totals count individually identified materials, never upstream candidate totals or type rows.
   const summary = page.locator(".impact-citations-summary");
-  await expect(summary.getByLabel("확인된 인용 결과 7건", { exact: true })).toHaveText("확인 7건");
-  await expect(summary).toContainText("추가 확인");
+  await expect(summary.getByLabel("확인된 인용 결과 1건", { exact: true })).toHaveText("확인 1건");
+  await expect(summary.getByText("추가 확인 0건", { exact: true })).toBeVisible();
   await expect(summary).toContainText("조회 실패 1개 유형");
   await expect(page.locator(".legal-analysis-axes thead th")).toHaveText(["자료 유형", "검색 결과", "확인 내용"]);
-  await expect(page.locator(".impact-citations-note")).toContainText("실제 법령명과 조문이 일치하는 결과만 집계합니다.");
+  // 42 search hits minus 10 checked is 32 unexamined hits, not individually confirmed/pending materials.
+  await expect(summary).not.toContainText(/(?:확인|추가 확인) (?:7|9|32|42)건/u);
+  await expect(page.locator(".impact-citations-note")).toContainText("32건");
+  await expect(page.locator(".impact-citations-note")).not.toContainText("확인된 인용 결과 1건");
   await expect(page.locator(".legal-analysis-output")).toContainText("인용 현황");
   const shownImpact = await page.locator(".legal-analysis-output").evaluate((node) => [...node.children].filter((child) => !child.matches("details")).map((child) => child.textContent).join("\n"));
   expect(shownImpact).not.toMatch(/표본|보류|부분 일치|영향 그래프|총 영향 건수|미반영/u);
@@ -870,7 +874,7 @@ test("RESEARCH analysis runs each fixed mode, keeps MCP meaning and retries with
   await impactOutput.locator(".law-detail-source summary").click();
   await expect(impactOutput.locator(".legal-analysis-raw")).toContainText("제103조(반사회질서의 법률행위)");
   await expect(impactOutput.locator(".law-detail-source")).toContainText("245007");
-  await expect(impactOutput.locator(".law-detail-source")).not.toContainText("7건 확인 / 검색 42건");
+  await expect(impactOutput.locator(".law-detail-source")).not.toContainText("1건 확인 / 검색 42건");
   await impactOutput.locator(".law-detail-source summary").click();
 
   expect(requests.slice(2)).toEqual([
@@ -1000,27 +1004,41 @@ test("citation claim support separates existence from claim support in mixed inp
   await expect(output.locator(".legal-analysis-overall")).not.toHaveText("추출된 인용이 모두 확인되었습니다.");
 });
 
-test("applicable law separates decision from legal source across transition and lookup states", async ({ page }) => {
-  const title = "═══ 행위시법 판단: 도로교통법 @ 2023.05.10 ═══";
-  const version = "▶ 기준일에 시행 중이던 버전\n  도로교통법 [시행 2023.04.04] (MST 247265)\n  ⚠️ 시행 예정 개정 1건 존재 — 시행 2027.06.03";
-  const article = "▶ 기준일 시점 조문: 제44조\n제44조(술에 취한 상태에서의 운전 금지)\n① 누구든지 술에 취한 상태에서 운전하여서는 아니 된다.";
-  const comparison = "▶ 현행과 비교: △ 변경됨 — 현행 본문과 다릅니다.";
-  const addenda = "▶ 적용례·경과조치 발췌 (기준일 사건에 영향 가능)\n◆ 부칙 <제20864호, 2025.04.01>\n제2조(적용례) 종전 규정을 적용한다.";
-  const unconfirmed = "▶ 적용례·경과조치: 관련 부칙에서 경과규정 신호 미발견 — 부칙 원문 확인: get_law_text";
-  let transition = addenda;
-  let sourceFails = false;
+test("applicable law freezes reference identity, preserves disclosures and rejects mismatched or missing sources", async ({ page }) => {
   const sourceCalls: unknown[] = [];
-  await page.route("**/api/law/analysis", (route) => route.fulfill({
-    status: 200, contentType: "application/json",
-    body: JSON.stringify({ data: { found: true, mode: "applicable_law", markers: [], text: [title, version, article, comparison, transition].join("\n\n") } }),
-  }));
+  let sourceState: "found" | "mismatch" | "error" | "missing" = "found";
+  await page.route("**/api/law/analysis", (route) => {
+    const input = route.request().postDataJSON() as { date: string; jo?: string };
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: {
+      found: true, mode: "applicable_law", markers: [],
+      temporal: { futureComplete: true, futureVersions: ["20261203", "20270603"].map((effectiveDate) => ({
+        lawName: "도로교통법", mst: "286419", effectiveDate, promulgationDate: "20260602", promulgationNumber: "21728",
+        line: `도로교통법 제21728호 · 공포 2026.06.02 · 시행 ${effectiveDate} · 일부개정 · 부분 시행`,
+      })) },
+      text: [
+        `═══ 행위시법 판단: 도로교통법 @ ${input.date.replaceAll("-", ".")} ═══`,
+        "▶ 기준일에 시행 중이던 버전\n도로교통법 [시행 2023.04.04] [제19082호, 2022.12.27, 일부개정] (MST 247265)\n⚠️ 시행 예정 개정 1건 존재 — 시행 2027.06.03",
+        "▶ 적용례·경과조치 발췌\n◆ 부칙 <제19082호, 2022.12.27>\n제2조(적용례) 종전 규정을 적용한다.",
+        "▶ 적용 법령 판단 시 주의\n- 형사처벌: 행위시법 원칙 (형법 제1조제1항). 단, 재판 시 법이 더 가벼우면 신법 적용 (같은 조 제2항)",
+      ].join("\n\n"),
+    } }) });
+  });
   await page.route("**/api/law/text", (route) => {
+    const input = route.request().postDataJSON() as { jo?: string; efYd?: string };
     sourceCalls.push(route.request().postDataJSON());
-    return route.fulfill(sourceFails
-      ? { status: 502, contentType: "application/json", body: JSON.stringify({ error: { message: "get_law_text 내부 오류" } }) }
-      : { status: 200, contentType: "application/json", body: JSON.stringify({ data: {
-        found: true, mode: "article", text: `법령명: 도로교통법\n\n제44조(술에 취한 상태에서의 운전 금지)\n① 누구든지 술에 취한 상태에서 운전하여서는 아니 된다.\n${"연속조문".repeat(80)}`,
-      } }) });
+    if (input.efYd === "20261203" || input.efYd === "20270603") return route.fulfill({
+      status: 200, contentType: "application/json", body: JSON.stringify({ data: {
+        found: true, mode: "article", name: "도로교통법", effectiveDate: sourceState === "mismatch" ? "20271014" : input.efYd, promulgationDate: "20260602",
+        text: sourceState === "mismatch" ? "불일치 예정 원문" : `예정 버전 ${input.efYd} 원문`,
+      } }),
+    });
+    if (sourceState === "error") return route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ error: { message: "원문 판본 불일치" } }) });
+    if (sourceState === "missing") return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { found: false, marker: "NOT_FOUND" } }) });
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: {
+      found: true, mode: input.jo ? "article" : "toc", name: "도로교통법",
+      effectiveDate: sourceState === "mismatch" ? "20270414" : "20230404", promulgationDate: "20221227",
+      text: sourceState === "mismatch" ? "미래 판본 내용" : input.jo ? "제44조(술에 취한 상태에서의 운전 금지)\n① 누구든지 술에 취한 상태에서 운전하여서는 아니 된다." : "제1조(목적)\n제44조(술에 취한 상태에서의 운전 금지)",
+    } }) });
   });
   await page.goto("/");
   await navigateWorkspace(page, "법령");
@@ -1033,46 +1051,91 @@ test("applicable law separates decision from legal source across transition and 
   const run = form.getByRole("button", { name: "실행" });
   await run.click();
   const output = page.locator(".legal-analysis-output");
-  const decision = output.locator(".legal-analysis-section").filter({ hasText: "시행 예정 개정" }).first();
-  await expect(decision).toContainText("도로교통법 · 시행 2023.04.04");
-  await expect(output.locator(".legal-analysis-section").filter({ hasText: "기준일 시행 조문" })).not.toContainText("누구든지 술에 취한");
-  await expect(output).toContainText("관련 부칙 발췌를 원문에서 확인해 주세요.");
-  const raw = output.locator(".law-detail-source");
+  await expect(output.locator(".legal-analysis-result-card .legal-analysis-status")).toHaveText("확인됨");
+  await expect(output).toContainText("기준일에 시행 중인 법령입니다.");
+  const raw = output.locator("details").filter({ has: page.locator("summary", { hasText: "기준일 적용 법령 원문" }) });
+  const future = output.locator("details").filter({ has: page.locator(":scope > summary", { hasText: "향후 시행 예정 버전" }) });
   await expect(raw).not.toHaveAttribute("open", "");
-  expect(sourceCalls).toHaveLength(0);
+  await expect(future).not.toHaveAttribute("open", "");
+  await expect(future.locator(":scope > summary")).toContainText("향후 시행 예정 버전 2건 · 가장 빠른 시행 예정일: 2026.12.03");
   await raw.locator("summary").click();
-  await expect(raw.locator(".legal-analysis-raw")).toContainText("① 누구든지 술에 취한 상태에서 운전하여서는 아니 된다.");
-  await expect(raw).toContainText("제2조(적용례) 종전 규정을 적용한다.");
-  await expect(raw).not.toContainText("현행과 비교:");
-  await expect(output).not.toContainText(/get_law_text|경과규정 없음/u);
-  expect(sourceCalls).toEqual([{ mst: "247265", jo: "제44조" }]);
-  await page.setViewportSize({ width: 390, height: 844 });
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await raw.locator("summary").click();
-  await expect(raw).not.toHaveAttribute("open", "");
-  await page.setViewportSize({ width: 1440, height: 900 });
-
-  transition = unconfirmed;
+  await future.locator(":scope > summary").click();
+  await expect(raw).toContainText("① 누구든지 술에 취한");
+  await form.getByLabel("법령명", { exact: true }).fill("도로교통법 ");
+  await expect(raw).toHaveAttribute("open", "");
+  await expect(future).toHaveAttribute("open", "");
+  expect(sourceCalls).toEqual([{ mst: "247265", efYd: "20230510", expectedEffectiveDate: "20230404", expectedPromulgationDate: "20221227", jo: "제44조" }]);
+  const futureSources = future.locator("details");
+  await expect(futureSources).toHaveCount(2);
+  await expect(futureSources.nth(0)).not.toHaveAttribute("open", "");
+  await expect(futureSources.nth(1)).not.toHaveAttribute("open", "");
+  await futureSources.nth(0).locator("summary").click();
+  await expect(futureSources.nth(0)).toContainText("예정 버전 20261203 원문");
+  await futureSources.nth(1).locator("summary").click();
+  await expect(futureSources.nth(1)).toContainText("예정 버전 20270603 원문");
+  expect(sourceCalls.slice(1)).toEqual([
+    { mst: "286419", efYd: "20261203", expectedEffectiveDate: "20261203", expectedPromulgationDate: "20260602", jo: "제44조" },
+    { mst: "286419", efYd: "20270603", expectedEffectiveDate: "20270603", expectedPromulgationDate: "20260602", jo: "제44조" },
+  ]);
+  await expect(raw).toContainText("① 누구든지 술에 취한");
+  await expect(raw).not.toContainText("예정 버전");
+  // Each confirmed original links to its own dated official route, never the current-law page.
+  const official = (version: string) => `https://www.law.go.kr/법령/${encodeURIComponent("도로교통법")}/(${version})`;
+  await expect(raw.getByRole("link", { name: "국가법령정보센터 공식 출처" })).toHaveAttribute("href", official("20230404,19082,20221227"));
+  await expect(futureSources.nth(0).getByRole("link", { name: "국가법령정보센터 공식 출처" })).toHaveAttribute("href", official("20261203,21728,20260602"));
+  await expect(futureSources.nth(1).getByRole("link", { name: "국가법령정보센터 공식 출처" })).toHaveAttribute("href", official("20270603,21728,20260602"));
+  for (const state of ["mismatch", "error", "missing"] as const) {
+    sourceState = state;
+    await run.click();
+    await expect(output.locator(".legal-analysis-result-card .legal-analysis-status")).toHaveText("미확인");
+    await expect(raw).not.toHaveAttribute("open", "");
+    await expect(future).not.toHaveAttribute("open", "");
+    await raw.locator("summary").click();
+    await expect(raw).toContainText("기준일 원문을 확보하지 못했습니다.");
+    if (state === "mismatch") {
+      await future.locator(":scope > summary").click();
+      await future.locator("details").first().locator("summary").click();
+      await expect(future.locator("details").first()).toContainText("예정 버전 원문을 확보하지 못했습니다.");
+      await expect(future).not.toContainText("불일치 예정 원문");
+      await expect(raw).toContainText("기준일 원문을 확보하지 못했습니다.");
+    }
+    await expect(output).not.toContainText("미래 판본 내용");
+    await expect(output).not.toContainText("기준일에 시행 중인 법령입니다.");
+  }
+  sourceState = "found";
+  await form.getByLabel("조문 (선택)").fill("");
   await run.click();
-  await expect(output).toContainText("적용례·경과조치: 관련 부칙에서 경과규정을 확인하지 못했습니다. 부칙 원문을 확인해 주세요.");
-  await expect(output).not.toContainText(/get_law_text|경과규정 없음/u);
-  sourceFails = true;
-  await output.locator(".law-detail-source summary").click();
-  await expect(output.locator(".law-detail-source")).toContainText("원문을 불러오지 못했습니다.");
-  await expect(output).toContainText("기준일에 시행 중이던 버전");
-  await expect(output).not.toContainText("get_law_text");
-  await output.locator(".law-detail-source summary").click();
-  await page.route("**/api/law/text", (route) => route.fulfill({
-    status: 200, contentType: "application/json",
-    body: JSON.stringify({ data: { found: false, marker: "NOT_FOUND", text: "[NOT_FOUND] 요청한 조문을 찾지 못했습니다." } }),
-  }));
-  await output.locator(".law-detail-source summary").click();
-  await expect(output.locator(".law-detail-source")).toContainText("요청한 조문 원문을 찾지 못했습니다.");
-  await expect(output).toContainText("관련 부칙에서 경과규정을 확인하지 못했습니다.");
-  await page.setViewportSize({ width: 390, height: 844 });
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await output.locator(".law-detail-source summary").click();
-  await expect(output.locator(".law-detail-source")).not.toHaveAttribute("open", "");
+  await expect(output.locator(".legal-analysis-result-card .legal-analysis-status")).toHaveText("확인됨");
+  await expect(output).toContainText("개별 조문의 적용 여부는 확인하지 않았습니다.");
+  await expect(output.locator("summary").filter({ hasText: "법령 목차" })).toBeVisible();
+  const { promise: oldGate, resolve: releaseOld } = Promise.withResolvers<void>();
+  let oldStarted = false;
+  let oldFinished = false;
+  await page.route("**/api/law/text", async (route) => {
+    const input = route.request().postDataJSON() as { efYd: string };
+    const old = input.efYd === "20230511";
+    if (old) {
+      oldStarted = true;
+      await oldGate;
+    }
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: {
+      found: true, mode: "toc", name: "도로교통법", effectiveDate: "20230404", promulgationDate: "20221227",
+      text: old ? "이전 요청 원문" : "새 요청 원문",
+    } }) }).catch(() => undefined);
+    if (old) oldFinished = true;
+  });
+  await form.getByLabel("기준일").fill("2023-05-11");
+  await run.click();
+  await expect.poll(() => oldStarted).toBe(true);
+  await form.getByLabel("기준일").fill("2023-05-12");
+  await run.click();
+  await expect(output.locator(".legal-analysis-result-card .legal-analysis-status")).toHaveText("확인됨");
+  await output.locator("summary").filter({ hasText: "법령 목차" }).click();
+  await expect(output).toContainText("새 요청 원문");
+  releaseOld();
+  await expect.poll(() => oldFinished).toBe(true);
+  await expect(output).not.toContainText("이전 요청 원문");
+  await expect(output).toContainText("기준일: 2023-05-12");
 });
 
 test("law article and precedent detail open analyses with their structured identifiers and return without refetch", async ({ page }) => {
@@ -1140,7 +1203,7 @@ test("law article and precedent detail open analyses with their structured ident
   await page.getByRole("button", { name: "판례 유효성 확인" }).click();
   await expect(page.getByRole("tab", { name: "판례 유효성", selected: true })).toBeVisible();
   await expect(page.locator("#analysis-case")).toHaveValue("2013다61381");
-  await expect(page.locator(".legal-analysis-verdict")).toBeVisible();
+  await expect(page.locator(".legal-analysis-result-card")).toBeVisible();
   expect(analysis.at(-1)).toEqual({ mode: "cite_check", caseNumber: "2013다61381" });
   const tiers = await page.evaluate(() => {
     const primary = document.querySelector('[aria-label="법령 자료 유형"] [role="tab"][aria-selected="true"]')!, secondary = document.querySelector('[aria-label="검증·분석 유형"] [role="tab"][aria-selected="true"]')!;

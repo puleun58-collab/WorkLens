@@ -7,6 +7,7 @@ import { assessActionBasis } from "../src/lib/action-basis-evidence";
 import type { LawResearchData, LawResearchRequest } from "../src/lib/law-research";
 import food from "./fixtures/law-action-basis-food-suspension.json";
 import privacy from "./fixtures/law-system-privacy-38.json";
+import foodAnnex from "./fixtures/law-annex-food-23.json";
 
 const excerpt = "① 해고의 기준을 확인한다.\n② 마지막 항도 보존한다.";
 const article = { law: "근로기준법", jo: "제23조", title: "해고 등의 제한", excerpt, effectiveDate: "2025.01.01", matched: ["해고"] };
@@ -41,12 +42,16 @@ it("distinguishes the two directly delegated articles from citations in the summ
   const lawSystem = assessLawSystem(privacy.text, privacy.query);
   const html = render({ found: true, task: "law_system", text: privacy.text, markers: [], lawSystem });
   const summary = html.slice(0, html.indexOf('aria-label="상세 근거"'));
-  expect(summary).toContain("법 제38조 제1항 → 시행령 제45조");
+  expect(summary).toContain("제38조 제1항 → 시행령 제45조");
   expect(summary).toContain("대리인의 범위와 위임장 제출에 관한 사항");
-  expect(summary).toContain("법 제38조 제3항 → 시행령 제47조");
+  expect(summary).toContain("제38조 제3항 → 시행령 제47조");
   expect(summary).toContain("수수료·우송료에 관한 사항");
   expect(summary).not.toContain("→ 시행령 제42조의8");
   expect(summary).toMatch(/관련 규정: 시행령 제42조의5·제42조의8/u);
+  expect(summary).not.toContain("법 제38조");
+  const relations = [...summary.matchAll(/class="research-law-system-relation">([\s\S]*?)<\/span><\/span>/gu)].map((match) => match[1]);
+  expect(relations.some((group) => group.includes("시행령 제45조") && group.includes("대리인의 범위와 위임장 제출"))).toBe(true);
+  expect(relations.some((group) => group.includes("시행령 제47조") && group.includes("수수료·우송료"))).toBe(true);
 });
 
 it("keeps the overview short and folds supporting sources and originals once", () => {
@@ -67,6 +72,33 @@ it("keeps the overview short and folds supporting sources and originals once", (
   expect(lower).not.toContain("공식 출처 ·");
 });
 
+  it("keeps an unresolved optional criteria item in the overview without changing the core verdict", () => {
+    const html = render({ ...base, task: "action_basis", actionBasis: { status: "matched", items: [
+      { label: "처분·허가 근거", title: "처분 근거", status: "found" },
+      { label: "적용 요건", status: "found" },
+      { label: "세부 기준(별표)", title: "세부 처분 기준", optional: true, status: "none",
+        summary: "관련 기준의 원문 확인 필요", uncertainty: "별표 원문 미확보" },
+    ] } });
+    const criteriaStart = html.indexOf("03</span>");
+    const criteria = html.slice(criteriaStart, html.indexOf("</li>", criteriaStart));
+    expect(criteria).toContain("세부 처분 기준");
+    expect(criteria).toContain('data-status="none"');
+    expect(criteria).not.toContain("(참고)");
+    expect(criteria).toContain("관련 기준의 원문 확인 필요");
+    expect(html).toMatch(/research-summary-status[^>]*data-tone="success"/u);
+  });
+
+  it("folds plain statute fallback bodies but leaves explanatory or missing-source prose outside original controls", () => {
+    const body = "① 위반행위를 한 자에게 벌칙을 적용한다.";
+    const html = render({ ...base, task: "action_basis", text: `═══ 처분 근거 ═══\n▶ 벌칙·과태료 조항\n제93조(벌칙)\n${body}\n▶ 검토 설명\n사실관계가 없어 적용 여부를 확정하지 않습니다.\n▶ 법령 원문 확인 상태\n원문을 확인하지 못했습니다.` });
+    const statute = html.slice(html.indexOf('data-kind="other"><h3>벌칙'), html.indexOf("검토 설명"));
+    expect(statute).toContain("research-original-body");
+    expect(statute).toContain(body);
+    expect(statute).not.toMatch(/<details[^>]*\bopen=/u);
+    expect(statute.match(/<details\b/gu)).toHaveLength(1);
+    expect(html).toContain('검토 설명</h3><pre');
+    expect(html).toContain('법령 원문 확인 상태</h3><pre');
+  });
 describe("research result source structure", () => {
   it("links independent action checks to retrieved originals and keeps missing requirements accessible", () => {
     const actionText = "═══ 처분 근거 확인: 식품위생법 ═══\n▶ 법령 체계\n[법률] 식품위생법 제75조 (영업정지)\n영업정지 처분을 할 수 있다.";
@@ -132,7 +164,9 @@ describe("research result source structure", () => {
       { label: "처분·허가 근거", status: "found", basisRefs: [] },
     ] }, followup: { status: failed ? "failed" : "partial", attempted: 2, failed: failed ? 2 : 0, missing: 1, limited: true } });
     expect(html).toMatch(/research-summary-status[^>]*data-tone="success"[^>]*>.*?관련 근거 확인/u);
-    expect(html).toMatch(/research-summary-notice[^>]*data-tone="info"[^>]*>.*?일부 참고 자료 미확보/u);
+    expect(html).toContain(failed ? "추가 참고 자료 조회 미완료" : "추가 참고 자료 미확인");
+    expect(html).not.toContain("일부 참고 자료 미확보");
+    expect(html).not.toContain("시간·조회 한도");
     expect(html).not.toContain('class="legal-analysis-title" data-status="partial"');
     if (failed) expect(html).toContain("조회 실패 2건");
   });
@@ -175,7 +209,8 @@ describe("research result source structure", () => {
     const complete = render({ ...base, task: "action_basis", actionBasis: { status: "matched", items: [
       { label: "처분·허가 근거", status: "found" },
     ] }, followup: { status: "partial", attempted: 2, failed: 1, missing: 1, limited: false, unavailable } });
-    expect(complete).toContain("일부 참고 자료 미확보");
+    expect(complete).toContain("추가 참고 자료 조회 미완료");
+    expect(complete).not.toContain("일부 참고 자료 미확보");
     expect(complete).toContain("식품위생법 시행규칙 제89조 조문 조회 실패");
     const incomplete = render({ ...base, task: "action_basis", actionBasis: { status: "partial", items: [
       { label: "처분·허가 근거", status: "found" }, { label: "적용 요건", status: "viewed" },
@@ -186,6 +221,32 @@ describe("research result source structure", () => {
       { label: "처분·허가 근거", status: "found" },
     ] }, followup: { status: "complete", attempted: 2, failed: 0, missing: 0, limited: false } });
     expect(noMissing).not.toContain("일부 참고 자료 미확보");
+  });
+
+  it.each(["not-found", "mismatch", "incomplete"] as const)("reports an actually attempted unavailable original (%s) without exposing audit limits", (reason) => {
+    const html = render({ ...base, task: "action_basis", actionBasis: { status: "matched", items: [
+      { label: "처분·허가 근거", status: "found" },
+    ] }, followup: { status: "partial", attempted: 1, failed: 0, missing: 1, limited: true, unavailable: [
+      { type: "조문", name: "식품위생법 시행규칙 제89조", reason },
+      { type: "조문", name: "미조회 후보", reason: "limited" },
+    ] } });
+    expect(html).toContain("일부 참고 자료 미확보");
+    expect(html).toContain("핵심 근거는 확인했으며, 보충 자료 일부를 확보하지 못했습니다.");
+    expect(html).toContain("식품위생법 시행규칙 제89조");
+    expect(html).not.toContain("미조회 후보");
+    expect(html).not.toContain("조회 한도");
+  });
+
+  it("keeps legacy unattempted and unspecified gaps distinct from unavailable originals", () => {
+    for (const unavailable of [undefined, [{ type: "조문" as const, name: "미조회 후보", reason: "limited" as const }]]) {
+      const html = render({ ...base, task: "action_basis", actionBasis: { status: "matched", items: [
+        { label: "처분·허가 근거", status: "found" },
+      ] }, followup: { status: "partial", attempted: 0, failed: 0, missing: 3, limited: true, unavailable } });
+      expect(html).toContain("추가 참고 자료는 확인되지 않았습니다.");
+      expect(html).not.toContain("미확보");
+      expect(html).not.toContain("미조회 후보");
+      expect(html).not.toContain("세부 대상 미기록");
+    }
   });
 
   it("keeps failures red and preserves available bodies without asserting absence", () => {
@@ -241,8 +302,10 @@ describe("research result source structure", () => {
     expect(lower).toContain("법 제39조에 따른");
     expect(html).not.toContain("법령 체계상의 위치");
     if (task === "full_research") {
-      expect(html).toContain("최종 검증 근거 중 응답 목록에 없던 조문 2건을 보완했습니다.");
-      expect(html.match(/추가 조회<\/span>/gu)).toHaveLength(2);
+      const hierarchy = html.slice(html.indexOf('class="research-hierarchy"'), html.indexOf("</dl>", html.indexOf('class="research-hierarchy"')));
+      expect(hierarchy.match(/<dt>/gu)).toHaveLength(3);
+      expect(hierarchy.match(/data-appended="true"/gu)).toHaveLength(2);
+      for (const jo of ["제40조", "제41조", "제42조"]) expect(hierarchy).toContain(jo);
     } else {
       // 법체계 확인: the tier section is the single home; the raw 3단 비교 listing is not repeated.
       expect(html).not.toContain('class="research-hierarchy"');
@@ -269,20 +332,207 @@ describe("research result source structure", () => {
     expect({ rows, evidence }).toEqual(before);
   });
 
-  it("keeps core identities visible and repeats only the reference between issues", () => {
+  it("keeps each issue's shared source original inside its own disclosure without individual navigation", () => {
     const html = render({ ...base, evidence: { status: "matched", articles: [reference], precedents: [], issues: [
       { label: "해고 기준", status: "found", articles: [reference], precedents: [] },
       { label: "해고 적용", status: "found", articles: [reference], precedents: [] },
     ] }, enrichment: { supplement: { status: "found", articles: [article] } } });
     expect(html.match(/aria-label="핵심 법적 근거"/gu)).toHaveLength(2);
     expect(html.match(/id="research-article-1"/gu)).toHaveLength(1);
-    expect(html).toContain("공통 근거 원문 보기");
-    expect(html).toContain("상세 근거에서 원문 보기");
-    expect(html.match(/② 마지막 항도 보존한다。/gu)).toBeNull();
-    // One adopted source and the intentionally retained complete response.
-    expect(html.match(/② 마지막 항도 보존한다\./gu)).toHaveLength(2);
+    expect(html.match(/id="research-article-1-issue-2"/gu)).toHaveLength(1);
+    const issues = [...html.matchAll(/class="legal-analysis-section research-issue-evidence"[\s\S]*?<\/section>/gu)].map((match) => match[0]);
+    expect(issues).toHaveLength(2);
+    for (const issue of issues) {
+      const core = issue.slice(issue.indexOf('aria-label="핵심 법적 근거"'), issue.indexOf("<details"));
+      expect(core).not.toMatch(/<(?:button|a)\b/u);
+      const detail = issue.slice(issue.indexOf("<details"));
+      expect(detail).toContain(excerpt.split("\n")[1]);
+      expect(detail).toContain('href="https://www.law.go.kr/');
+      expect(detail).not.toContain("research-source-jump");
+      expect(detail.match(/class="research-source-target"/gu)).toHaveLength(1);
+    }
     expect(html).toContain('data-status="matched"');
     expect(html).not.toMatch(/class="law-detail-source research-issue-refs"[^>]*\bopen=/u);
+  });
+
+  it("counts duplicate source IDs once and preserves distinct rulings, metadata and issue attribution", () => {
+    const entry = { title: "해고 기준 판결", caseNumber: "2025다71", body: "대법원", date: "2025.01.02" };
+    const html = render({ ...base, text: "", evidence: { status: "matched", articles: [], precedents: ["71", "72", "73"],
+      precedentEntries: { "71": entry, "72": { ...entry }, "73": { ...entry, date: "2026.01.02" } },
+      precedentExcerpts: { "71": "공통 판결 원문", "72": "공통 판결 원문", "73": "별도 판결 원문" },
+      issues: [
+        { label: "해고 기준", status: "found", articles: [], precedents: ["71", "71", "72", "73"] },
+        { label: "해고 적용", status: "found", articles: [], precedents: ["72"] },
+        { label: "미확인", status: "none", articles: [], precedents: [] },
+      ],
+    } });
+    const issues = [...html.matchAll(/class="legal-analysis-section research-issue-evidence"[\s\S]*?<\/section>/gu)].map((match) => match[0]);
+    const detail = (issue: string) => issue.slice(issue.indexOf("<details"));
+    expect(detail(issues[0]).match(/<li>/gu)).toHaveLength(2);
+    expect(detail(issues[1]).match(/<li>/gu)).toHaveLength(1);
+    expect(detail(issues[0])).toContain("별도 판결 원문");
+    expect(detail(issues[1])).not.toContain("별도 판결 원문");
+    expect(detail(issues[1])).toContain("공통 판결 원문");
+    expect(detail(issues[1])).toContain("2025다71");
+    expect(detail(issues[1])).toContain("2025.01.02");
+    expect(detail(issues[1])).toContain("대법원");
+    expect(detail(issues[1])).toContain("precSeq=72");
+    expect(issues[2]).not.toContain("<details");
+  });
+
+  it("merges same-version excerpt ranges without merging unknown or different versions", () => {
+    const html = render({ ...base, evidence: { status: "matched", articles: [reference], precedents: [],
+      issues: [{ status: "found", articles: [reference], precedents: [] }] },
+      enrichment: { supplement: { status: "found", articles: [
+        { ...article, excerpt: "동일 시행일의 다른 항 원문" },
+        { ...article, excerpt: "시행일 미상 원문", effectiveDate: undefined },
+        { ...article, excerpt: "다른 시행일 원문", effectiveDate: "2026.01.01" },
+      ] } } });
+    const start = html.indexOf('class="legal-analysis-section research-issue-evidence"');
+    const issue = html.slice(start, html.indexOf("</section>", start));
+    const detail = issue.slice(issue.indexOf("<details"));
+    expect(detail.match(/class="research-source-target"/gu)).toHaveLength(3);
+    for (const body of [excerpt.split("\n")[1], "동일 시행일의 다른 항 원문", "시행일 미상 원문", "다른 시행일 원문"]) expect(detail).toContain(body);
+    expect(html).not.toContain("research-source-jump");
+  });
+
+  it.each([
+    ["법령 해석례", "해석례", "expcInfoP.do?expcSeq=101"],
+    ["행정심판례", "행정심판례", "deccInfoP.do?deccSeq=101"],
+  ])("does not confuse an adopted precedent with a %s sharing its numeric ID", (heading, kind, source) => {
+    const html = render({ ...base, text: `═══ 조회 결과 ═══\n▶ 관련 판례\n판례 검색 결과 (총 1건, 1페이지):\n[101] 채택 판례 제목\n  사건번호: 2025다101\n  선고일: 2025.01.02\n▶ ${heading}\n${kind} 검색 결과 (총 1건, 1페이지):\n[101] 다른 도메인 제목\n  사건번호: 2026-0001`,
+      evidence: { status: "matched", articles: [], precedents: ["101"], precedentExcerpts: { "101": "판례 판단 원문" },
+        issues: [{ status: "found", articles: [], precedents: ["101"] }] } });
+    const start = html.indexOf('class="law-detail-source research-issue-refs"');
+    const detail = html.slice(start, html.indexOf("</details>", start));
+    expect(detail).toContain("채택 판례 제목");
+    expect(detail).toContain("2025다101");
+    expect(detail).toContain("판례 판단 원문");
+    expect(detail).toContain('href="https://www.law.go.kr/precInfoP.do?precSeq=101"');
+    expect(detail).not.toContain("다른 도메인 제목");
+    expect(detail).not.toContain(source);
+    const additional = html.slice(html.indexOf("</details>", start));
+    expect(additional).toContain("다른 도메인 제목");
+    expect(additional).toContain(`href="https://www.law.go.kr/${source}"`);
+  });
+
+  it("keeps supporting-only sources inspectable without confirming the core issue or adopting another version", () => {
+    const supporting = { ...article, excerpt: "보충 원문에 포함된 확인 문언", effectiveDate: "2026.01.01" };
+    const html = render({ ...base, evidence: { status: "unverified", articles: [reference], precedents: ["71"],
+      precedentEntries: { "71": { title: "보충 판례", caseNumber: "2026다71" } },
+      issues: [{ label: "해고 기준", status: "none", articles: [reference], precedents: ["71"] }] },
+      enrichment: { supplement: { status: "found", articles: [supporting] }, adoptionReviews: [{
+        query: "해고", issueIndex: 0, verification: "verified",
+        articles: [
+          { ...supporting, stage: "issue", adopted: true, role: "supporting", reason: "주변 요건만 설명", quote: "확인 문언" },
+          { ...article, stage: "chain", adopted: false, reason: "다른 시행 버전" },
+        ],
+        precedents: [{ id: "71", adopted: true, role: "supporting", reason: "보조적인 판단 기준", excerpt: "보조 판단 원문", quote: "판단" }],
+      }] } });
+    const start = html.indexOf('class="legal-analysis-section research-issue-evidence"');
+    const issue = html.slice(start, html.indexOf("</section>", start));
+    const detail = issue.slice(issue.indexOf("<details"));
+    expect(issue).toContain('data-status="none"');
+    expect(issue).not.toContain('data-evidence-role="direct"');
+    expect(detail.match(/<li\b/gu)).toHaveLength(2);
+    expect(detail).toContain("주변 요건만 설명");
+    expect(detail).toContain("보조적인 판단 기준");
+    expect(detail).toContain(supporting.excerpt);
+    expect(detail).not.toContain(excerpt.split("\n")[1]);
+    expect(detail).toContain("2026.01.01");
+    expect(html).not.toMatch(/확인된 쟁점\s*<span/u);
+    expect(html).not.toContain('data-status="matched"');
+    // The unadopted original is still available outside issue evidence.
+    expect(html.slice(html.indexOf("</section>", start))).toContain(excerpt.split("\n")[1]);
+  });
+
+  it("attributes audited versions and role explanations independently to each issue", () => {
+    const newer = { ...article, effectiveDate: "2026.01.01", excerpt: "새 시행 버전의 고유 원문" };
+    const html = render({ ...base, evidence: { status: "matched", articles: [reference], precedents: [], issues: [
+      { label: "해고 기준", status: "found", articles: [reference], precedents: [] },
+      { label: "명시한 조문 확인", status: "found", articles: [reference], precedents: [] },
+    ] }, enrichment: { supplement: { status: "found", articles: [newer] }, adoptionReviews: [
+      { query: "해고", issueIndex: 0, verification: "verified", articles: [{ ...article, stage: "chain", adopted: true, role: "direct", reason: "해고 제한의 실체 요건", quote: "해고의 기준" }], precedents: [] },
+      { query: "명시 조문", issueIndex: 1, verification: "verified", articles: [{ ...newer, stage: "issue", adopted: true, role: "identity", reason: "질문에 명시된 조문 원문", quote: "고유 원문" }], precedents: [] },
+    ] } });
+    const issues = [...html.matchAll(/class="legal-analysis-section research-issue-evidence"[\s\S]*?<\/section>/gu)].map((match) => match[0]);
+    expect(issues).toHaveLength(2);
+    expect(issues[0]).toContain("해고 제한의 실체 요건");
+    expect(issues[0]).toContain('data-evidence-role="direct"');
+    expect(issues[0]).not.toContain(newer.excerpt);
+    expect(issues[1]).toContain("질문에 명시된 조문 원문");
+    expect(issues[1]).toContain('data-evidence-role="identity"');
+    expect(issues[1]).not.toContain(excerpt.split("\n")[1]);
+    for (const issue of issues) expect(issue.slice(issue.indexOf("<details")).match(/class="research-source-target"/gu)).toHaveLength(1);
+  });
+
+  it("counts and links adopted interpretation and tribunal sources by canonical domain without mixing identical numeric IDs", () => {
+    const interpretation = { key: "interpretation:101", domain: "interpretation" as const, id: "101",
+      title: "채택 해석례", caseNumber: "26-0101", date: "2026.01.02", body: "법제처",
+      excerpt: "해석례 고유 원문", adopted: true, role: "direct" as const, reason: "쟁점 요건의 해석", quote: "요건" };
+    const tribunal = { ...interpretation, key: "admin_appeal:101", domain: "admin_appeal" as const,
+      title: "보충 심판례", caseNumber: "2026-101", excerpt: "심판례 고유 원문",
+      role: "supporting" as const, reason: "보충 판단 기준" };
+    const html = render({ ...base, text: "", evidence: { status: "partial", articles: [], precedents: ["101"],
+      decisions: [interpretation.key, tribunal.key], precedentEntries: { "101": { title: "채택 판례", caseNumber: "2026다101" } },
+      precedentExcerpts: { "101": "판례 고유 원문" }, issues: [
+        { label: "해고 기준", status: "found", articles: [], precedents: ["101"], decisions: [interpretation.key] },
+        { label: "보조 기준", status: "none", articles: [], precedents: [], decisions: [tribunal.key] },
+      ] }, enrichment: { adoptionReviews: [
+        { query: "해고", issueIndex: 0, verification: "verified", articles: [], precedents: [{ id: "101", excerpt: "판례 고유 원문", adopted: true, role: "direct", reason: "직접 판단 기준" }], decisions: [interpretation, interpretation] },
+        { query: "보조 기준", issueIndex: 1, verification: "verified", articles: [], precedents: [], decisions: [tribunal] },
+      ] } });
+    const issues = [...html.matchAll(/class="legal-analysis-section research-issue-evidence"[\s\S]*?<\/section>/gu)].map((match) => match[0]);
+    const firstDetail = issues[0].slice(issues[0].indexOf("<details"));
+    const secondDetail = issues[1].slice(issues[1].indexOf("<details"));
+    expect(firstDetail.match(/<li\b/gu)).toHaveLength(2);
+    expect(firstDetail).toContain("precInfoP.do?precSeq=101");
+    expect(firstDetail).toContain("expcInfoP.do?expcSeq=101");
+    expect(firstDetail).toContain(interpretation.excerpt);
+    expect(firstDetail).not.toContain(tribunal.excerpt);
+    expect(secondDetail.match(/<li\b/gu)).toHaveLength(1);
+    expect(secondDetail).toContain("deccInfoP.do?deccSeq=101");
+    expect(secondDetail).toContain(tribunal.excerpt);
+    expect(secondDetail).toContain('data-evidence-role="supporting"');
+    expect(issues[1]).toContain('data-status="none"');
+    // "심판례" contains the substring "판례"; compare whole source bodies,
+    // not lexical substrings shared by otherwise distinct source domains.
+    expect([...secondDetail.matchAll(/<pre class="legal-analysis-raw">([\s\S]*?)<\/pre>/gu)].map((match) => match[1])).toEqual([tribunal.excerpt]);
+    expect(html.match(/확인된 쟁점\s*<span[^>]*>1건/gu)).toHaveLength(1);
+  });
+
+  it.each(["constitutional", "nlrc"] as const)("preserves the actual %s decision body and only established official original routes", (domain) => {
+    const entry = { key: `${domain}:101`, domain, id: "101", title: "공식 결정 자료", body: "결정 기관", date: "2026.01.02",
+      excerpt: "결정의 실제 원문", adopted: true, role: "direct" as const, reason: "해당 쟁점의 판단 기준", quote: "판단 기준" };
+    const html = render({ ...base, text: "", evidence: { status: "matched", articles: [], precedents: [], decisions: [entry.key],
+      issues: [{ status: "found", articles: [], precedents: [], decisions: [entry.key] }] },
+      enrichment: { adoptionReviews: [{ query: "해고", issueIndex: 0, verification: "verified", articles: [], precedents: [], decisions: [entry] }] } });
+    const start = html.indexOf('class="law-detail-source research-issue-refs"');
+    const detail = html.slice(start, html.indexOf("</details>", start));
+    expect(detail).toContain(entry.excerpt);
+    expect(detail).toContain(entry.body);
+    expect(detail).toContain(entry.date);
+    expect(detail).toContain(`data-source-key="${entry.key}"`);
+    if (domain === "constitutional") expect(detail).toContain("detcInfoP.do?detcSeq=101");
+    else expect(detail).not.toContain("<a ");
+  });
+
+  it("preserves every real annex row, cell and grouped header without exposing format-only HWP text", () => {
+    const html = render({ ...base, task: "action_basis", actionBasis: { status: "viewed", items: [] }, annexes: [{
+      law: foodAnnex.law, label: foodAnnex.label, sourceArticle: "제89조", citation: "별표 23",
+      status: "verified", relevance: "direct", text: foodAnnex.text,
+    }] });
+    expect(html.match(/class="research-annex-table"/gu)).toHaveLength(4);
+    expect(html.match(/<tr\b/gu)).toHaveLength(316);
+    expect(html.match(/<(?:th|td)(?:\s|>)/gu)).toHaveLength(1564);
+    expect(html.match(/<thead>/gu)).toHaveLength(4);
+    expect(html.match(/<tbody>/gu)).toHaveLength(4);
+    expect(html).toMatch(/rowspan="2"/iu);
+    expect(html).toMatch(/colspan="3"/iu);
+    expect(html).toContain('data-column-kind="legal-basis"');
+    expect(html).not.toContain("(파일형식: HWP)");
+    expect(html).not.toMatch(/research-original-body"[^>]*\bopen=/u);
+    expect(html).toContain("research-annex-paragraph");
   });
 
   it("retains distinct laws and effective versions while merging a provision's excerpt ranges", () => {
@@ -299,11 +549,13 @@ describe("research result source structure", () => {
     expect(html).toContain('data-status="viewed"');
   });
 
-  it("does not suppress another primary version when the adopted source has the same law and article", () => {
+  it("keeps two adopted effective versions as two actual sources rather than hiding one", () => {
     const html = render({ ...base, evidence: { status: "matched", articles: [reference], precedents: [], issues: [] },
       enrichment: { supplement: { status: "found", articles: [{ ...article, effectiveDate: "2026.01.01" }] } } });
     expect(html).toContain('id="research-article-1"');
-    expect(html).toContain('id="research-source-0-0"');
+    expect(html).toContain('id="research-article-2"');
+    const detail = html.slice(html.indexOf('class="law-detail-source research-issue-refs"'), html.indexOf("</section>", html.indexOf('class="law-detail-source research-issue-refs"')));
+    expect(detail.match(/class="research-source-target"/gu)).toHaveLength(2);
     expect(html).toContain("2025.01.01");
     expect(html).toContain("2026.01.01");
   });
@@ -379,7 +631,10 @@ describe("research result source structure", () => {
     expect(html).toContain("확인한 별표·서식 원문");
     expect(html).toContain("별표 원문 보기");
     // The table keeps its rows and columns as a real table, cell by cell.
-    expect(html).toContain('<table class="research-annex-table"><tbody><tr><td>구분</td><td>위반행위</td></tr><tr><td>1차</td><td>경고</td></tr></tbody></table>');
+    expect(html.match(/<table\b/gu)).toHaveLength(1);
+    expect(html.match(/<tr\b/gu)).toHaveLength(2);
+    expect(html.match(/<td\b/gu)).toHaveLength(4);
+    for (const cell of ["구분", "위반행위", "1차", "경고"]) expect(html).toContain(`>${cell}</td>`);
     expect(html).not.toContain("구분 ｜ 위반행위");
     const verifiedBlock = html.indexOf("확인한 별표·서식 원문");
     const partialBlock = html.indexOf("원문 일부만 확인된 별표·서식");
@@ -400,7 +655,12 @@ describe("research result source structure", () => {
       ] },
     ] };
     const html = render({ ...base, task: "full_research", text, lawSystem });
-    expect(html).toContain("중복된 응답 행 1건을 하나로 합쳤습니다.");
+    const hierarchyStart = html.indexOf('class="research-hierarchy"');
+    const hierarchy = html.slice(hierarchyStart, html.indexOf("</dl>", hierarchyStart));
+    expect(hierarchy.match(/<dt>/gu)).toHaveLength(1);
+    expect(hierarchy.match(/제40조/gu)).toHaveLength(1);
+    const original = html.slice(html.indexOf("<details", hierarchyStart), html.indexOf("</details>", hierarchyStart));
+    expect(original.match(/제40조/gu)).toHaveLength(2);
     expect(html).not.toContain("상단 고유 조문 수");
     // 법체계 확인 shows the provision once in its tier section, not again in a raw listing.
     const own = render({ ...base, task: "law_system", text, lawSystem });
