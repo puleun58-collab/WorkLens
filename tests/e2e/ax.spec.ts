@@ -629,9 +629,9 @@ test("AX level badge uses the unified label and shows the level description tool
   await page.locator(".ax-diag-card").getByRole("button", { name: "업무 진단 실행" }).click();
   // outputFixture: 자동화 1 · AI 보조 1 · 사람 유지 1 단계, Factor 기준 Level 3(고도 자동화)
   const cards = page.locator(".ax-diag-card .ax-verdict-card");
-  await expect(cards).toHaveCount(3);
-  await expect(cards).toContainText(["자동화 적합", "AI 보조 적합", "담당자 수행"]);
-  await expect(cards.locator("strong")).toHaveText(["1", "1", "1"]);
+  await expect(cards).toHaveCount(4);
+  await expect(cards).toContainText(["자동화 적합", "AI 보조 적합", "담당자 수행", "확인 필요"]);
+  await expect(cards.locator("strong")).toHaveText(["1", "1", "1", /^\d+$/]);
   const badge = page.locator(".ax-diag-card .ax-level-badge");
   await expect(badge).toHaveText("고도 자동화 (Level 3)");
   const description = "넓게 자동화하되 승인·안전·법률·권한 관련 단계는 담당자가 유지합니다";

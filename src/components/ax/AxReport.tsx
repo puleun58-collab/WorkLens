@@ -587,28 +587,11 @@ function AxStepTable({ diagnosis: d, headers, reviewProps }: { diagnosis: AxDiag
 }
 function AxToBe({ diagnosis: d }: { diagnosis: AxDiagnosis }) {
   const icons = { 시스템: Settings2, AI: Bot, 사용자: UserRound } as const;
-  const norm = (t: string) => t.replace(/\s+/g, "");
-  // 단계별 판단 표에서 같은 단계의 판단 근거로 이미 제공된 설명은 TO-BE에서 반복하지 않는다.
-  // 표에 없는 설명은 TO-BE에만 있는 정보이므로 그대로 유지한다 (원본 데이터는 변경하지 않음).
-  // 단계명 자체와 같은 설명도 제목의 반복이라 표시하지 않는다.
-  const descriptionFor = (s: AxDiagnosis["toBe"][number]): string => {
-    const desc = s.description.trim();
-    if (!desc) return "";
-    if (norm(desc) === norm(s.step)) return "";
-    const match = d.stepAssessments.find(a => a.step === s.step)
-      ?? d.stepAssessments.find(a => { const an = norm(a.step), sn = norm(s.step); return !!an && !!sn && (an.includes(sn) || sn.includes(an)); });
-    if (match?.note.trim()) {
-      const dn = norm(desc), nn = norm(match.note);
-      if (dn === nn || dn.includes(nn) || nn.includes(dn)) return "";
-    }
-    return desc;
-  };
-  // TO-BE 단계에는 미확정 기술 확인 안내를 표시하지 않는다. 확인 사항 자체는
-  // 진단 카드·02 구현 전 확인사항·실행 로드맵에서 그대로 확인할 수 있으며, 원본
-  // 진단 데이터(technicalChecks·toBe)는 이 컴포넌트에서 변경하지 않는다.
-  return <section className="ax-section ax-panel ax-tobe-card"><header className="ax-process-head"><h3>TO-BE · 역할과 흐름 (목표 프로세스)</h3><small>자동화 도입 후 예상 업무 흐름 · 구현 완료 아님</small></header>
-    {d.toBe.length ? <ol className="ax-tobe-flow">{d.toBe.map((s, i) => { const Icon = icons[s.owner]; const desc = descriptionFor(s); return <li className="ax-tobe-item" data-owner={s.owner} key={i}>
-      <span className="ax-tobe-icon"><Icon aria-hidden="true" /></span><strong>{uiText(s.step)}</strong><span>{OWNER_LABELS[s.owner]}</span>{desc ? <p>{uiText(desc)}</p> : null}
+  // TO-BE 단계는 아이콘·단계명·수행 주체만 표시한다. 단계별 근거·설명은 단계별 판단 표와
+  // 진단 카드·02 구현 전 확인사항·실행 로드맵에서 확인하며, 원본 진단 데이터(toBe)는 변경하지 않는다.
+  return <section className="ax-section ax-panel ax-tobe-card"><header className="ax-process-head"><h3>TO-BE · 역할과 흐름 (목표 프로세스)</h3><small>예상 업무 흐름 · 미구현</small></header>
+    {d.toBe.length ? <ol className="ax-tobe-flow">{d.toBe.map((s, i) => { const Icon = icons[s.owner]; return <li className="ax-tobe-item" data-owner={s.owner} key={i}>
+      <span className="ax-tobe-icon"><Icon aria-hidden="true" /></span><strong>{uiText(s.step)}</strong><span>{OWNER_LABELS[s.owner]}</span>
       {i < d.toBe.length - 1 ? <ArrowRight className="ax-tobe-arrow" aria-hidden="true" /> : null}
     </li>; })}</ol> : <p className="ax-muted">기재된 목표 업무 단계 없음</p>}
   </section>;
@@ -988,15 +971,17 @@ export function scopeSummaryRows(summary: AxPlanSummary): {
     criteriaNotices: [...new Set(orderedCriteriaRows.map(row => row.notice).filter((notice): notice is string => !!notice))],
   };
 }
-/** 업무 진단(3카드)·자동화 구현 계획(4카드) 공통 요약 카드: 흰색 원형 아이콘 + 항목명 + 큰 숫자·"개".
- * 열 수는 카드 개수로 정해지고(3열·4열), 카드 디자인은 동일하다. 숫자는 호출부가 각 화면의 집계로 넘긴다. */
-export interface AxStatCard { key: string; label: string; tone: "blue" | "violet" | "green" | "yellow"; icon: LucideIcon; count: number }
+/** 업무 진단(3카드+확인 필요)·자동화 구현 계획(4카드) 공통 요약 카드: 흰색 원형 아이콘 + 항목명 + 큰 숫자·단위.
+ * 열 수는 카드 개수로 정해지고(3열·4열), 카드 디자인은 동일하다. 숫자는 호출부가 각 화면의 집계로 넘긴다.
+ * action은 해당 카드의 이동 버튼(예: 확인 필요 항목 보기)만 둔다. */
+export interface AxStatCard { key: string; label: string; tone: "blue" | "violet" | "green" | "yellow" | "info"; icon: LucideIcon; count: number; unit?: string; action?: React.ReactNode }
 export function AxStatCards({ cards }: { cards: readonly AxStatCard[] }) {
   return <dl className="ax-verdict-cards" data-cols={cards.length}>
     {cards.map(card => <div key={card.key} className="ax-verdict-card" data-tone={card.tone}>
       <span className="ax-verdict-icon" aria-hidden="true"><card.icon size={18} /></span>
       <dt>{card.label}</dt>
-      <dd><strong>{card.count}</strong>개</dd>
+      <dd><strong>{card.count}</strong>{card.unit ?? "개"}</dd>
+      {card.action ? <div className="ax-verdict-action">{card.action}</div> : null}
     </div>)}
   </dl>;
 }

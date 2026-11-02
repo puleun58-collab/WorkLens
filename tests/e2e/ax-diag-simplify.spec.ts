@@ -277,7 +277,7 @@ test("AX 진단 결과 요약: 판정 3카드는 실제 건수, 확인 필요 ·
   await registerAndDiagnose(page, "운송장 검증", "운송장 데이터를 입력받아 누락·중복을 검사하고 검증 결과를 출력한다.", diagnosis);
   const steps = diagnosis.stepAssessments;
   const cards = page.locator(".ax-diag-card .ax-verdict-card");
-  await expect(cards).toHaveCount(3);
+  await expect(cards).toHaveCount(4);
   for (const [index, verdict, label] of [[0, "자동화", "자동화 적합"], [1, "AI 보조", "AI 보조 적합"], [2, "사람 유지", "담당자 수행"]] as const) {
     await expect(cards.nth(index).locator("dt")).toHaveText(label);
     await expect(cards.nth(index).locator("dd strong")).toHaveText(String(steps.filter(step => step.verdict === verdict).length));
@@ -295,6 +295,12 @@ test("AX 진단 결과 요약: 판정 3카드는 실제 건수, 확인 필요 ·
   expect(pendingCount).toBeGreaterThan(0);
   await expect(pending.locator('.ax-check-badge[data-kind="done"]')).toHaveCount(0);
   await expect(checks.locator(".ax-diag-checks-head")).toContainText(`· ${pendingCount}건`);
+  // 네 번째 요약 카드: 구현 전 확인 미확인 건수(목록과 같은 집계)와 목록 이동 버튼.
+  const checkCard = cards.nth(3);
+  await expect(checkCard.locator("dt")).toHaveText("확인 필요");
+  await expect(checkCard.locator("dd")).toHaveText(`${pendingCount}건`);
+  await checkCard.getByRole("button", { name: "항목 보기", exact: true }).click();
+  await expect.poll(() => checks.evaluate(node => Math.abs(node.getBoundingClientRect().top - 96))).toBeLessThan(40);
   // 확인 완료 항목은 기본 접힘이고, 펼치면 기존 정보가 그대로 보인다.
   const done = checks.getByRole("button", { name: "확인 완료 항목 보기 (1건)" });
   await expect(done).toHaveAttribute("aria-expanded", "false");

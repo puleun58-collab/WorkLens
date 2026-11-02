@@ -952,6 +952,11 @@ export function AxDiagnosisView() {
     <AlertDialog open={confirmation !== null} onOpenChange={open => { if (!open) setConfirmation(null); }}><AlertDialogPopup><AlertDialogHeader><AlertDialogTitle>{confirmation?.kind === "import" ? "AI•AX 데이터를 덮어쓸까요?" : confirmation?.kind === "delete" ? "업무를 삭제할까요?" : "AI•AX 데이터를 초기화할까요?"}</AlertDialogTitle><AlertDialogDescription>{confirmation?.kind === "import" ? "검증된 가져오기 데이터로 현재 AI•AX 업무·진단·계획을 교체합니다" : confirmation?.kind === "delete" ? "선택한 업무와 진단·계획을 삭제합니다" : "현재 AI•AX 업무·진단·계획만 삭제합니다. 다른 작업 공간은 유지됩니다"}</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogClose render={<Button type="button" variant="ghost" />}>취소</AlertDialogClose><Button type="button" variant="destructive" onClick={() => void confirm()}>{confirmation?.kind === "import" ? "덮어쓰기" : confirmation?.kind === "delete" ? "삭제" : "초기화"}</Button></AlertDialogFooter></AlertDialogPopup></AlertDialog>
   </section>;
 }
+/** '항목 보기': 구현 전 확인 사항 목록으로 이동한다. 대상 요소가 없으면 이동하지 않는다.
+ * 고정 헤더 여백은 .ax-diag-checks의 scroll-margin 규칙을 쓴다. */
+function scrollToChecks() {
+  document.querySelector(".ax-diag-checks")?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
 /** 진단 결과 요약 판정 분포 카드: 단계 판정값(자동화·AI 보조·사람 유지)별 실제 건수를 표시한다. */
 const VERDICT_CARDS = [
   { verdict: "자동화", label: "자동화 적합", tone: "blue", icon: Zap },
@@ -1071,8 +1076,12 @@ function DiagnosisCard({ task, busy, onDiagnose, onEdit, attachment, onSaveCheck
     {d ? <>
       <section className="ax-diag-summary" aria-label="진단 결과 요약">
         <div className="ax-diag-summary-head"><h3>진단 결과 요약</h3>{d.informationSufficiency !== "needs-check" ? <Badge variant={d.informationSufficiency === "sufficient" ? "success" : "warning"}>{SUFFICIENCY[d.informationSufficiency]}</Badge> : null}</div>
-        {/* 단계별 판정 분포: 실제 stepAssessments 판정 건수 (자동화 / AI 보조 / 사람 유지). */}
-        <AxStatCards cards={VERDICT_CARDS.map(card => ({ key: card.verdict, label: card.label, tone: card.tone, icon: card.icon, count: d.stepAssessments.filter(step => step.verdict === card.verdict).length }))} />
+        {/* 단계별 판정 분포(실제 stepAssessments 판정 건수)와 구현 전 확인 미확인 건수(아래 목록과 같은 pendingChecks)를 같은 요약 카드로 표시한다. */}
+        <AxStatCards cards={[
+          ...VERDICT_CARDS.map(card => ({ key: card.verdict, label: card.label, tone: card.tone, icon: card.icon, count: d.stepAssessments.filter(step => step.verdict === card.verdict).length })),
+          { key: "checks", label: "확인 필요", tone: "info" as const, icon: Info, count: pendingChecks.length, unit: "건",
+            action: pendingChecks.length ? <Button type="button" variant="outline" size="sm" onClick={scrollToChecks}>항목 보기</Button> : undefined },
+        ]} />
         <div className="ax-judgement" role="group" aria-label="핵심 판단">
           <div className="ax-judgement-main">
             <Info size={18} aria-hidden="true" className="ax-judgement-icon" />
