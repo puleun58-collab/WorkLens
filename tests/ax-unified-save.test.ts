@@ -241,21 +241,6 @@ describe("AX unified rule candidate refresh", () => {
     expect(onSave.mock.calls[0][1]).toEqual([]);
   });
 
-  it("labels automatic unsaved cards as proposals, keeps direct input 신규, honors D display fields and counts every card", async () => {
-    harness.derive = () => [
-      { ...storedDraft, id: "D6", origin: "candidate", displayTitle: "빈 데이터 처리", displayQuestion: "수신 데이터가 없으면 어떻게 처리하나요?" },
-      suggestedDraft,
-    ];
-    const onSave = vi.fn<Save>().mockResolvedValue(true);
-    const tree = render(onSave);
-    expect(tree.filter(props => props.children === "제안")).toHaveLength(2);
-    expect(tree.some(props => props.children === "신규")).toBe(false);
-    expect(tree.some(props => Array.isArray(props.children) && props.children.includes("빈 데이터 처리"))).toBe(true);
-    expect(tree.some(props => props.children === "수신 데이터가 없으면 어떻게 처리하나요?")).toBe(true);
-    expect(tree.some(props => props.children === "0/2 완료")).toBe(true);
-    await tree.find(props => props.children === "+ 규칙 추가")!.onClick!();
-    expect(render(onSave).some(props => props.children === "신규")).toBe(true);
-  });
 
   it.each([false, true])("distinguishes empty candidates with sufficient context=%s without claiming completion or readiness", ready => {
     harness.derive = () => [];

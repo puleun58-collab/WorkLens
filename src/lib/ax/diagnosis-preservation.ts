@@ -19,5 +19,5 @@ export function applyRediagnosis(task: AxTaskV2, incoming: AxDiagnosis, now: str
       ? { ...review, status: "stale" as const, updatedAt: now }
       : review;
   }) : reviews;
-  return { ...task, diagnosis, status: taskStatus(diagnosis), ...(nextReviews ? { reviews: nextReviews } : {}), updatedAt: now };
+  return { ...task, diagnosis, diagnosisRegistration: undefined, status: taskStatus(diagnosis), ...(nextReviews ? { reviews: nextReviews } : {}), updatedAt: now };
 }

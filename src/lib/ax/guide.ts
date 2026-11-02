@@ -536,14 +536,16 @@ const isExternalActionCriterion = (item: { text: string }): boolean => EXTERNAL_
  * 괄호 안에 쉼표로 구분된 공백 없는 토큰이 2개 이상 있으면 목록으로 본다.
  * "(원본 행 수와 동일한 행 수, ...)"처럼 공백을 포함한 설명 문장은 목록이 아니다. */
 export function parseOutputColumns(text: string): string[] | null {
-  const labeled = /(?:열|컬럼|columns?)\s*[:：]\s*([^()\n;；]+)/iu.exec(text);
+  const isColumn = (column: string): boolean => /^[^\s()（）]{1,40}$/u.test(column)
+    && !/^(?:미확정|미정|확인.?필요|추후.?확정|unknown|tbd|todo|[?？]+|\.{3}|…)$/iu.test(column);
+  const labeled = /(?:열|컬럼|columns?)\s*[:：]\s*([^()（）\n;；]+)/iu.exec(text);
   if (labeled) {
     const cols = labeled[1].split(/[,，、·]/u).map(col => col.trim()).filter(Boolean);
-    if (cols.length >= 1 && cols.every(col => /^[^\s()]{1,40}$/u.test(col))) return cols;
+    return cols.length >= 1 && cols.every(isColumn) ? cols : null;
   }
   for (const segment of [...text.matchAll(/[（(]([^）)]*)[）)]/gu)].map(match => match[1])) {
     const cols = segment.split(/[,，、]/u).map(col => col.trim()).filter(Boolean);
-    if (cols.length >= 2 && cols.every(col => /^[^\s()]{1,40}$/u.test(col))) return cols;
+    if (cols.length >= 2 && cols.every(isColumn)) return cols;
   }
   return null;
 }

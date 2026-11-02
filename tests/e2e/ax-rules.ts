@@ -19,7 +19,7 @@ export async function addInlineRule(unified: Locator, rule: { name: string; cate
   await chooseOption(row, "분류", rule.category);
   if (rule.applicability !== "적용 여부 미확정") await chooseOption(row, "업무 적용 여부", rule.applicability === "적용" ? "적용" : "미적용");
   if (rule.applicability === "적용" && rule.detail !== undefined) await row.getByLabel("처리 기준").fill(rule.detail);
-  if (rule.applicability === "적용" && rule.status === "확정") await row.getByRole("button", { name: "이 규칙 확정", exact: true }).click();
+  if (rule.applicability === "적용" && rule.status === "확정") await row.getByRole("button", { name: "확정", exact: true }).click();
   await row.getByRole("button", { name: "추가", exact: true }).click();
   await expect(row).toHaveCount(0);
 }

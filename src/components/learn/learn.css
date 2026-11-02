@@ -192,10 +192,11 @@
 .learn-card-body ul, .learn-card-body ol { padding-left: 20px; margin: 8px 0; }
 .learn-card-body li { margin: 6px 0; }
 
-.learn-concept-lead { font-weight: 400; margin: 0 0 10px; }
-.learn-bullet-list { list-style: none; padding-left: 0 !important; margin: 8px 0; }
+.learn-text-list, .learn-bullet-list { list-style: none; padding-left: 0 !important; margin: 8px 0; }
+.learn-text-list li { margin: 8px 0; }
+.learn-card-body .learn-bullet-list { margin-left: -2px; }
 .learn-bullet-list li { position: relative; padding-left: 18px; margin: 8px 0; }
-.learn-bullet-list li::before { content: "•"; position: absolute; left: 2px; color: var(--primary); font-weight: 700; }
+.learn-bullet-list li::before { content: "•"; position: absolute; left: 0; color: var(--primary); font-weight: 700; }
 
 .learn-check-list { list-style: none; padding-left: 0 !important; margin: 8px 0; }
 .learn-check-list li { display: flex; align-items: flex-start; gap: 10px; margin: 10px 0; }
@@ -212,11 +213,6 @@
 .learn-mistake-card p { margin: 6px 0; }
 .learn-mistake-title { font-weight: 700; color: #78350f; }
 
-/* 핵심 요약 — 실무 사례 헤더와 같은 기존 블루 값 재사용 */
-.learn-card-info { background: var(--learn-card-blue); border-color: #b8d2fa; }
-.learn-card-info .learn-card-title { background: transparent; border-bottom: 0; color: #164b9b; padding: 12px 18px 0; }
-.learn-card-info .learn-card-title svg { color: #1d4ed8; }
-.learn-card-info .learn-card-body { padding-top: 10px; }
 
 .learn-case-block { padding: 2px 0; margin: 12px 0; }
 .learn-case-block:first-child { margin-top: 0; }
@@ -269,8 +265,6 @@
 .learn-terminal-footer .learn-terminal-hint { flex: 1; min-width: 0; margin: 0; }
 .learn-terminal-actions { display: flex; flex: none; align-items: center; gap: 8px; margin-left: auto; }
 .learn-terminal-actions button { height: 36px; min-width: 64px; }
-.learn-card-aligned .learn-bullet-list > li { padding-left: 0; }
-.learn-card-aligned .learn-bullet-list > li::before { left: -16px; }
 .learn-card-body ol.learn-practice-steps { padding-left: 0; }
 .learn-practice-guidance { margin: 8px 0; }
 .learn-practice-guidance p { margin: 4px 0; }
@@ -322,5 +316,6 @@
   .learn-lesson-progress-bar { flex: 1; width: auto; }
   .learn-unit-btn { font-size: 13px; padding: 7px 12px; }
   .learn-card-body { padding: 12px 14px; }
+  .learn-card-body .learn-bullet-list { margin-left: 4px; }
   .learn-mistake-grid { grid-template-columns: 1fr; }
 }

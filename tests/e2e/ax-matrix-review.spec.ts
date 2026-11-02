@@ -104,9 +104,10 @@ for (const viewport of VIEWPORTS) {
     await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
     const plan = page.getByRole("region", { name: "구현 계획", exact: true });
     await expect(plan.locator('[data-slot="accordion-trigger"]')).toHaveAttribute("aria-expanded", "true");
-    await plan.locator(".ax-plan-step").first().getByRole("button", { name: "검토" }).click();
-    await expectAligned(plan.locator(".ax-hitl-panel-v2"));
-    await plan.locator(".ax-hitl-panel-v2").screenshot({ path: `artifacts/ax/hitl-plan-review-${viewport.width}.png` });
+    const planStep = plan.locator(".ax-plan-step").first();
+    await planStep.getByRole("button", { name: "보기" }).click();
+    await expectAligned(planStep.locator(".ax-hitl-panel-v2"));
+    await planStep.locator(".ax-hitl-panel-v2").screenshot({ path: `artifacts/ax/hitl-plan-review-${viewport.width}.png` });
 
     // The confirmed step decision reaches the generated all-in-one instruction.
     await expect(page.locator(".ax-prompt")).toContainText("누락 행은 삭제하지 않고 별도 검토 결과로 표시");

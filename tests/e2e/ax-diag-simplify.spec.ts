@@ -26,7 +26,16 @@ test("AX 진단 간소화: D1~D7 아코디언 단일 펼침·진행률·저장·
   // 고정 7개가 아니라 진단에서 도출된 D3·D4·D5·D6 후보 4건과
   // 최종 승인 범용 후보 1건, 표시된 모든 규칙 5건이 검토 완료율 분모다.
   await expect(decision.getByText("0/5 완료", { exact: true })).toBeVisible();
-  await expect(decision.getByText("제안", { exact: true })).toHaveCount(5);
+  await expect(decision.locator(".ax-decision-row")).toHaveCount(5);
+  for (const id of ["D3", "D4", "D5", "D6"]) {
+    const row = decision.locator(`#ax-decision-${id}`);
+    await expect(row).toBeVisible();
+    await expect(row.locator(".ax-decision-badge")).toHaveText("미확정");
+    await expect(row.getByText("제안", { exact: true })).toHaveCount(0);
+  }
+  const approval = decision.locator(".ax-decision-row").filter({ has: page.getByText("최종 승인", { exact: true }) });
+  await expect(approval.getByText("제안", { exact: true })).toBeVisible();
+  await expect(approval.locator(".ax-decision-badge")).toHaveText("미확정");
   await expect(decision).not.toContainText("적용 확인");
 
   // 기본은 모두 접힘이므로 D3 행을 펼쳐 입력한다. D4를 펼치면 D3이 접히고,
@@ -96,7 +105,7 @@ test("AX 진단 간소화: 통합 규칙 인라인 추가·아코디언 초안 �
   await expect(unified.locator(".ax-decision-row").last()).toHaveAttribute("id", "ax-rule-new");
   // 필수 항목 없이 추가하면 기본 입력 영역에서 바로 오류를 표시한다. 확정 상태는 처음부터 미확정이다.
   await expect(newRow.getByRole("combobox", { name: "확정 상태" })).toHaveCount(0);
-  await expect(newRow.getByRole("button", { name: "이 규칙 확정", exact: true })).toHaveCount(0);
+  await expect(newRow.getByRole("button", { name: "확정", exact: true })).toHaveCount(0);
   await expect(newRow.getByRole("combobox", { name: "업무 적용 여부" })).toHaveText("선택하세요");
   await newRow.getByRole("button", { name: "추가", exact: true }).click();
   await expect(newRow.getByText("규칙명을 입력하세요")).toBeVisible();
@@ -184,7 +193,7 @@ test("AX 진단 간소화: 모바일 390에서 인라인 규칙 추가·범용 �
   const newRow = unified.locator("#ax-rule-new");
   await expect(newRow.getByRole("button", { name: "추가 정보 (선택)" })).toHaveCount(0);
   await chooseOption(newRow, "업무 적용 여부", "적용");
-  await expect(newRow.getByRole("button", { name: "이 규칙 확정", exact: true })).toBeDisabled();
+  await expect(newRow.getByRole("button", { name: "확정", exact: true })).toBeDisabled();
   let overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
   await newRow.getByRole("button", { name: "취소", exact: true }).click();
@@ -268,7 +277,7 @@ test("AX 진단 결과 요약: 판정 3카드는 실제 건수, 확인 필요 ·
   await registerAndDiagnose(page, "운송장 검증", "운송장 데이터를 입력받아 누락·중복을 검사하고 검증 결과를 출력한다.", diagnosis);
   const steps = diagnosis.stepAssessments;
   const cards = page.locator(".ax-diag-card .ax-verdict-card");
-  await expect(cards).toHaveCount(3);
+  await expect(cards).toHaveCount(4);
   for (const [index, verdict, label] of [[0, "자동화", "자동화 적합"], [1, "AI 보조", "AI 보조 적합"], [2, "사람 유지", "담당자 수행"]] as const) {
     await expect(cards.nth(index).locator("dt")).toHaveText(label);
     await expect(cards.nth(index).locator("dd strong")).toHaveText(String(steps.filter(step => step.verdict === verdict).length));
@@ -285,8 +294,13 @@ test("AX 진단 결과 요약: 판정 3카드는 실제 건수, 확인 필요 ·
   const pendingCount = await pending.count();
   expect(pendingCount).toBeGreaterThan(0);
   await expect(pending.locator('.ax-check-badge[data-kind="done"]')).toHaveCount(0);
-  await expect(page.locator(".ax-judgement-foot")).toContainText(`확인 필요 · ${pendingCount}건`);
   await expect(checks.locator(".ax-diag-checks-head")).toContainText(`· ${pendingCount}건`);
+  // 네 번째 요약 카드: 구현 전 확인 미확인 건수(목록과 같은 집계)와 목록 이동 버튼.
+  const checkCard = cards.nth(3);
+  await expect(checkCard.locator("dt")).toHaveText("확인 필요");
+  await expect(checkCard.locator("dd")).toHaveText(`${pendingCount}건`);
+  await checkCard.getByRole("button", { name: "항목 보기", exact: true }).click();
+  await expect.poll(() => checks.evaluate(node => Math.abs(node.getBoundingClientRect().top - 96))).toBeLessThan(40);
   // 확인 완료 항목은 기본 접힘이고, 펼치면 기존 정보가 그대로 보인다.
   const done = checks.getByRole("button", { name: "확인 완료 항목 보기 (1건)" });
   await expect(done).toHaveAttribute("aria-expanded", "false");
@@ -294,10 +308,6 @@ test("AX 진단 결과 요약: 판정 3카드는 실제 건수, 확인 필요 ·
   await done.click();
   await expect(checks.getByText("계산 로직 구현 환경")).toBeVisible();
   await expect(checks.getByText("Python 스크립트 사용 가능")).toBeVisible();
-  // 바로가기: 구현 전 확인 사항 제목이 고정 헤더 아래에 보이도록 이동한다.
-  await page.getByRole("button", { name: "항목 보기", exact: true }).click();
-  await expect.poll(async () => (await checks.getByRole("heading", { name: "구현 전 확인 사항" }).boundingBox())?.y ?? 9999).toBeLessThan(200);
-  await expect.poll(async () => (await checks.getByRole("heading", { name: "구현 전 확인 사항" }).boundingBox())?.y ?? 0).toBeGreaterThan(60);
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
 });

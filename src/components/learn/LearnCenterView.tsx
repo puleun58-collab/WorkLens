@@ -741,7 +741,7 @@ export function LearnCenterView() {
         inProgressRef.current = null;
         setInProgress(null);
       }
-      void clearInProgressQuiz(attempt.attemptId).catch(() => {});
+      await clearInProgressQuiz(attempt.attemptId).catch(() => {});
       setScreen({ name: "result", attempt });
       window.scrollTo({ top: 0 });
     },
