@@ -1139,7 +1139,7 @@ test("applicable law freezes reference identity, preserves disclosures and rejec
 });
 
 test("law article and precedent detail open analyses with their structured identifiers and return without refetch", async ({ page }) => {
-  const lawCalls: unknown[] = [];
+  const lawCalls: Array<Record<string, unknown>> = [];
   const decisionCalls: unknown[] = [];
   const analysis: unknown[] = [];
   await routeAnalysis(page, analysis);
@@ -1219,7 +1219,12 @@ test("law article and precedent detail open analyses with their structured ident
 
   await page.getByRole("tab", { name: "법령 검색", exact: true }).click();
   await expect(page.locator(".law-detail-raw")).toContainText("조문 본문");
-  expect(lawCalls).toEqual([{ query: "근로기준법" }, { mst: "283457" }, { mst: "283457", jo: "제74조" }]);
+  // The law detail itself is never refetched; the only extra text request is the applicable-law
+  // result's own date-anchored source (selected MST + reference date), not a detail reload.
+  expect(lawCalls.filter((call) => !call.efYd)).toEqual([{ query: "근로기준법" }, { mst: "283457" }, { mst: "283457", jo: "제74조" }]);
+  expect(lawCalls.filter((call) => call.efYd)).toEqual([
+    expect.objectContaining({ mst: "247265", efYd: "20240115", expectedEffectiveDate: "20230404", jo: "제74조" }),
+  ]);
   expect(decisionCalls).toEqual([{ domain: "precedent", query: "손해배상", page: 1 }, { domain: "precedent", id: "609561" }]);
 
   await page.setViewportSize({ width: 390, height: 844 });
