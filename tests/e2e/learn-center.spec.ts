@@ -1105,12 +1105,13 @@ test("학습센터: 반복 업무 3개 작성·검증·비교·후보 선택은 
   expect(errors).toEqual([]);
 });
 
-test("학습센터: LEVEL 1~10 실습 입력 방식·요약 색상·정렬·명령 복사 전수 점검", async ({ page, context }) => {
+test("학습센터: LEVEL 1~10 실습 입력 방식·요약 색상·정렬·명령 복사 전수 점검", async ({ page, context, browserName }) => {
   test.setTimeout(180_000);
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
-  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  // Firefox는 클립보드 권한 부여를 지원하지 않으므로 Chromium에만 적용한다.
+  if (browserName === "chromium") await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await page.goto("/");
   const levels = Object.fromEntries(Array.from({ length: 10 }, (_, index) => [String(index + 1), passedLevelRecord(index + 1, Date.UTC(2026, 9, 10, 12))]));
   await seedLearnRecord(page, "current", { version: 1, levels, wrongAnswers: [], updatedAt: Date.now() });
