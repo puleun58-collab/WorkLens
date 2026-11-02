@@ -350,7 +350,7 @@ export async function followArticleCitations(
       const title = /제[1-9]\d{0,3}조(?:의[1-9]\d?)?\(([^)]+)\)/u.exec(fetched.text)?.[1]?.trim() ?? "";
       const key = `${article.law}\0${jo}`;
       seen.add(key);
-      followed.push({ law: article.law, jo, title, excerpt,
+      followed.push({ law: article.law, jo, title, excerpt, original: fetched.text,
         matched: keywords.filter((term) => termInText(term, excerpt)),
         role: isDefinitionTitle(title) ? "definition" : "other", stage: "supplement",
         ...(fetched.effectiveDate ? { effectiveDate: fetched.effectiveDate } : {}) });
@@ -456,7 +456,7 @@ async function titleArticles(
     const found = await sources.article(candidate.mst, candidate.jo).catch(() => { failures++; return undefined; });
     if (strictName && found?.name && found.name !== candidate.law) return; // Stale/misdirected MST.
     const excerpt = found ? articleExcerpt(found.text, candidate.jo) : "";
-    if (excerpt) articles.push({ law: candidate.law, jo: candidate.jo, title: candidate.title, excerpt, matched: candidate.matched,
+    if (excerpt) articles.push({ law: candidate.law, jo: candidate.jo, title: candidate.title, excerpt, original: found!.text, matched: candidate.matched,
       role: isDefinitionTitle(candidate.title) ? "definition" : "other", stage: "supplement",
       ...(found?.effectiveDate ? { effectiveDate: found.effectiveDate } : {}) });
   }, expired);
@@ -557,7 +557,7 @@ async function fetchExplicitArticles(
     // syllable, so a deleted body ("삭제…") must be caught by prefix.
     if (!excerpt || /^삭제/u.test(excerpt)) continue;
     const title = /제[1-9]\d{0,3}조(?:의[1-9]\d?)?\(([^)]+)\)/u.exec(fetched.text)?.[1]?.trim() ?? "";
-    articles.push({ law: law.name, jo: pair.jo, title, excerpt, matched: [], explicit: true, stage: "issue",
+    articles.push({ law: law.name, jo: pair.jo, title, excerpt, original: fetched.text, matched: [], explicit: true, stage: "issue",
       role: isDefinitionTitle(title) ? "definition" : "other",
       ...(fetched.effectiveDate ? { effectiveDate: fetched.effectiveDate } : {}) });
   }
@@ -702,7 +702,7 @@ export async function rereadShownArticles(
     const fetched = await sources.article(exact.mst, article.jo).catch(() => undefined);
     if (!fetched) continue;
     const excerpt = articleExcerpt(fetched.text, article.jo);
-    if (excerpt) articles.push({ law: article.law, jo: article.jo, title: article.title ?? "", excerpt, matched,
+    if (excerpt) articles.push({ law: article.law, jo: article.jo, title: article.title ?? "", excerpt, original: fetched.text, matched,
       role: isDefinitionTitle(article.title) ? "definition" : "other", stage: "reread",
       ...(fetched.effectiveDate ? { effectiveDate: fetched.effectiveDate } : {}) });
   }

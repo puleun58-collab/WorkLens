@@ -324,11 +324,13 @@ async function fullResearch(
         if (lookup?.status === "found") adopted = await issueSources(issue.query, known, lookup, sources, summaries, requestTerms, fallback, query);
       }
     }
-    // A chain article the issue could not adopt from its truncated preview
-    // may still carry the issue in its full text (a victim-protection clause
-    // past the MCP's ③ cut). Re-read the title-matched shown articles and
-    // judge them by the same rules; a title match alone never confirms.
-    if (!adopted.articles.length && !expired()) {
+    // A title-matched preview can omit the operative clause even when lexical
+    // matching provisionally adopts it. Use the existing bounded re-read for
+    // that preview too: final adoption requires the obtained original, not a
+    // display truncation or title match.
+    const unreadAdopted = adopted.articles.some((ref) => shownArticles.some((article) =>
+      article.law === ref.law && article.jo === ref.jo && /\.{3}|…|⋯|중략/u.test(article.excerpt)));
+    if ((!adopted.articles.length || unreadAdopted) && !expired()) {
       const candidateTerms = [...new Set([...questionTerms(issue.query), ...questionTerms(query)])];
       // A re-read failure degrades to "no candidate", never to a failed request.
       const reread = await rereadShownArticles(shownArticles, candidateTerms, sources, expired).catch(() => []);
@@ -487,9 +489,9 @@ async function fullResearch(
     // capped separately and must not replace the actual verification source.
     ...fullFollowupArticles.map((article) => ({ ...article, excerpt: article.body })),
     ...shownArticles.map((article) => ({ ...article, effectiveDate: article.effective, stage: "chain" })),
-    ...(found?.enrichment?.supplement?.articles ?? []),
-    ...judged.flatMap((item) => item.lookup?.articles ?? []),
-    ...retrievedArticles,
+    ...(found?.enrichment?.supplement?.articles ?? []).map((article) => ({ ...article, excerpt: article.original ?? article.excerpt })),
+    ...judged.flatMap((item) => item.lookup?.articles ?? []).map((article) => ({ ...article, excerpt: article.original ?? article.excerpt })),
+    ...retrievedArticles.map((article) => ({ ...article, excerpt: article.original ?? article.excerpt })),
     ...[...known.reviews.values()].flatMap((review) => review.articles),
   ];
   for (const article of rawArticles) {

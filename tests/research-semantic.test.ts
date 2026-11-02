@@ -4,6 +4,7 @@ import { runLegalResearch } from "@/server/law-research-mcp";
 import { interpretResearchQuery, verifyResearchAdoption } from "@/server/groq";
 import { adoptionResponse } from "./research-adoption-fixtures";
 import { ApiError } from "@/server/http";
+import type * as GroqModule from "@/server/groq";
 
 vi.mock("@/server/groq", () => ({ interpretResearchQuery: vi.fn(), verifyResearchAdoption: vi.fn() }));
 
@@ -54,12 +55,52 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
   vi.clearAllMocks();
   delete process.env.LAW_OC;
   delete process.env.LAW_MCP_URL;
 });
 
 describe("full_research issue-by-issue retrieval", () => {
+  it.each([
+    { partial: false, chain: false }, { partial: true, chain: false },
+    { partial: false, chain: true }, { partial: true, chain: true },
+  ])("distinguishes display truncation from a partial original (partial=$partial, chain=$chain)", async ({ partial, chain }) => {
+    const query = "근로기준법상 퇴사자 임금 지급";
+    const quote = "임금은 통화로 직접 근로자에게 그 전액을 지급하여야 한다.";
+    // A long MCP response exercises the display boundary without adding any retrieval.
+    const body = `${quote}\n`.repeat(24) + (partial ? " …" : quote);
+    vi.mocked(interpretResearchQuery).mockResolvedValueOnce({ original: query, situation: query, facts: [],
+      issues: [{ label: "임금 지급", query: "임금 지급" }], confidence: "high" });
+    upstream({
+      legal_research: () => chain
+        ? `═══ 종합 리서치 ═══\n▶ AI 법령검색 결과\n지능형 법령검색 결과 (법령조문, 1건):\n\n${article("0043조", "임금 지급", `${quote} …`)}`
+        : "[NOT_FOUND] 없음",
+      search_law: () => "검색 결과 (총 1건):\n\n📍 정확매칭 (1건):\n1. 근로기준법 [현행]\n   - 법령ID: 001872\n   - MST: 283457\n   - 공포일: 20260219 / 시행일: 20260820\n   - 구분: 법률",
+      get_law_text: ({ jo }) => jo
+        ? `법령명: 근로기준법\n공포일: 20260219\n시행일: 20260820\n제43조 임금 지급\n제43조(임금 지급)\n${body}`
+        : "법령명: 근로기준법\n목차 (총 1개 조문)\n제43조 임금 지급",
+    });
+    const mcpFetch = globalThis.fetch;
+    vi.stubEnv("GROQ_API_KEY", "long-original-regression");
+    vi.stubGlobal("fetch", async (url: RequestInfo | URL, init: RequestInit) => {
+      if (String(url).includes("mcp.example.test")) return mcpFetch(url, init);
+      const payload = JSON.parse(String(init.body));
+      const candidates = JSON.parse(payload.messages.find((message: { role: string }) => message.role === "user").content).candidates;
+      const candidate = candidates.find((item: { law?: string; text: string }) => item.law === "근로기준법" && item.text.includes(body));
+      return Response.json({ choices: [{ message: { content: JSON.stringify({ selections: candidate ? [{
+        issueIndex: 0, candidateId: candidate.id, role: "direct", quote,
+        reason: "퇴사자의 임금 지급 질문에 대해 근로자에게 임금 전액을 지급해야 하는 의무를 직접 정합니다.",
+      }] : [] }) } }] });
+    });
+    const groq = await vi.importActual<typeof GroqModule>("@/server/groq");
+    vi.mocked(verifyResearchAdoption).mockImplementationOnce(groq.verifyResearchAdoption);
+    const result = await runLegalResearch({ task: "full_research", query }, ctx);
+    if (!result.found) throw new Error("expected a research response");
+    expect(result.evidence?.articles?.map(({ law, jo }) => ({ law, jo }))).toEqual(partial ? [] : [{ law: "근로기준법", jo: "제43조" }]);
+    expect(result.evidence?.issues?.[0].status).toBe(partial ? "none" : "found");
+  });
+
   it("searches each uncovered issue with its own short phrase and reports coverage per issue", async () => {
     const queries = upstream({
       legal_research: () => dismissal,

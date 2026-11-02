@@ -52,6 +52,8 @@ export interface SupplementArticle {
   jo: string;
   title: string;
   excerpt: string;
+  /** Complete fetched source, separate from the bounded display excerpt. */
+  original?: string;
   effectiveDate?: string;
   /** Question terms found in the article title. */
   matched: string[];
