@@ -7,7 +7,7 @@ import type { EvidenceArticle, InterpretationFailure, IssueEvidence, LawCurrency
 import type { LawRequestStats } from "@/lib/law-observability";
 import { researchResult, type ResearchDecision } from "@/lib/law-research-parse";
 import {
-  isLawName, questionTermsRelationLess, questionSubjectTerms, questionTerms, questionTermsSubjectLess, rankPrecedent, relationshipSupported, researchDecisionDomain, researchEvidenceSources, titleMatches,
+  directConditionsSupported, isLawName, questionTermsRelationLess, questionSubjectTerms, questionTerms, questionTermsSubjectLess, rankPrecedent, relationshipSupported, researchDecisionDomain, researchEvidenceSources, titleMatches,
   type PrecedentRelevance, type ResearchAdoptionCandidate, type ResearchAdoptionVerdict, type ResearchEnrichment, type SupplementArticle,
 } from "@/lib/research-relevance";
 import { assessProcedureEvidence } from "@/lib/procedure-evidence";
@@ -550,10 +550,11 @@ async function fullResearch(
     const identityKeys = new Set<string>();
     for (const candidate of candidates) {
       const proposed = byCandidate.get(candidate.id);
-      // The model's selection is re-checked against the user's own words: a
-      // rule confined to an unmentioned party/relationship, or a bare purpose
-      // clause the question does not ask about, is not evidence for it.
-      const mismatch = proposed && (!relationshipSupported(`${candidate.law ?? ""} ${proposed.quote || candidate.text}`, query)
+      // Scope belongs to the full official body, not the model's selected line:
+      // a quote may omit the corporate-member role or a numbered condition.
+      const fullScope = `${candidate.law ?? ""} ${candidate.text}`;
+      const mismatch = proposed && (!relationshipSupported(fullScope, query)
+        || proposed.role === "direct" && !directConditionsSupported(fullScope, query)
         || candidate.kind === "article" && candidate.title?.replace(/\s+/gu, "") === "목적" && !query.includes("목적"));
       const selection = mismatch ? undefined : proposed;
       const identity = requestedCandidateIds.has(candidate.id)

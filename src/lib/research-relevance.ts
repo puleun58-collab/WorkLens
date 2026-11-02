@@ -516,7 +516,7 @@ const RESTRICTED_RELATIONSHIPS: ReadonlyArray<{ source: RegExp; request: RegExp;
   { source: /위탁매매인/u, request: /위탁|매매인|중개|대리상/u },
   { source: /계약담당(?:자|공무원)|지출관|출납공무원/u, request: /조달|공공|국가|지방자치|지자체|관공서|공무원|공기업|입찰|교도/u },
   // 상법상 사원은 회사의 구성원(출자자)이지 근로자가 아니다.
-  { source: /사원(?:은|이|의)\s*(?:영업년도|퇴사|지분|출자)|회사를\s*대표하는\s*사원|사원이\s*부득이한/u, request: /합명|합자|유한책임회사|출자|지분|사원권/u },
+  { source: /사원(?:은|이|의)\s*(?:영업년도|퇴사|지분|출자)|회사를\s*대표하는\s*사원|사원이\s*부득이한|총사원의\s*동의/u, request: /합명|합자|유한책임회사|출자|지분|사원권/u },
   { source: /위원회소속직원|(?<!담당)공무원(?:은|이)/u, request: /공무원|공공기관|국가기관|위원회|공직|국가배상/u },
   { source: /지방자치단체를\s*당사자로/u, request: /지방|지자체|자치단체|시청|도청|구청|군청/u },
   // 민사집행 절차의 취소·정지 규정은 강제집행 관계를 묻지 않은 행정처분 취소 사유가 아니다.
@@ -530,6 +530,21 @@ export function relationshipSupported(content: string, originalQuery: string): b
     // A holding actually deciding employee status is relevant even when
     // its other party is an officer; the role must be part of its legal test.
     || (/직원|근로|고용/u.test(request) && /근로자(?:에|로|의)?\s*(?:해당|인정|볼|여부|성)|근로자성/u.test(content)));
+}
+
+/**
+ * An aggravated wage remedy is not the ordinary wage-payment obligation.
+ * Check its full conditions, not a quote ending just before the numbered list.
+ * This veto only limits direct adoption; conditional supporting evidence still
+ * needs the verifier's explanation and never becomes an automatic fallback.
+ */
+export function directConditionsSupported(content: string, originalQuery: string): boolean {
+  const source = compact(content), request = compact(originalQuery);
+  const aggravatedWageRemedy = /임금/u.test(source)
+    && /(?:[2-9]|[이삼사오육칠팔구])배/u.test(source)
+    && /명백한고의|개월수가총|개월이상의통상임금|상습체불/u.test(source);
+  return !aggravatedWageRemedy
+    || /고의|상습|반복|장기|대규모|(?:[2-9]|[이삼사오육칠팔구])배|[0-9일이삼사오육칠팔구십]+개월|손해배상/u.test(request);
 }
 
 /**

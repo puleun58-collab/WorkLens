@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vite
 import { MAX_ANALYZE_EVIDENCE_CHARS, MAX_EVIDENCE_CHARS } from "@/lib/ai/prompt";
 import type { ResearchAdoptionCandidate, ResearchAdoptionVerdict } from "@/lib/research-relevance";
 import { verifyResearchAdoption } from "@/server/groq";
+import scopeCapture from "./fixtures/research-live-scope-adoption.json";
 
 const context = { requestId: "research-adoption-verifier-test" };
 const originalQuery = "직원이 갑자기 무단퇴사했는데 밀린 월급을 지급해야 하나요? 손해배상도 가능한가요?";
@@ -66,6 +67,23 @@ afterEach(() => {
 });
 
 describe("final official-source adoption verifier", () => {
+  it("presents the complete captured direct food-disposition body without replacing it with the penalty alternative", async () => {
+    const captured = scopeCapture.food;
+    const source = captured.article;
+    const text = source.original;
+    const quote = text.slice(text.indexOf("①"), text.indexOf("다만,")).trim();
+    const candidate: ResearchAdoptionCandidate = { id: "food-direct-body", kind: "article",
+      law: source.law, jo: source.jo, title: source.title, text, stage: "supplement" };
+    const selection: ResearchAdoptionVerdict = { issueIndex: 0, candidateId: candidate.id, role: "direct", quote,
+      reason: "일반 영업정지 요건 질문에 영업의 전부 또는 일부 정지 권한과 그 위반 요건을 직접 정한 공식 본문입니다." };
+    const fetcher = provider([selection]);
+    await expect(verifyResearchAdoption(captured.query, [{ query: "식품위생법 영업정지" }], [candidate], context))
+      .resolves.toEqual([selection]);
+    const payload = JSON.parse(requestPayload(fetcher).messages.find((entry) => entry.role === "user")!.content);
+    expect(payload.candidates).toEqual([{ ...candidate, partial: false }]);
+    expect(requestPayload(fetcher).messages[0].content).toContain("처분 행위가 나뉘어 쓰였어도");
+  });
+
   it("retains direct and supporting quotes across articles and holdings in one medium-effort batch", async () => {
     const fetcher = provider([direct, supporting, holding]);
     await expect(verifyResearchAdoption(originalQuery, issues, candidates, context)).resolves.toEqual([direct, supporting, holding]);

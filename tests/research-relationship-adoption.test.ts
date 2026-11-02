@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { researchEvidenceSources, type ResearchEnrichment } from "@/lib/research-relevance";
+import { directConditionsSupported, relationshipSupported, researchEvidenceSources, type ResearchEnrichment } from "@/lib/research-relevance";
 
+import scopeCapture from "./fixtures/research-live-scope-adoption.json";
 // Official text captured on 2026-11-02, not an invented law/title blacklist.
 const procurement = {
   law: "조달사업에 관한 법률 시행령", jo: "제12조", title: "제3자를 위한 단가계약",
@@ -19,6 +20,21 @@ function adopt(article: typeof procurement, issue: string, originalQuery: string
 }
 
 describe("source relationship versus the original question", () => {
+  it("keeps the captured corporate-member scope even if the model quotes only the opening line", () => {
+    const { excerpt } = scopeCapture.records[0].review;
+    expect(relationshipSupported(excerpt, labor)).toBe(false);
+    expect(relationshipSupported(excerpt, "합명회사 사원의 지분과 퇴사 원인")).toBe(true);
+    expect(relationshipSupported(excerpt, "합자회사 출자 사원의 퇴사")).toBe(true);
+  });
+
+  it("limits aggravated wage remedies without limiting ordinary wages or general civil damages", () => {
+    const wage = scopeCapture.records[1];
+    expect(directConditionsSupported(wage.review.excerpt, wage.query)).toBe(false);
+    expect(directConditionsSupported(wage.review.excerpt, "고의 체불 임금의 손해배상 요건")).toBe(true);
+    expect(directConditionsSupported("임금은 통화로 직접 근로자에게 그 전액을 지급하여야 한다.", wage.query)).toBe(true);
+    expect(directConditionsSupported("채무자가 채무의 내용에 좇은 이행을 하지 아니한 때에는 채권자는 손해배상을 청구할 수 있다.", labor)).toBe(true);
+  });
+
   it.each([labor, "거래처가 계약을 위반해서 손해를 입었어", "개인정보 유출로 손해배상을 청구하고 싶어"])(
     "does not turn procurement parties into a general contract rule: %s", (query) => {
       expect(adopt(procurement, "계약 위반", query).articles).toEqual([]);

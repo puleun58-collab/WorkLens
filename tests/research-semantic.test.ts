@@ -5,6 +5,7 @@ import { interpretResearchQuery, verifyResearchAdoption } from "@/server/groq";
 import { adoptionResponse } from "./research-adoption-fixtures";
 import { ApiError } from "@/server/http";
 import type * as GroqModule from "@/server/groq";
+import scopeCapture from "./fixtures/research-live-scope-adoption.json";
 
 vi.mock("@/server/groq", () => ({ interpretResearchQuery: vi.fn(), verifyResearchAdoption: vi.fn() }));
 
@@ -267,6 +268,49 @@ describe("full_research issue-by-issue retrieval", () => {
 });
 
 describe("original-party adoption and issue status", () => {
+  it.each([
+    { record: 0, query: scopeCapture.records[0].query, quote: "captured", role: "direct", accepted: false },
+    { record: 0, query: scopeCapture.records[0].query, quote: "opening", role: "direct", accepted: false },
+    { record: 0, query: "합명회사 사원의 지분과 퇴사 원인", quote: "captured", role: "direct", accepted: true },
+    { record: 0, query: "합자회사 출자 사원의 퇴사 원인", quote: "opening", role: "direct", accepted: true },
+    { record: 1, query: scopeCapture.records[1].query, quote: "captured", role: "direct", accepted: false },
+    { record: 1, query: "퇴사자 임금 미지급의 명백한 고의와 3배 손해배상 요건", quote: "captured", role: "direct", accepted: true },
+    { record: 1, query: scopeCapture.records[1].query, quote: "captured", role: "supporting", accepted: true },
+  ] as const)("checks the full captured scope before adoption: $record/$query/$quote/$role", async (test) => {
+    const captured = scopeCapture.records[test.record].review;
+    const { law, jo, title, excerpt } = captured;
+    const query = test.query;
+    vi.mocked(interpretResearchQuery).mockResolvedValueOnce({ original: query, situation: query, facts: [query],
+      issues: [{ label: title, query: test.record === 0 ? "무단퇴사" : "임금 체불" }], confidence: "high" });
+    // The captured reread includes get_law_text metadata and two article
+    // headings. A legal_research chain has one heading followed by the body;
+    // nesting the reread envelope there makes its heading terminate the body.
+    // Keep the capture untouched and embed every operative paragraph verbatim.
+    const body = test.record === 1 ? excerpt.slice(excerpt.indexOf("①")) : excerpt;
+    const text = `═══ 종합 리서치 ═══\n▶ AI 법령검색 결과\n지능형 법령검색 결과 (법령조문, 1건):\n\n${law}\n   ${jo} (${title})\n${body}\n   시행: 2026.10.08 | 법무부`;
+    upstream({ legal_research: () => text });
+    const quote = test.quote === "opening" ? excerpt.split("\n")[0] : captured.quote;
+    vi.mocked(verifyResearchAdoption).mockImplementationOnce(adoptionResponse([{
+      issueIndex: 0, source: { law, jo }, role: test.role, quote,
+      reason: test.role === "supporting"
+        ? "고의 또는 체불 기간·금액 조건은 원질문에서 미확정이며, 이 조건을 확인해야만 가능한 가중 구제수단의 보충자료입니다."
+        : captured.reason,
+    }]));
+    const result = await runLegalResearch({ task: "full_research", query }, ctx);
+    expect(result).toMatchObject({ found: true, text });
+    if (!result.found) throw new Error("expected captured research response");
+    expect(verifyResearchAdoption).toHaveBeenCalledOnce();
+    expect(vi.mocked(verifyResearchAdoption).mock.calls[0][2]).toContainEqual(
+      expect.objectContaining({ law, jo, text: expect.stringContaining(body.trim()) }));
+    expect(result.enrichment?.adoptionReviews).toContainEqual(
+      expect.objectContaining({ verification: "verified" }));
+    const reviews = result.enrichment?.adoptionReviews?.flatMap((review) => review.articles) ?? [];
+    expect(reviews).toContainEqual(expect.objectContaining({ law, jo, excerpt: expect.stringContaining(quote), adopted: test.accepted,
+      ...(test.accepted ? { role: test.role, quote } : { reason: expect.stringContaining("원질문의") }) }));
+    expect(result.evidence?.articles?.some((article) => article.law === law && article.jo === jo)).toBe(test.accepted);
+    expect(result.evidence?.issues?.[0].status).toBe(test.accepted && test.role === "direct" ? "found" : "none");
+  });
+
   it("rejects actual loan/retirement-tax false positives without changing the wage issue", async () => {
     const query = "직원이 갑자기 무단퇴사해서 연락이 안 됨";
     vi.mocked(interpretResearchQuery).mockResolvedValueOnce({ original: query, situation: "직원 무단퇴사", facts: [query],
