@@ -40,6 +40,31 @@ Cloudflare Workers Logs (`wrangler tail` 또는 대시보드 → Workers → Log
 임계치를 임의로 고정하지 않는다. 먼저 1~2주간 정상 운영 기준값을 측정한 뒤,
 서비스 규모에 맞게 설정한다 (예: 평소 실패율의 3배를 알림 기준으로 시작).
 
+### 1단계: 사건 기반 알림 임계치 (2026-10-31 적용, 구현: worklens-upstream-watch/state.ts)
+
+- 알림 대상 (`REPORT_PENDING.md` 작성, 부모가 사용자에게 전달):
+  - 동일 장애 이벤트에서 검증 FAIL이 연속 2회 이상 발생한 경우
+  - 검증 시도 소진(3회) 시 최종 검증 결과가 FAIL인 경우
+  - 상류 차단(`blocked_upstream`)이 시도 소진으로 확정된 경우
+- 로그 전용 (`state.json`·`logs`·`artifacts`에만 기록, `REPORT_PENDING` 미작성):
+  - 검증 PASS, 검증 PARTIAL — 단, `assemble.ts` 규칙상 어느 단계든 FAIL이면 전체가 `fail`이
+    되므로 PARTIAL에는 회귀·스모크 FAIL이 포함될 수 없다 (PARTIAL = FAIL 단계 없음)
+  - 단발성 검증 FAIL — 재검증 대기 경로로 간다 (30분 후 + 신선한 연속 성공 3회 후 재검증)
+  - 단발성 실패 후 자가 회복, `monitor_error` 단독 발생, 검증 체계 `error`의 시도 소진
+- 이 구분은 보고 필터이며, 판정 기준·evidence·프로브 분류를 바꾸지 않는다.
+- 주의: 1단계 적용 이후 회복 검증 PASS는 사용자에게 별도 보고되지 않는다.
+  회복 여부는 `state.json`·`artifacts/<eventId>/`에서 확인한다.
+
+### 보류: 숫자 임계치 (Workers Logs 집계 후 설정)
+
+- 유효 성공률 하락폭(평소 대비 5%p), 실패율 배수(평소의 3배) 등 숫자 기준은 아직 설정하지 않았다.
+- 사유: VM에서 2주간 Workers Logs 요청 메타데이터를 집계할 수단이 없다.
+  `wrangler tail`은 실시간 스트리밍 전용이고, Logpush·대시보드 내보내기는 구성돼 있지 않다.
+  기준값 숫자를 임의로 만들지 않는다.
+- 설정에 필요한 것: Cloudflare 대시보드 Workers Observability에서 기간별 요청 메타데이터
+  조회·내보내기, 또는 Logpush 구성 후 집계. 집계가 확보되면 그때 숫자 임계치를 정한다.
+  (감시 프로브 누적치 `probeTotals`는 장애 기간을 포함한 누적값이라 정상 기준값이 아니다.)
+
 ## 배포 전후 비교
 
 배포 후 30분간 위 지표를 배포 전 1시간과 비교한다.
