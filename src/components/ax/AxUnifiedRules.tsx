@@ -189,7 +189,7 @@ function GenericRuleFields({ value, onChange, disabled, errors, derived = false 
       <div className="ax-rule-confirm">
         <Button type="button" disabled={disabled || (value.status !== "확정" && !value.detail.trim())}
           onClick={() => onChange({ status: value.status === "확정" ? "미확정" : "확정" })}>
-          {value.status === "확정" ? "확정 취소" : "이 규칙 확정"}
+          {value.status === "확정" ? "확정 취소" : "확정"}
         </Button>
       </div>
     </>}
@@ -362,7 +362,7 @@ export function UnifiedRulesSection({ diagnosis, genericRules, disabled: externa
             <button type="button" className="ax-decision-row-head" aria-expanded={isOpen} disabled={disabled}
               onClick={() => setOpenKey(isOpen ? null : item.id)}>
               <span className="ax-decision-no">{item.id}</span>
-              <span className="ax-decision-title"><strong>{item.displayTitle ?? display.title}{item.origin === "candidate" ? <span className="ax-decision-badge" data-origin="candidate">제안</span> : null}</strong><small>{uiText(item.displayQuestion ?? display.question)}</small></span>
+              <span className="ax-decision-title"><strong>{item.displayTitle ?? display.title}</strong><small>{uiText(item.displayQuestion ?? display.question)}</small></span>
               <span className="ax-decision-badge" data-status={item.status}>{STATUS_BADGE[item.status]}</span>
               <ChevronDown size={18} aria-hidden="true" className={isOpen ? "is-open" : ""} />
             </button>

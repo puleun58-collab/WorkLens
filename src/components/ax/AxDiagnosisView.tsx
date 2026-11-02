@@ -16,13 +16,13 @@ import { runInWorker } from "@/client/document-client";
 import { diagnoseAx, planAx, interruptServerAi, aiFailureDetail } from "@/client/server-ai-client";
 import { AX_LIMITS, FACTOR_LABELS, axTaskV2Schema, confirmedAxDiagnosis } from "@/lib/ax/schema";
 import { axes, automationLevel, diagnosisCounts, diagnosisStatusItems, executionGate, executionProfile, GATE_LABELS, planAllowed, factorEffectiveValue, factorHasAdjustment, factorScale, matrixPosition, priority, taskStatus, taskDisplayStatus } from "@/lib/ax/policy";
-import { candidateTask, taskDetails, followUpDescription, legacyDetailValues, validateAttachmentPreflight, isRegistrationUnchanged } from "@/lib/ax/registration";
+import { candidateTask, taskDetails, followUpDescription, legacyDetailValues, validateAttachmentPreflight, isRegistrationUnchanged, preserveRegistrationHistory, registrationContext } from "@/lib/ax/registration";
 import { MAX_TASK_ATTACHMENTS, attachmentPatch, buildAttachmentSummary, combineAttachmentSummaries, taskAttachments } from "@/lib/ax/attachments";
 import type { AxAttachmentMeta } from "@/lib/ax/types";
 import { uiText } from "@/lib/ax/display-text";
 import type { AxToolId } from "@/lib/ax/guide";
 import { exportAxState, importAxState } from "@/lib/ax/transfer";
-import { emptyAxState, type AxStateV2, type AxTask, type AxDiagnosis, type AxDetails, type FactorKey } from "@/lib/ax/types";
+import { emptyAxState, type AxStateV2, type AxTask, type AxTaskV2, type AxDiagnosis, type AxDetails, type FactorKey } from "@/lib/ax/types";
 import { extractPlanReviewableItems, reconcileReviews, validateReviewForConfirm } from "@/lib/ax/hitl";
 import { AxLevelBadge, AxProcess, AxPlanSection, AxCheckIcon, AxStatCards, diagnosisSummaryParts, diagnosisCheckItems, visibleDiagnosisCheckItems, resolveActiveTool, concreteNextAction, formatUnifiedNextAction, type AxCheckItem, type PrecheckTarget } from "./AxReport";
 import { applyCheckConfirmations, checkConfirmationState, checkKey, upsertCheckConfirmation } from "@/lib/ax/check-confirmations";
@@ -48,7 +48,7 @@ const SUFFICIENCY = { sufficient: "정보 충분", partial: "정보 일부 부�
 const DETAILS: { key: keyof AxDetails; label: string; placeholder: string; numeric?: boolean }[] = [
   { key: "cycle", label: "수행 주기", placeholder: "예: 매주 월요일, 매월 말일, 필요 시" }, { key: "minutesPerRun", label: "1회 소요 시간(분)", placeholder: "예: 30", numeric: true },
   { key: "runsPerMonth", label: "월 수행 횟수", placeholder: "예: 8", numeric: true },
-  { key: "systems", label: "사용 시스템", placeholder: "예: Excel, ERP, 사내 시스템" }, { key: "inputs", label: "입력 자료", placeholder: "예: 정산 Excel, 청구서, 시스템 조회 데이터" }, { key: "outputs", label: "산출물", placeholder: "예: 월간 정산표, 검토 결과, 보고서" },
+  { key: "systems", label: "사용 시스템", placeholder: "예: Excel, ERP, 사내 시스템" }, { key: "inputs", label: "입력 자료", placeholder: "예: 정산 Excel, 청구서, 시스템 조회 데이터" }, { key: "outputs", label: "산출물·출력 컬럼", placeholder: "예: 정산.csv\n컬럼: 거래일, 금액, 검토결과\n타입·형식: 거래일=날짜(YYYY-MM-DD), 금액=숫자, 검토결과=문자열\n템플릿: 담당자가 확정한 정산 양식" },
   { key: "humanSteps", label: "담당자 판단·승인 단계", placeholder: "예: 예외 건 검토, 금액 확인, 최종 승인" },
 ];
 type SessionAttachment = { meta: AxAttachmentMeta; summary: string };
@@ -104,12 +104,14 @@ function AxSelectedReport({ task, busy, onGenerate, onSaveReview, onGoToTarget }
   const activeTool = resolveActiveTool(selectedTool, plans);
   const reviews = (task as import("@/lib/ax/types").AxTaskV2).reviews ?? [];
   const reviewProps = { taskId: task.id, reviews, onSaveReview };
+  const diagnosedRegistration = (task as AxTaskV2).diagnosisRegistration;
   return <>
+    {diagnosedRegistration ? <p className="ax-notice" role="status">등록 정보가 변경되었습니다. 아래 결과·지시문은 이전 진단 정보를 유지합니다. 업무 진단에서 다시 진단하면 변경 내용이 반영됩니다.</p> : null}
     <AxPlanSection
       diagnosis={diagnosis}
       onGoToTarget={onGoToTarget}
-      taskName={task.name}
-      taskContext={[task.description, ...Object.entries(taskDetails(task)).filter(([, value]) => value !== undefined).map(([key, value]) => `${key}: ${value}`)].join("\n")}
+      taskName={diagnosedRegistration?.name ?? task.name}
+      taskContext={diagnosedRegistration?.context ?? registrationContext(task)}
       busy={busy}
       onGenerate={onGenerate}
       reviewProps={reviewProps}
@@ -134,6 +136,7 @@ export function AxDiagnosisView() {
   const [description, setDescription] = useState("");
   const [details, setDetails] = useState<Partial<Record<keyof AxDetails, string>>>({});
   const [draftAttachments, setDraftAttachments] = useState<DraftAttachment[]>([]);
+  const [registrationDetails, setRegistrationDetails] = useState<string[]>([]);
   const attachments = useRef(new Map<string, SessionAttachment[]>());
   // 파일별 세션 요약 준비 여부 (렌더용): taskId → 요약이 준비된 파일 지문 목록. 실제 요약 본문은 attachments ref가 보유한다.
   const [sessionReady, setSessionReady] = useState<Record<string, string[]>>({});
@@ -195,8 +198,10 @@ export function AxDiagnosisView() {
           : checkScroll.target === "checks"
             ? panel?.querySelector(".ax-diag-checks") ?? panel?.querySelector(".ax-diag-card")
             : panel?.querySelector("#ax-answer-section") ?? panel?.querySelector(".ax-diag-checks") ?? panel?.querySelector(".ax-diag-card");
+        target?.dispatchEvent(new Event("ax:open-review"));
         // 항목 이동(selector)은 즉시 이동해 펼쳐진 입력 위 항목 제목에 정확히 착지한다 (부드러운 스크롤 중 레이아웃 변화로 어긋나지 않게).
         target?.scrollIntoView({ behavior: checkScroll.selector ? "instant" : "smooth", block: "start" });
+        if (checkScroll.step === 1 && target instanceof HTMLTextAreaElement) target.focus({ preventScroll: true });
         setCheckScroll(null);
       });
     }, 260);
@@ -230,14 +235,31 @@ export function AxDiagnosisView() {
   const jumpSeq = useRef(0);
   const [focusDecision, setFocusDecision] = useState<{ taskId: string; id: string; nonce: number } | null>(null);
   /** 구현 전 확인 '확인하러 가기': 현재 선택 업무를 유지한 채 실제 확인·수정 위치로 이동한다.
-   * 이동 대상이 없는 항목(none)은 호출되지 않는다. 다른 업무로는 이동하지 않는다. */
+   * 확인 동작은 기록을 완료 처리하지 않고 해당 입력 위치만 연다. */
   function goToPrecheckTarget(taskId: string, target: PrecheckTarget, topic: string) {
     if (busy || getState().selectedTaskId !== taskId) return;
     const nonce = ++jumpSeq.current;
-    if (target.kind === "register") { const task = getState().tasks.find(t => t.id === taskId); if (task) editTask(task); return; }
+    if (target.kind === "register") {
+      const task = getState().tasks.find(t => t.id === taskId);
+      if (task) {
+        editTask(task);
+        if (target.field === "outputs") {
+          setRegistrationDetails(["details"]);
+          setCheckScroll({ taskId, nonce, step: 1, selector: "#ax-registration-outputs" });
+        }
+      }
+      return;
+    }
     if (target.kind === "plan") { setCheckScroll({ taskId, nonce, step: 4, selector: "#ax-plan-review" }); return; }
     changeStep(2);
     if (target.kind === "checks") {
+      const task = getState().tasks.find(item => item.id === taskId);
+      const visible = task?.diagnosis ? visibleDiagnosisCheckItems(viewTask(task).diagnosis!) : [];
+      if (task && !visible.some(item => checkKey(item.title) === checkKey(topic))) {
+        editTask(task);
+        setMessage(`‘${topic}’의 확인 내용과 근거를 업무 설명에 보완한 뒤 수정 등록하고 다시 진단하세요. 이동·저장만으로 확인 완료되지 않습니다.`);
+        return;
+      }
       setFocusCheck({ taskId, topic, nonce });
       setCheckScroll({ taskId, nonce, selector: `#ax-check-${CSS.escape(encodeURIComponent(checkKey(topic)))}` });
     } else if (target.kind === "decision") {
@@ -421,8 +443,7 @@ export function AxDiagnosisView() {
       const task = axTaskV2Schema.parse({ ...candidateTask(description), ...(previous ? legacyDetailValues(previous) : {}), ...inputs, name: name.trim() || description.trim().slice(0, 60),
         ...(previous ? { id: previous.id, createdAt: previous.createdAt } : {}),
         ...attachmentPatch(draftAttachments.map(entry => entry.meta)),
-        // HITL: 기존 검토 기록 보존 (v1 스키마 사용 시 reviews 필드 손실 방지)
-        ...(previous && "reviews" in previous && previous.reviews ? { reviews: previous.reviews } : {}),
+        // 등록 입력과 진단·사용자 기록을 분리하고 아래에서 기존 이력을 복원한다.
       });
       // 세션 요약 동기화: 초안에서 요약이 준비된 파일만 세션에 남긴다.
       // 등록 내용이 그대로여도 폼에서 같은 파일을 다시 첨부해 요약이 복원된 경우를 반영한다.
@@ -436,8 +457,9 @@ export function AxDiagnosisView() {
         syncSession(); clearDraft(); setMessage("변경된 내용이 없습니다"); return;
       }
       syncSession();
-      update(current => ({ ...current, tasks: editingId ? current.tasks.map(t => t.id === editingId ? task : t) : [...current.tasks, task], selectedTaskId: task.id }));
-      clearDraft(); setMessage(previous ? "등록 정보를 수정했습니다. 변경된 정보로 다시 진단하세요" : "업무를 등록했습니다");
+      const savedTask = previous ? preserveRegistrationHistory(previous, task) : task;
+      update(current => ({ ...current, tasks: editingId ? current.tasks.map(t => t.id === editingId ? savedTask : t) : [...current.tasks, savedTask], selectedTaskId: task.id }));
+      clearDraft(); setMessage(previous ? "등록 정보를 수정했습니다. 기존 진단 결과·확인 기록은 재진단 전까지 유지됩니다. 업무 진단에서 변경된 정보로 다시 진단하세요" : "업무를 등록했습니다");
     } catch { setMessage("등록 정보를 확인하세요. 설명은 필수이며 입력값의 길이와 숫자 범위를 확인해야 합니다"); }
   }
   /** 파일 1개를 워커로 파싱·분석해 개별 요약을 만든다. 실패하면 예외를 던지고 이미 처리된 다른 파일에는 영향을 주지 않는다. */
@@ -630,7 +652,10 @@ export function AxDiagnosisView() {
     };
     try {
       const confirmed = confirmedAxDiagnosis(effective);
-      const plan = await planAx({ kind: "ax-plan", target, task: { name: task.name, description: task.description, details: taskDetails(task) }, diagnosis: confirmed });
+      const diagnosedRegistration = (task as AxTaskV2).diagnosisRegistration;
+      const plan = await planAx({ kind: "ax-plan", target, task: diagnosedRegistration
+        ? { name: diagnosedRegistration.name, description: diagnosedRegistration.description, details: diagnosedRegistration.details }
+        : { name: task.name, description: task.description, details: taskDetails(task) }, diagnosis: confirmed });
       if (!alive.current) return;
       // 응답 도착 시 최신 상태와 기준 상태 비교 (getState()로 최신 상태 조회 - stale closure 방지)
       const latestTask = getState().tasks.find(t => t.id === requestBaseline.taskId) as import("@/lib/ax/types").AxTaskV2 | undefined;
@@ -803,9 +828,12 @@ export function AxDiagnosisView() {
               <AxAttachmentInput disabled={!!busy} onSelectFiles={files => void attachFiles(files)} />
               {draftAttachments.map(entry => <div className="ax-file-row" key={entry.meta.fingerprint}><FileText className="size-4" aria-hidden="true" /><span className="ax-file-name">{entry.meta.name}</span>{entry.summary === null ? <span className="ax-file-status">재첨부 필요</span> : null}<Button type="button" variant="ghost" size="icon-xs" aria-label="첨부 취소" onClick={() => removeDraftAttachment(entry.meta.fingerprint)} disabled={!!busy}><X aria-hidden="true" /></Button></div>)}
             </div>
-            <Accordion><AccordionItem value="details">
+            <Accordion value={registrationDetails} onValueChange={setRegistrationDetails}><AccordionItem value="details">
               <div className="ax-register-actions"><AccordionTrigger type="button" className="ax-details-trigger" disabled={!!busy}>추가 정보</AccordionTrigger><div className="ax-register-submit">{editingId ? <Button type="button" variant="ghost" onClick={clearDraft}>수정 취소</Button> : null}<Button type="submit" disabled={!!busy || !description.trim()}>{editingId ? "수정 등록" : "업무 등록"}</Button></div></div>
-              <AccordionPanel><div className="ax-form-grid">{DETAILS.map(({ key, label, placeholder, numeric }) => <label className="ax-field" key={key}>{label}<Input type={numeric ? "number" : "text"} min={numeric ? 0 : undefined} max={numeric ? 100000 : undefined} step="any" maxLength={numeric ? undefined : AX_LIMITS.detail} placeholder={placeholder} value={details[key] ?? ""} onChange={e => setDetails(current => ({ ...current, [key]: e.target.value }))} disabled={!!busy} /></label>)}</div></AccordionPanel>
+              <AccordionPanel><div className="ax-form-grid">{DETAILS.map(({ key, label, placeholder, numeric }) => <label className="ax-field" key={key}>{label}{key === "outputs" ? <>
+                <Textarea id="ax-registration-outputs" aria-describedby="ax-registration-outputs-help" rows={5} maxLength={AX_LIMITS.detail} placeholder={placeholder} value={details[key] ?? ""} onChange={e => setDetails(current => ({ ...current, [key]: e.target.value }))} disabled={!!busy} />
+                <small id="ax-registration-outputs-help">파일명과 컬럼명을 출력 순서대로 적고, 필요한 타입·형식·템플릿을 함께 입력하세요. 모르는 항목은 미확정으로 남기세요. 저장만으로 확인 완료되지 않으며 업무 진단에서 다시 진단해야 반영됩니다.</small>
+              </> : <Input type={numeric ? "number" : "text"} min={numeric ? 0 : undefined} max={numeric ? 100000 : undefined} step="any" maxLength={numeric ? undefined : AX_LIMITS.detail} placeholder={placeholder} value={details[key] ?? ""} onChange={e => setDetails(current => ({ ...current, [key]: e.target.value }))} disabled={!!busy} />}</label>)}</div></AccordionPanel>
             </AccordionItem></Accordion>
           </form>
           {state.tasks.length ? <section className="ax-surface ax-area-list" aria-label="등록 업무 목록"><h3>업무 목록</h3>{taskRows(true)}</section> : null}
@@ -924,8 +952,8 @@ export function AxDiagnosisView() {
     <AlertDialog open={confirmation !== null} onOpenChange={open => { if (!open) setConfirmation(null); }}><AlertDialogPopup><AlertDialogHeader><AlertDialogTitle>{confirmation?.kind === "import" ? "AI•AX 데이터를 덮어쓸까요?" : confirmation?.kind === "delete" ? "업무를 삭제할까요?" : "AI•AX 데이터를 초기화할까요?"}</AlertDialogTitle><AlertDialogDescription>{confirmation?.kind === "import" ? "검증된 가져오기 데이터로 현재 AI•AX 업무·진단·계획을 교체합니다" : confirmation?.kind === "delete" ? "선택한 업무와 진단·계획을 삭제합니다" : "현재 AI•AX 업무·진단·계획만 삭제합니다. 다른 작업 공간은 유지됩니다"}</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogClose render={<Button type="button" variant="ghost" />}>취소</AlertDialogClose><Button type="button" variant="destructive" onClick={() => void confirm()}>{confirmation?.kind === "import" ? "덮어쓰기" : confirmation?.kind === "delete" ? "삭제" : "초기화"}</Button></AlertDialogFooter></AlertDialogPopup></AlertDialog>
   </section>;
 }
-/** '확인 필요 항목 보기': 구현 전 확인 사항 목록으로 이동한다 (목록은 항상 펼친 상태로 렌더링된다).
- * 대상 요소가 없으면 이동하지 않는다. 고정 헤더 여백은 .ax-diag-checks의 scroll-margin 규칙을 쓴다. */
+/** '항목 보기': 구현 전 확인 사항 목록으로 이동한다. 대상 요소가 없으면 이동하지 않는다.
+ * 고정 헤더 여백은 .ax-diag-checks의 scroll-margin 규칙을 쓴다. */
 function scrollToChecks() {
   document.querySelector(".ax-diag-checks")?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
@@ -1017,7 +1045,7 @@ function DiagnosisCard({ task, busy, onDiagnose, onEdit, attachment, onSaveCheck
         <span className="ax-check-text"><strong>{uiText(c.title)}</strong>{c.desc ? <small>{uiText(c.desc)}</small> : null}</span>
         <span className="ax-check-side">
           <span className="ax-check-badge" data-kind={state.kind === "applied" && state.status === "불가" ? "block" : c.kind}>{badge}</span>
-          {source && source.status !== "확인됨" ? <Button type="button" variant="outline" size="sm" aria-expanded={open} disabled={!!busy} onClick={() => setOpenTopic(open ? null : checkKey(c.title))}>결과 입력</Button>
+          {source && source.status !== "확인됨" ? <Button type="button" variant="outline" size="sm" aria-expanded={open} disabled={!!busy} onClick={() => setOpenTopic(open ? null : checkKey(c.title))}>{state.kind === "none" ? "확인" : "수정"}</Button>
             : c.kind === "block" ? <Button type="button" variant="outline" size="sm" disabled={!!busy} onClick={onEdit}>확인하러 가기</Button> : null}
         </span>
       </div>
@@ -1048,8 +1076,12 @@ function DiagnosisCard({ task, busy, onDiagnose, onEdit, attachment, onSaveCheck
     {d ? <>
       <section className="ax-diag-summary" aria-label="진단 결과 요약">
         <div className="ax-diag-summary-head"><h3>진단 결과 요약</h3>{d.informationSufficiency !== "needs-check" ? <Badge variant={d.informationSufficiency === "sufficient" ? "success" : "warning"}>{SUFFICIENCY[d.informationSufficiency]}</Badge> : null}</div>
-        {/* 단계별 판정 분포: 실제 stepAssessments 판정 건수 (자동화 / AI 보조 / 사람 유지). */}
-        <AxStatCards cards={VERDICT_CARDS.map(card => ({ key: card.verdict, label: card.label, tone: card.tone, icon: card.icon, count: d.stepAssessments.filter(step => step.verdict === card.verdict).length }))} />
+        {/* 단계별 판정 분포(실제 stepAssessments 판정 건수)와 구현 전 확인 미확인 건수(아래 목록과 같은 pendingChecks)를 같은 요약 카드로 표시한다. */}
+        <AxStatCards cards={[
+          ...VERDICT_CARDS.map(card => ({ key: card.verdict, label: card.label, tone: card.tone, icon: card.icon, count: d.stepAssessments.filter(step => step.verdict === card.verdict).length })),
+          { key: "checks", label: "확인 필요", tone: "info" as const, icon: Info, count: pendingChecks.length, unit: "건",
+            action: pendingChecks.length ? <Button type="button" variant="outline" size="sm" onClick={scrollToChecks}>항목 보기</Button> : undefined },
+        ]} />
         <div className="ax-judgement" role="group" aria-label="핵심 판단">
           <div className="ax-judgement-main">
             <Info size={18} aria-hidden="true" className="ax-judgement-icon" />
@@ -1058,10 +1090,6 @@ function DiagnosisCard({ task, busy, onDiagnose, onEdit, attachment, onSaveCheck
               {/* 판정 분포 건수는 위 3카드가 표시하므로, 담당자 역할 문장이 있으면 그것을, 없으면 분포 요약을 보여 준다. */}
               <p>{uiText(summary?.human ?? summary?.verdict ?? "단계별 판정 정보 없음")}</p>
             </div>
-          </div>
-          <div className="ax-judgement-foot">
-            <p><strong>확인 필요</strong> · {pendingChecks.length}건</p>
-            {pendingChecks.length ? <Button type="button" variant="outline" size="sm" onClick={scrollToChecks}>항목 보기</Button> : null}
           </div>
         </div>
         {/* 기본 출처 문구("사용자 등록 정보 기반 진단")는 표시하지 않고, 재첨부 안내가 담긴 첨부 파일 기반 문구만 남긴다. */}

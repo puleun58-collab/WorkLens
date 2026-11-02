@@ -240,6 +240,13 @@ export const checkConfirmationSchema = z.object({
 
 // v2: HITL 검토 데이터 포함
 export const axTaskV2Schema = axTaskSchema.extend({
+  // 등록 수정 후 재진단 전까지 기존 결과가 새 입력을 확정 근거로 사용하지 않도록 보존한다.
+  diagnosisRegistration: z.object({
+    name: z.string().trim().min(1).max(AX_LIMITS.name),
+    description: axTaskSchema.shape.description,
+    details: axDetailsSchema,
+    context: z.string().max(10000),
+  }).strict().optional(),
   // 사람 검토 데이터 (AI 진단 원본과 분리)
   reviews: z.array(hitlReviewSchema).max(100).optional(),
   // 레거시 예시 결과 확인 기록 (예시 정책·UI 제거 후 신규 저장 없음).

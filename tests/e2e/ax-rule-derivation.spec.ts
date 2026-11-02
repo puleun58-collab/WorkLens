@@ -33,13 +33,35 @@ for (const fixture of [excelComparisonFixture, facilitySafetyFixture, scheduleNo
       await navigateWorkspace(page, "업무 자동화 진단");
       const section = page.getByRole("region", { name: "업무 규칙 확인", exact: true });
       await expect(section).toBeVisible();
-      for (const id of fixture.expectedDecisionIds) await expect(section.locator(`#ax-decision-${id}`)).toHaveCount(1);
+      for (const id of fixture.expectedDecisionIds) {
+        const row = section.locator(`#ax-decision-${id}`);
+        await expect(row).toBeVisible();
+        await expect(row.locator(".ax-decision-badge")).toHaveText("미확정");
+        await expect(row.getByText("제안", { exact: true })).toHaveCount(0);
+      }
       for (const id of fixture.excludedDecisionIds) await expect(section.locator(`#ax-decision-${id}`)).toHaveCount(0);
       const cards = section.locator(".ax-decision-row");
       const count = await cards.count();
       expect(count).toBeGreaterThan(0);
       await expect(section.getByText(`0/${count} 완료`, { exact: true })).toBeVisible();
-      await expect(section.getByText("제안", { exact: true })).toHaveCount(count);
+      const genericCards = cards.filter({ has: page.locator(".ax-decision-no-new") });
+      const genericCount = await genericCards.count();
+      expect(count).toBe(fixture.expectedDecisionIds.length + genericCount);
+      const genericContents: string[] = [];
+      for (let index = 0; index < genericCount; index++) {
+        const row = genericCards.nth(index);
+        await expect(row.getByText("제안", { exact: true })).toBeVisible();
+        await expect(row.locator(".ax-decision-badge")).toHaveText("미확정");
+        await row.locator(".ax-decision-row-head").click();
+        await expect(row.getByRole("combobox", { name: "업무 적용 여부", exact: true })).toHaveText("선택하세요");
+        genericContents.push(await row.locator(".ax-decision-title strong").innerText());
+      }
+      for (const terms of fixture.requiredGenericRules) {
+        expect(genericContents.some(content => terms.every(term => content.includes(term)))).toBe(true);
+      }
+      for (const text of fixture.excludedGenericRules) {
+        expect(genericContents.some(content => content.includes(text))).toBe(false);
+      }
       await expect(section.getByText("신규", { exact: true })).toHaveCount(0);
       await expect(section).not.toContainText("이메일 API 제공 여부 확인");
       const bounds = await section.evaluate(element => ({ width: element.getBoundingClientRect().width, viewport: window.innerWidth, scroll: document.documentElement.scrollWidth }));

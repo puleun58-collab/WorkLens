@@ -62,7 +62,8 @@ test("TO-BE에 주황색 확인 필요 안내가 표시되지 않는다 (디젤 
   const tobe = page.locator(".ax-tobe-card");
   await expect(tobe).toBeVisible();
   await expect(tobe).toContainText("TO-BE · 역할과 흐름 (목표 프로세스)");
-  // 단계명·설명·담당·화살표는 그대로 유지된다.
+  await expect(tobe.locator(".ax-process-head small")).toHaveText("예상 업무 흐름 · 미구현");
+  // 단계명·담당·화살표·아이콘은 유지되고, 단계별 보조 설명은 표시하지 않는다.
   for (const step of ["가격 입력", "증감률 계산", "월평균 계산", "보고서 업데이트", "담당자 최종 검토"]) {
     await expect(tobe).toContainText(step);
   }
@@ -76,6 +77,8 @@ test("TO-BE에 주황색 확인 필요 안내가 표시되지 않는다 (디젤 
   // 원래 있던 문구라 안내 부재 단언에서 제외한다. 미확인 주제 "전주 가격 데이터"는
   // 어떤 단계 설명에도 없어 안내로만 표시됐던 문구다.
   await expect(tobe).not.toContainText("전주 가격 데이터");
+  await expect(tobe.locator(".ax-tobe-item p")).toHaveCount(0);
+  await expect(tobe).not.toContainText("입력 후보로 제안");
   // 제거 후 단계별 높이에 불필요한 빈 공간이 남지 않는다.
   const heights = await tobe.locator(".ax-tobe-item").evaluateAll(items => items.map(el => el.getBoundingClientRect().height));
   expect(heights).toHaveLength(5);

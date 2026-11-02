@@ -177,20 +177,13 @@ export function LearnLesson({ level, initialUnitId, progress, onPersistUnit, pra
           <BookOpen /> 핵심 개념
         </h4>
         <div className="learn-card-body">
-          {unit.concepts.length > 0 ? (
-            <p className="learn-concept-lead">
-              <strong>{unit.concepts[0].term}:</strong> {unit.concepts[0].definition}
-            </p>
-          ) : null}
-          {unit.concepts.length > 1 ? (
-            <ul className="learn-bullet-list">
-              {unit.concepts.slice(1).map((c) => (
-                <li key={c.term}>
-                  <strong>{c.term}:</strong> {c.definition}
-                </li>
-              ))}
-            </ul>
-          ) : null}
+          <ul className="learn-text-list">
+            {unit.concepts.map((concept) => (
+              <li key={concept.term}>
+                <strong>{concept.term}:</strong> {concept.definition}
+              </li>
+            ))}
+          </ul>
         </div>
       </section>
 
@@ -227,7 +220,7 @@ export function LearnLesson({ level, initialUnitId, progress, onPersistUnit, pra
             <GitCompare /> 비슷한 개념과 차이
           </h4>
           <div className="learn-card-body">
-            <ul className="learn-bullet-list">
+            <ul className="learn-text-list">
               {unit.comparisons.map((c, i) => (
                 <li key={i}>
                   <strong>
@@ -331,7 +324,7 @@ export function LearnLesson({ level, initialUnitId, progress, onPersistUnit, pra
         </div>
       </section>
 
-      <section className="learn-card learn-card-info learn-card-aligned" aria-label="핵심 요약">
+      <section className="learn-card learn-card-aligned" aria-label="핵심 요약">
         <h4 className="learn-card-title">
           <NotebookPen /> 핵심 요약
         </h4>

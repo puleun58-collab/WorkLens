@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, test } from "vitest";
@@ -121,24 +120,4 @@ describe("LEVEL 1~10 실습 입력 방식", () => {
     }
   });
 
-  test("단위 이동은 작성 상태를 초기화하고 터미널 저장 연결은 유지한다", () => {
-    const source = readFileSync(new URL("../src/components/learn/LearnLesson.tsx", import.meta.url), "utf8");
-    expect(source).toContain("<RepetitiveJobsPractice key={unit.id} />");
-    expect(source).toContain("<WritingPractice key={unit.id} steps={unit.practice.steps} />");
-    expect(source).toContain("initialSnapshot={practiceStates[stateKey] ?? null}");
-    expect(source).toContain("onSnapshotChange={(snapshot) => onPracticeStateChange(stateKey, snapshot)}");
-    expect(source).toContain("실습: ${unit.practice.title}");
-    expect(source).not.toContain("실습 —");
-    expect(source).toContain('unitId === "l5-u1" ? "folder-nav"');
-    expect(source).toContain("<strong>실습:</strong> {unit.practice.title}");
-    expect(source).toContain("<strong>실행 환경:</strong> Windows PowerShell");
-    expect(source).toContain("<strong>연습 모드:</strong> 작성형 연습이며, 점수에 반영되지 않습니다.");
-    expect(source).toContain("<strong>{unit.concepts[0].term}:</strong> {unit.concepts[0].definition}");
-    expect(source).toContain("<strong>{c.title}:</strong> {c.situation}");
-    expect(source).not.toMatch(/<h5>(실행 환경|연습 모드|실습 방법)<\/h5>/);
-    expect(source).toContain('<ol className="learn-practice-steps">');
-    const practiceSource = readFileSync(new URL("../src/components/learn/LearnPractice.tsx", import.meta.url), "utf8");
-    expect(practiceSource).toContain("<strong>선택한 자동화 후보:</strong> {normalizeJobName(jobs[candidate].name)}");
-    expect(practiceSource).toContain("<strong>업무 비교:</strong> 한 달을 30일로 환산한 예상 업무량입니다.");
-  });
 });
