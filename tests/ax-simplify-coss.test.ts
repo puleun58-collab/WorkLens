@@ -37,12 +37,6 @@ describe("formatUnifiedNextAction", () => {
 });
 
 describe("resolvePrecheckTarget", () => {
-  it("출력 컬럼 미확정은 이동 버튼 없이 안내만 남긴다", () => {
-    const target = resolvePrecheckTarget({ topic: "출력 컬럼 미확정", note: "출력 컬럼이 확정되지 않은 산출물: 운임결과.csv", origin: "check" });
-    expect(target.kind).toBe("none");
-    if (target.kind === "none") expect(target.guidance.length).toBeGreaterThan(0);
-    expect(precheckTargetLabel(target)).toBe("");
-  });
   it("예시 체계 제거 후 예시 부족 항목은 전용 이동 대상이 없어 확인 사항으로 연결한다", () => {
     expect(resolvePrecheckTarget({ topic: "업무 처리 예시 미확정", note: "확정 예시가 1건으로 3건 미만입니다.", origin: "check" }))
       .toEqual({ kind: "checks" });

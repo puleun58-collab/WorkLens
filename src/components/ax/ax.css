@@ -647,23 +647,6 @@
 .ax-view .ax-execution-steps-trigger { padding-block: 12px; font-size: 15px; font-weight: 600; color: var(--foreground); }
 .ax-execution-steps-label .ax-muted { margin-left: 8px; font-size: var(--font-size-xs); font-weight: 400; }
 .ax-plan-view ul { margin: 0; padding: 0; list-style: none; }
-/* 01: tone cards with a white inner list; markers classify, they do not mean done. */
-.ax-scope-cards { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 14px; }
-.ax-scope-card { --tone: var(--primary); --tone-bg: #f3f7fe; --tone-line: #e0e9f8; display: flex; flex-direction: column; gap: 14px; min-width: 0; padding: 14px; border: 1.5px solid var(--tone-line); border-radius: 12px; background: var(--tone-bg); }
-.ax-scope-card[data-tone=human] { --tone: #16a34a; --tone-bg: #f2faf4; --tone-line: #dbefe1; }
-.ax-scope-card[data-tone=excluded] { --tone: #5b6472; --tone-bg: #f5f6f8; --tone-line: #e5e7eb; }
-.ax-scope-card-head { display: flex; align-items: center; gap: 14px; padding: 4px 6px 0; }
-.ax-scope-icon { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 52px; height: 52px; border-radius: 999px; background: color-mix(in srgb, var(--tone) 12%, #fff); color: var(--tone); }
-.ax-scope-icon svg { width: 26px; height: 26px; }
-.ax-scope-card h5 { font-size: 16px; font-weight: var(--font-weight-bold, 700); }
-.ax-scope-card-head p { margin: 4px 0 0; color: var(--muted-foreground); font-size: 13px; }
-.ax-scope-card > ul { flex: 1; padding: 6px 16px; border-radius: 8px; background: var(--card); font-size: 14px; line-height: 1.55; }
-.ax-scope-card li { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 12px; align-items: start; padding: 5px 0; overflow-wrap: anywhere; }
-.ax-scope-card li + li { border-top: 1px dashed color-mix(in srgb, var(--tone) 18%, var(--border)); }
-.ax-scope-card-notes { padding: 0 6px; }
-.ax-scope-card-notes p { margin: 0; color: var(--muted-foreground); font-size: 13px; line-height: 1.55; }
-.ax-scope-card-notes p + p { margin-top: 4px; }
-.ax-scope-card li > svg { width: 18px; height: 18px; margin-top: 2px; fill: var(--tone); color: var(--card); }
 /* 02: state cards; data-status keeps the raw check status, data-tone the current/future split. */
 .ax-gate-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
 .ax-gate-card { --tone: #e08a00; --tone-bg: #fff8ec; --tone-line: #f7e2bd; display: grid; grid-template-columns: 40px minmax(0, 1fr); align-content: start; gap: 14px; min-width: 0; padding: 16px; border: 1.5px solid var(--tone-line); border-radius: 12px; background: var(--tone-bg); overflow-wrap: anywhere; }
@@ -727,7 +710,6 @@
 .ax-plan-instructions h4 { scroll-margin-top: 100px; }
 .ax-plan-instructions h4:focus-visible { outline: 2px solid var(--primary); outline-offset: 4px; }
 @media (max-width: 1100px) {
-  .ax-scope-cards { grid-auto-flow: row; grid-template-columns: minmax(0, 1fr); }
   .ax-gate-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ax-done-grid[data-split] { grid-template-columns: minmax(0, 1fr); }
 }
@@ -805,9 +787,6 @@
 .ax-judgement-text { min-width: 0; }
 .ax-judgement-text h4 { margin: 0 0 4px; font-size: 14px; font-weight: 700; }
 .ax-judgement-text p { margin: 0; font-size: 13.5px; line-height: 1.6; overflow-wrap: anywhere; }
-.ax-judgement-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; padding: 10px 16px; border-top: 1px solid #dbeafe; }
-.ax-judgement-foot p { margin: 0; font-size: 13.5px; }
-.ax-judgement-foot strong { font-weight: 600; color: var(--primary); }
 /* 확인 필요 항목: 하나의 목록 컨테이너 안의 행 (항목별 개별 카드 없음). */
 .ax-diag-checks-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
 .ax-diag-checks-head h3 { margin: 0; font-size: 15px; }
@@ -816,14 +795,14 @@
 .ax-diag-checks li { padding: 12px 0; border-bottom: 1px solid var(--border); }
 .ax-check-row { display: flex; gap: 12px; align-items: flex-start; }
 .ax-check-side { flex: none; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-/* 확인 결과 입력: 좌측은 항목 텍스트 시작선, 우측은 상단 '결과 입력' 버튼 끝선까지 (행 전체 폭 사용). */
+/* 확인 결과 입력: 좌측은 항목 텍스트 시작선, 우측은 확인·수정 버튼 끝선까지 (행 전체 폭 사용). */
 .ax-check-form { display: flex; flex-direction: column; gap: 10px; margin: 12px 0 0 30px; padding-top: 12px; border-top: 1px dashed var(--border); }
 .ax-check-form .ax-rule-field:has(textarea) { width: 100%; max-width: none; }
 .ax-check-form textarea { width: 100%; min-height: 84px; }
 .ax-check-form-status { margin: 0; font-size: 13px; color: var(--primary); }
 @media (max-width: 700px) {
   .ax-check-row { flex-wrap: wrap; }
-  .ax-check-side { width: 100%; justify-content: flex-start; padding-left: 30px; }
+  .ax-check-side { width: 100%; justify-content: flex-end; padding-left: 30px; }
   .ax-check-form { margin-left: 0; }
 }
 .ax-diag-checks li:last-child { border-bottom: 0; }
@@ -1129,11 +1108,10 @@
 .ax-precheck-row { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; padding: 12px 0; border-top: 1px solid var(--line-soft); }
 .ax-precheck-row:first-child { border-top: 0; }
 .ax-precheck-row-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.ax-precheck-row > .ax-precheck-row-text + button { flex: none; }
-.ax-precheck-row strong { font-size: 14px; overflow-wrap: anywhere; }
+.ax-precheck-row > button { flex: none; }
+.ax-precheck-row strong { min-width: 0; font-size: 14px; overflow-wrap: anywhere; }
 .ax-precheck-row-text > span { font-size: 13px; color: var(--muted-foreground); line-height: 1.55; overflow-wrap: anywhere; }
 .ax-precheck-row small { font-size: 12px; color: var(--muted-foreground); }
-@media (max-width: 700px) { .ax-precheck-row { flex-direction: column; align-items: flex-start; } }
 .ax-precheck-empty { margin: 0; padding: 12px 16px; }
 .ax-precheck-blocked { margin-top: 14px; }
 .ax-precheck-blocked h4 { margin: 0 0 8px; font-size: 14px; }
@@ -1148,10 +1126,7 @@
 .ax-precheck-item p { margin: 6px 0 0; color: var(--muted-foreground); font-size: 13px; line-height: 1.6; }
 .ax-precheck-guidance { font-size: 13px; }
 .ax-plan-head-icon { flex: none; color: var(--primary); }
-.ax-plan-groups-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
-.ax-plan-groups-head h3 { display: flex; align-items: center; gap: 12px; margin: 0; font-size: 20px; font-weight: 700; }
-.ax-plan-groups-head h3 svg { color: var(--primary); }
-.ax-plan-groups-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ax-plan-groups-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 0; }
 .ax-plan-groups-tools .ax-hitl-plan-tabs { margin: 0; }
 .ax-plan-steps { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--border); }
 .ax-plan-step { padding: 10px 0; border-bottom: 1px solid var(--line-soft); }
@@ -1160,53 +1135,9 @@
 .ax-plan-step-no { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: color-mix(in srgb, var(--primary) 10%, var(--card)); color: var(--primary); font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .ax-plan-step-text { min-width: 0; font-size: 14px; line-height: 1.6; color: var(--foreground); overflow-wrap: anywhere; }
 .ax-plan-step-content { display: grid; gap: 4px; min-width: 0; }
-.ax-plan-step-category { color: var(--muted-foreground); font-size: 12px; line-height: 1.5; }
 .ax-plan-review-cell { display: inline-flex; align-items: center; gap: 10px; white-space: nowrap; }
 /* 구현 계획·완료 기준 검토 패널은 단계별 자동화 판단과 같은 HitlReviewPanel 기본 디자인을 그대로 쓴다. */
 .ax-plan-review-panel { margin-top: 12px; }
-.ax-scope-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 16px; text-align: left; }
-.ax-scope-panel { min-width: 0; padding: 24px; border: 1px solid var(--border); border-radius: 14px; background: var(--card); box-shadow: var(--shadow-sm, 0 1px 2px rgb(16 24 40 / 0.04)); }
-.ax-scope-card-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
-.ax-scope-panel h3 { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 20px; font-weight: 700; }
-.ax-scope-panel h3 svg { color: var(--primary); }
-.ax-scope-card-head > button { border-radius: 999px; color: var(--primary); }
-.ax-scope-description { margin: 8px 0 20px; color: var(--muted-foreground); font-size: 13px; line-height: 1.6; }
-.ax-scope-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 0 0 18px; }
-.ax-scope-tiles > div { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 4px 8px; align-items: center; padding: 12px; border-radius: 12px; background: #eef3fa; }
-.ax-scope-tiles > div[data-tone="blue"] { background: #e8f0ff; }
-.ax-scope-tiles > div[data-tone="violet"] { background: #f1edff; }
-.ax-scope-tiles > div[data-tone="gray"] { background: #f0f2f5; }
-.ax-scope-tiles svg { grid-row: span 2; color: var(--primary); }
-.ax-scope-tiles [data-tone="violet"] svg { color: #7856d8; }
-.ax-scope-tiles dt { font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
-.ax-scope-tiles dd { margin: 0; font-size: 24px; font-weight: 750; line-height: 1.2; font-variant-numeric: tabular-nums; }
-.ax-scope-tiles small { font-size: 15px; }
-.ax-scope-sections { display: grid; gap: 10px; }
-.ax-scope-section { overflow: hidden; border: 1px solid var(--border); border-radius: 14px; }
-.ax-scope-section[data-open] { border-color: var(--primary); }
-.ax-scope-trigger.ax-scope-trigger { align-items: center; gap: 10px; padding: 14px; text-align: left; }
-.ax-scope-trigger.ax-scope-trigger:hover { text-decoration: none; }
-.ax-scope-trigger > span:first-child { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; min-width: 0; }
-.ax-scope-trigger > span > svg { flex: none; color: var(--primary); }
-.ax-scope-section[data-tone="violet"] .ax-scope-trigger > span > svg { color: #7856d8; }
-.ax-scope-trigger strong { font-size: 15px; font-weight: 700; }
-.ax-scope-preview { padding: 3px 9px; border-radius: 999px; background: #edf3ff; color: #244b8b; font-size: 11px; font-weight: 500; line-height: 1.5; overflow-wrap: anywhere; }
-.ax-scope-section[data-tone="violet"] .ax-scope-preview { background: #f1edff; color: #6143ac; }
-.ax-scope-section[data-tone="gray"] .ax-scope-preview { background: #eef0f4; color: #475569; }
-.ax-scope-details { padding: 0 14px 10px; }
-.ax-scope-table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 13px; line-height: 1.6; }
-.ax-scope-table th { padding: 8px; background: #e7efff; color: #17243d; text-align: left; font-weight: 700; }
-.ax-scope-table th:first-child { width: 44px; text-align: center; border-top-left-radius: 9px; }
-.ax-scope-table th:last-child { border-top-right-radius: 9px; }
-.ax-scope-table td { padding: 9px 8px; border-bottom: 1px solid var(--line-soft); color: var(--foreground); font-weight: 500; vertical-align: middle; overflow-wrap: anywhere; }
-.ax-scope-table td:first-child { text-align: center; }
-.ax-scope-no { display: inline-grid; place-items: center; min-width: 24px; min-height: 26px; padding: 1px 4px; border-radius: 5px; background: #edf0f6; color: #25324a; font-weight: 700; font-variant-numeric: tabular-nums; }
-.ax-criteria-filters { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 20px; }
-.ax-criteria-filters button { border-radius: 999px; font-size: 12px; }
-.ax-criteria-filters button[aria-pressed="true"] { border-color: var(--primary); background: #edf4ff; color: var(--primary); }
-.ax-criteria-table th:last-child { width: 142px; }
-.ax-criteria-table .ax-plan-review-cell { display: flex; justify-content: space-between; gap: 6px; font-size: 11px; }
-.ax-criteria-table .ax-plan-review-cell button { min-width: 48px; border-radius: 999px; }
 .ax-plan-groups-surface .ax-hitl-table-panel { padding: 0 16px; }
 .ax-plan-groups-surface .ax-plan-groups-tools:empty { display: none; }
 .ax-plan-instructions-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
@@ -1215,20 +1146,10 @@
 /* 자동화 구현 계획 / 올인원 지시문: 같은 너비·시작선의 두 흰색 영역으로 나눈다. */
 .ax-plan-stack { display: grid; gap: 16px; min-width: 0; }
 .ax-instructions-surface > .ax-plan-instructions { border-top: 0; padding-top: 0; }
-@media (max-width: 900px) {
-  .ax-scope-summary { grid-template-columns: minmax(0, 1fr); }
-}
+.ax-instructions-surface > .ax-plan-instructions:has(> .ax-plan-empty) { padding-bottom: 0; }
 @media (max-width: 480px) {
   .ax-plan-step-row { grid-template-columns: 24px minmax(0, 1fr); }
   .ax-plan-step-row .ax-plan-review-cell { grid-column: 2; }
-  .ax-scope-panel { padding: 16px; }
-  .ax-scope-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .ax-scope-trigger > span:first-child { gap: 8px; }
-  .ax-scope-preview { flex-basis: 100%; }
-  .ax-criteria-table th:last-child { width: 100px; }
-  .ax-criteria-table .ax-plan-review-cell { align-items: flex-start; flex-direction: column; }
-  .ax-scope-table th:first-child { width: 36px; }
-  .ax-scope-table td, .ax-scope-table th { padding: 8px 4px; }
 }
 
 /* MVP 검증 → 수정·보완: 기본 화면에서는 렌더링되지 않음(컴포넌트·스타일 보존). 기본 세로 쌓기라 모바일·데스크톱 모두 같은 구조. */

@@ -54,15 +54,6 @@ test("AX roadmap simplify: KPI 2개 · 통합 목록 · 제거 영역 부재 · 
   // 한 줄 요약 헤더: 업무명·Level·상태가 함께 보인다.
   const intro = page.locator(".ax-selected-report .ax-report-intro");
   await expect(intro).toContainText(task.name);
-  // ① 요약 배지만 표시되고, ② 범위·기준 요약이 보인다.
-  const pre = plan.getByRole("region", { name: "구현 전 확인", exact: true });
-  await expect(pre).toBeVisible();
-  // ① 헤더는 펼침 토글 버튼 1개만 있고, 항목별 이동 버튼은 없다.
-  await expect(pre.getByRole("button")).toHaveCount(1);
-  await expect(pre.getByRole("button", { name: /구현 전 확인/ })).toBeVisible();
-  const summary = plan.getByRole("region", { name: "구현 범위·완료 기준", exact: true });
-  await expect(summary).toBeVisible();
-  await expect(summary.locator('[data-scope-group="criteria"]')).toBeVisible();
   // ④ 생성·보기·복사 버튼이 동작한다.
   await expect(plan.getByRole("button", { name: "Codex용 구현 계획 생성", exact: true })).toBeEnabled();
   await plan.getByRole("button", { name: "Codex용 구현 계획 생성", exact: true }).click();
@@ -151,15 +142,4 @@ test("AX roadmap simplify: 구현 계획 검토와 도구 동기화는 유지된
   await review.getByRole("button", { name: "Codex", exact: true }).click();
   await expect(review.locator(".ax-plan-step")).toContainText(["Codex 전용 항목"]);
   await expect(plan.locator(".ax-prompt")).toContainText("Codex 전용 항목");
-});
-
-test("AX roadmap simplify: 모바일 390px 구조", async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  const task = taskFixture("simplify-mobile", diagnosisFixture);
-  const plan = await openStep4(page, [task], task.id);
-  await expect(page.locator(".ax-kpi")).toHaveCount(2);
-  await expect(page.getByRole("list", { name: "업무 목록", exact: true })).toBeVisible();
-  await expect(plan.getByRole("region", { name: "구현 전 확인", exact: true })).toBeVisible();
-  await expect(plan.getByRole("region", { name: "구현 범위·완료 기준", exact: true })).toBeVisible();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });

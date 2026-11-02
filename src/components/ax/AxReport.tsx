@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useId, useRef, useState } from "react";
-import { AlertTriangle, ArrowRight, BarChart3, Bot, BrainCircuit, Check, CheckCircle2, Circle, CircleCheck, Clipboard, ClipboardCheck, ClipboardList, CloudUpload, Copy, Database, Download, FileCode2, FileOutput, FilePlus2, FileSpreadsheet, FileText, Flag, Folder, GitBranch, GitMerge, GitPullRequest, Globe, Info, ListChecks, Monitor, MonitorCog, Play, Plug, Rocket, Settings2, ShieldAlert, ShieldCheck, Sparkles, Target, Terminal, UserRound } from "lucide-react";
+import { AlertTriangle, ArrowRight, BarChart3, Bot, BrainCircuit, Check, CheckCircle2, CircleCheck, Clipboard, ClipboardCheck, ClipboardList, CloudUpload, Copy, Database, Download, FileCode2, FileOutput, FilePlus2, FileSpreadsheet, FileText, Flag, Folder, GitBranch, GitMerge, GitPullRequest, Globe, Info, ListChecks, Monitor, MonitorCog, Play, Plug, Rocket, Settings2, ShieldAlert, ShieldCheck, Sparkles, Target, Terminal, UserRound } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { AxDiagnosis, AxPlan, AxTask, AxTaskV2, HitlReview, VerificationResult } from "@/lib/ax/types";
 import { automationLevel, axes, executionGate, executionProfile, factorEffectiveValue, GATE_LABELS, gateBlockReasons, levelDescription, levelDisplayLabel, nextAction, prerequisiteTopicKey, splitGatePrerequisites } from "@/lib/ax/policy";
@@ -11,11 +11,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
 import { Accordion, AccordionItem, AccordionPanel, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { HitlReviewPanel } from "./HitlReview";
 import { extractReviewableItems, extractPlanReviewableItems, findReview, getValidConfirmedReviews, type ReviewableItem } from "@/lib/ax/hitl";
 import { Tabs, TabsList, TabsTab, TabsPanel } from "@/components/ui/tabs";
 import { buildFixPrompt, checkAllInOnePromptDelivery, guideCodeDisplayText, guideProseDisplayText, planSummary, setupGuide, TOOL_GUIDES, type AxCheckTone, type AxGitFlowBlock, type AxGuideBlock, type AxGuideSection, type AxPlanSummary, type AxToolId } from "@/lib/ax/guide";
-import { groupPlanSteps } from "@/lib/ax/plan-groups";
 import { uiText } from "@/lib/ax/display-text";
 
 const VERDICT_LABELS = { 자동화: "자동화", "AI 보조": "AI 보조", "사람 유지": "담당자 수행" } as const;
@@ -240,19 +240,17 @@ export function formatUnifiedNextAction(concrete: ConcreteNextAction): string {
   const joined = detail ? `${concrete.label} ${coreRaw}` : concrete.label;
   return `${joined.replace(/ — /gu, " ")}${countSuffix}`;
 }
-/** Display-only: 구현 전 확인 항목의 실제 확인·수정 위치. 정책 판정·원본 데이터는
- * 바꾸지 않고, 항목 주제·비고·출처만으로 이동 대상을 정한다. 전용 편집 UI가 없는
- * 항목(출력 컬럼 미확정 등)은 이동 버튼을 만들지 않고 안내만 남긴다. */
+/** Display-only: 항목 주제·비고·출처로 실제 확인·수정 위치를 정한다.
+ * 정책 판정과 원본 데이터는 변경하지 않는다. */
 export type PrecheckTarget =
   | { kind: "decision"; id?: string }
   | { kind: "hitl" }
   | { kind: "plan" }
-  | { kind: "register" }
-  | { kind: "checks" }
-  | { kind: "none"; guidance: string };
+  | { kind: "register"; field?: "outputs" }
+  | { kind: "checks" };
 export function resolvePrecheckTarget(item: { topic: string; note?: string; tone?: AxCheckTone; origin?: "check" | "extra" | "conflict" | "block" }): PrecheckTarget {
   const text = `${item.topic} ${item.note ?? ""}`;
-  if (/출력 컬럼/u.test(text)) return { kind: "none", guidance: "전용 편집 화면이 없습니다. 출력 컬럼을 확정하려면 업무 등록 정보를 수정한 뒤 다시 진단하세요" };
+  if (/출력 컬럼/u.test(text)) return { kind: "register", field: "outputs" };
   // D번호가 하나만 언급되면 해당 결정 지점 행으로, 여러 개면(예: D1·D2·D3·D7이 함께 언급된 경우) 섹션 전체로 연결한다.
   const dMatches = [...new Set([...item.topic.matchAll(/\bD([1-7])\b/gu), ...(item.note ?? "").matchAll(/\bD([1-7])\b/gu)].map(m => m[1]))];
   if (dMatches.length === 1) return { kind: "decision", id: `D${dMatches[0]}` };
@@ -275,7 +273,6 @@ export function precheckTargetLabel(target: PrecheckTarget): string {
     case "plan": return "계획 검토";
     case "register": return "업무 정보 수정";
     case "checks": return "확인 사항 보기";
-    case "none": return "";
   }
 }
 /** Data-only bullets for the matrix "핵심 판단 근거" area: the strongest value driver's rationale and the binding constraint.
@@ -394,6 +391,13 @@ function AxReviewAccordion({ label, regionLabel, icon: Icon, tone = "primary", m
   headClassName?: string;
   children: React.ReactNode;
 }) {
+  useEffect(() => {
+    if (!id) return;
+    const target = document.getElementById(id);
+    const expand = () => onOpenChange(true);
+    target?.addEventListener("ax:open-review", expand);
+    return () => target?.removeEventListener("ax:open-review", expand);
+  }, [id, onOpenChange]);
   return <section className={className ? `ax-section ${className}` : "ax-section"} id={id} aria-label={regionLabel ?? label}>
     <Accordion value={open ? ["review"] : []} onValueChange={values => { if (!locked) onOpenChange(values.includes("review")); }} keepMounted={keepMounted}>
       <AccordionItem value="review" className="border-b-0">
@@ -853,8 +857,8 @@ export function precheckListItems(summary: AxPlanSummary): PrecheckListItem[] {
   for (const text of summary.numericConflictCriteria ?? []) items.push({ title: text, detail: "수치·허용 기준 상충 — 확인 필요", target: resolvePrecheckTarget({ topic: text, origin: "conflict" }) });
   return tidyPrecheckItems(items);
 }
-/** ① 구현 전 확인: 항목마다 실제 확인·수정 위치로 가는 '확인하러 가기' 버튼을 둔다 (이동 위치가 없는
- * 항목은 버튼 없이 안내 문구만). 버튼을 누르는 것만으로 완료 처리하지 않는다. */
+/** 모든 미해결 항목은 같은 확인 버튼으로 실제 확인·수정 위치에 연결한다.
+ * 이동만으로 완료 처리하지 않는다. */
 function AxPrecheckSection({ summary, onGoToTarget }: { summary: AxPlanSummary; onGoToTarget?: (target: PrecheckTarget, topic: string) => void }) {
   const [open, setOpen] = useState(false);
   const items = precheckListItems(summary);
@@ -863,10 +867,9 @@ function AxPrecheckSection({ summary, onGoToTarget }: { summary: AxPlanSummary; 
   return <AxReviewAccordion className="ax-precheck" headClassName="ax-precheck-head" label="구현 전 확인" icon={ClipboardList} meta={<span>{blocked ? "진행 보류" : "미해결"} {count}건</span>} open={open} onOpenChange={setOpen}>
     {count ? <ul className="ax-precheck-items">{items.map((item, i) => {
       const target = item.target;
-      // 한 줄 구성: 굵은 항목명 + '확인'. 이동 위치가 없는 항목은 버튼 대신 안내를 툴팁(title)으로만 둔다.
-      return <li key={i} className="ax-precheck-row" title={target.kind === "none" ? uiText(target.guidance) : undefined}>
+      return <li key={i} className="ax-precheck-row">
         <strong>{uiText(item.title)}</strong>
-        {target.kind !== "none" && onGoToTarget ? <Button type="button" variant="outline" size="sm" onClick={() => onGoToTarget(target, item.title)}>확인</Button> : null}
+        {onGoToTarget ? <Button type="button" variant="outline" size="sm" onClick={() => onGoToTarget(target, item.title)}>확인</Button> : null}
       </li>;
     })}</ul> : <p className="ax-muted ax-precheck-empty">필수 확인사항 없음</p>}
   </AxReviewAccordion>;
@@ -1021,17 +1024,17 @@ function PlanReviewStatus({ item, controls }: { item: ReviewableItem; controls: 
   const isOpen = controls.openKey === item.key;
   return <span className="ax-plan-review-cell">
     <span className="ax-hitl-status-dot" data-status={state.status}>{state.label}</span>
-    <Button type="button" variant="outline" size="sm" aria-expanded={isOpen} onClick={() => controls.setOpenKey(isOpen ? null : item.key)}>{isOpen ? "닫기" : review ? "보기" : "검토"}</Button>
+    <Button type="button" variant="outline" size="sm" aria-expanded={isOpen} onClick={() => controls.setOpenKey(isOpen ? null : item.key)}>{isOpen ? "닫기" : "보기"}</Button>
   </span>;
 }
 function PlanReviewPanel({ item, controls }: { item: ReviewableItem; controls: PlanReviewControls }) {
-  if (controls.openKey !== item.key) return null;
+  const [cancelled, setCancelled] = useState(0);
   const review = findReview({ reviews: controls.reviews } as AxTaskV2, item.key);
-  return <div className="ax-plan-review-panel">
-    <HitlReviewPanel key={item.key} item={item}
+  return <div className="ax-plan-review-panel" hidden={controls.openKey !== item.key}>
+    <HitlReviewPanel key={`${item.key}:${item.sourceHash}:${cancelled}`} item={item}
       review={controls.editingKey === item.key ? { ...review!, status: "editing" as const } : review}
       onSave={r => { const result = controls.onSaveReview(r); if (result.saved) controls.setEditingKey(null); }}
-      onCancel={() => { controls.setEditingKey(null); controls.setOpenKey(null); }}
+      onCancel={() => { setCancelled(value => value + 1); controls.setEditingKey(null); controls.setOpenKey(null); }}
       onEdit={() => controls.setEditingKey(item.key)} />
   </div>;
 }
@@ -1042,14 +1045,13 @@ function AxPlanSteps({ steps, planItems, controls }: {
   planItems: ReviewableItem[];
   controls?: PlanReviewControls;
 }) {
-  const categories = new Map(groupPlanSteps(steps).flatMap(group => group.steps.map(step => [step.index, group.title] as const)));
   return <ol className="ax-plan-steps">
     {steps.map((text, index) => {
       const item = planItems[index];
       return <li key={index} className="ax-plan-step">
         <div className="ax-plan-step-row">
           <span className="ax-plan-step-no" title="원본 실행 순서">{String(index + 1).padStart(2, "0")}</span>
-          <div className="ax-plan-step-content"><span className="ax-plan-step-text">{uiText(text)}</span><span className="ax-plan-step-category">{categories.get(index)}</span></div>
+          <div className="ax-plan-step-content"><span className="ax-plan-step-text">{uiText(text)}</span></div>
           {item && controls ? <PlanReviewStatus item={item} controls={controls} /> : null}
         </div>
         {item && controls ? <PlanReviewPanel item={item} controls={controls} /> : null}
@@ -1057,77 +1059,19 @@ function AxPlanSteps({ steps, planItems, controls }: {
     })}
   </ol>;
 }
-/** 구현 범위·완료 기준: 요약 데이터의 원본 항목을 줄이지 않고 영역별 목록으로 표시한다. */
-function AxScopeCriteria({ summary, diagnosis, plan, planItems, criteria, controls }: {
+/** 완료 기준도 구현 계획과 같은 원본 순서·번호·검토 패널을 사용한다. */
+function AxCompletionCriteria({ summary, plan, criteria, controls }: {
   summary: AxPlanSummary;
-  diagnosis: AxDiagnosis;
   plan?: AxPlan;
-  planItems: ReviewableItem[];
   criteria: ReviewableItem[];
   controls?: PlanReviewControls;
 }) {
-  const [openScope, setOpenScope] = useState<string[]>(["구현 대상"]);
-  const [guide, setGuide] = useState<"scope" | "criteria" | null>(null);
-  const [filter, setFilter] = useState("all");
-  const include = summary.include;
-  const human = summary.humanKept;
-  const method = plan?.integrations.length ? plan.integrations.map(integration => `${integration} (계획안 · 확정 전)`) : diagnosis.asIs.systems.map(system => `${system} (사용 시스템 · 적용 방식 확인 필요)`);
-  const outputs = diagnosis.poc.outputs.length ? diagnosis.poc.outputs : diagnosis.asIs.outputs;
-  const validReviews = controls
-    ? getValidConfirmedReviews({ reviews: controls.reviews } as AxTaskV2, [...extractReviewableItems(diagnosis), ...planItems, ...criteria])
-    : [];
-  const deferred = validReviews.filter(review => review.action === "defer" && (review.target.type === "step" || review.target.type === "planItem"))
-    .map(review => [uiText(review.target.sourceText), review.reason ? `보류 사유: ${review.reason}` : "", review.resumeCondition ? `재개 조건: ${review.resumeCondition}` : ""].filter(Boolean).join(" · "));
-  const scopeRows = [
-    { label: "구현 대상", icon: CircleCheck, tone: "blue", description: "이번 구현에서 자동화·구현할 항목", items: include },
-    { label: "담당자 수행", icon: UserRound, tone: "violet", description: "자동화하지 않고 담당자가 직접 수행할 항목", items: human },
-    { label: "보류·제외", icon: Circle, tone: "gray", description: "현재 구현하지 않는 항목 및 제외 사유", items: [...deferred.map(text => `보류: ${text}`), ...summary.excluded.map(text => {
-      const review = validReviews.find(review => review.action === "exclude" && uiText(review.target.sourceText) === uiText(text));
-      return `현재 구현 제외: ${text}${review?.reason ? ` · 제외 사유: ${review.reason}` : ""}`;
-    })] },
-    { label: "적용 방식", icon: Database, tone: "slate", description: "시스템 연동 및 구현 접근 방식 · 산출물", items: [...method, ...outputs.map(text => `산출물: ${text}`)] },
-  ];
-  const criterionRows = plan ? criteria.map((item, index) => {
-    const review = controls ? findReview({ reviews: controls.reviews } as AxTaskV2, item.key) : undefined;
-    const state = controls ? reviewDisplayState(item, review, new Set(controls.validKeys)) : { status: "pending", label: "검토 전" };
-    return { item, text: item.text, index, ...state };
-  }) : [...summary.success, ...summary.failure, ...summary.tests, ...summary.approvals].map((text, index) => ({ item: undefined, text, index, status: "pending", label: "검토 전" }));
-  const filters = [
-    { key: "all", label: "전체" }, { key: "pending", label: "검토 전" },
-    { key: "progress", label: "검토 중" }, { key: "confirmed", label: "검토 완료" },
-    ...(["stale", "editing"] as const).filter(status => criterionRows.some(row => row.status === status)).map(status => ({ key: status, label: status === "stale" ? "재확인 필요" : "보완 중" })),
-  ];
-  const matchesFilter = (status: string, key: string) => key === "all" || (key === "progress" ? status === "stale" || status === "editing" : status === key);
-  return <section className="ax-scope-summary" aria-label="구현 범위·완료 기준">
-    <section className="ax-scope-panel" data-scope-group="scope" aria-labelledby="ax-scope-title">
-      <div className="ax-scope-card-head"><h3 id="ax-scope-title"><Target size={22} aria-hidden="true" />구현 범위</h3><Button type="button" variant="outline" size="sm" aria-expanded={guide === "scope"} aria-controls="ax-scope-guide" onClick={() => setGuide(guide === "scope" ? null : "scope")}><Info aria-hidden="true" />범위 안내</Button></div>
-      <p className="ax-scope-description">진단 결과를 바탕으로 이번 구현에서 처리할 항목과 제외·보류 범위를 확인합니다.</p>
-      {guide === "scope" ? <p id="ax-scope-guide" className="ax-notice">진단과 현재 검토 결과를 바탕으로 표시한 조회용 범위입니다. 담당자 수행 항목은 자동화하지 않으며 보류·제외 사유와 재개 조건을 확인하세요. 적용 방식에는 시스템 연동과 원본 산출물을 함께 표시합니다.</p> : null}
-      <dl className="ax-scope-tiles">{scopeRows.map(row => <div key={row.label} data-tone={row.tone}><row.icon size={22} aria-hidden="true" /><dt>{row.label}</dt><dd>{row.items.length}<small>개</small></dd></div>)}</dl>
-      <Accordion multiple className="ax-scope-sections" value={openScope} onValueChange={setOpenScope}>
-        {scopeRows.map(row => {
-          const items = row.items.map(text => row.label === "보류·제외" && text.startsWith("보류:") ? text : uiText(text));
-          return <AccordionItem key={row.label} value={row.label} className="ax-scope-section" data-tone={row.tone}>
-            <AccordionTrigger className="ax-scope-trigger"><span><row.icon size={22} aria-hidden="true" /><strong>{row.label} ({items.length}개)</strong><span className="ax-scope-preview">{row.description}</span></span></AccordionTrigger>
-            <AccordionPanel className="ax-scope-details">{items.length ? <table className="ax-scope-table"><thead><tr><th scope="col">No.</th><th scope="col">세부 항목</th></tr></thead><tbody>{items.map((text, index) => <tr key={index}><td><span className="ax-scope-no">{index + 1}</span></td><td>{text}</td></tr>)}</tbody></table> : <p className="ax-muted">정보 없음</p>}</AccordionPanel>
-          </AccordionItem>;
-        })}
-      </Accordion>
-    </section>
-    <section className="ax-scope-panel" data-scope-group="criteria" aria-labelledby="ax-criteria-title">
-      <div className="ax-scope-card-head"><h3 id="ax-criteria-title"><Flag size={22} aria-hidden="true" />완료 기준 ({criterionRows.length}개)</h3><Button type="button" variant="outline" size="sm" aria-expanded={guide === "criteria"} aria-controls="ax-criteria-guide" onClick={() => setGuide(guide === "criteria" ? null : "criteria")}><Info aria-hidden="true" />기준 안내</Button></div>
-      <p className="ax-scope-description">구현이 완료되었는지 확인하기 위한 기준을 검토하고 상태를 기록합니다.</p>
-      {guide === "criteria" ? <p id="ax-criteria-guide" className="ax-notice">검토에서 기존 기준의 유지·보류·제외·보완을 기록합니다. 검토 중은 보완 중과 재확인 필요 상태를 포함하며, 개별 상태 필터로도 구분할 수 있습니다. 검토 완료는 구현이나 테스트의 완료를 뜻하지 않습니다.</p> : null}
-      <div className="ax-criteria-filters" role="group" aria-label="완료 기준 검토 상태">{filters.map(entry => <Button key={entry.key} type="button" variant="outline" size="sm" aria-pressed={filter === entry.key} onClick={() => setFilter(entry.key)}>{entry.label} ({criterionRows.filter(row => matchesFilter(row.status, entry.key)).length})</Button>)}</div>
-      <table className="ax-scope-table ax-criteria-table"><thead><tr><th scope="col">No.</th><th scope="col">완료 기준</th><th scope="col">검토 상태</th></tr></thead><tbody>
-        {criterionRows.map(row => <Fragment key={row.item?.key ?? row.index}>
-          <tr hidden={!matchesFilter(row.status, filter)} className="ax-criteria-item ax-criteria-row" data-status={row.status}><td><span className="ax-scope-no ax-criteria-no">{row.index + 1}</span></td><td className="ax-criteria-text">{uiText(row.text)}</td><td>{controls && row.item ? <PlanReviewStatus item={row.item} controls={controls} /> : <span className="ax-hitl-status-dot" data-status={row.status}>{row.label}</span>}</td></tr>
-          {controls && row.item && controls.openKey === row.item.key ? <tr hidden={!matchesFilter(row.status, filter)}><td colSpan={3}><PlanReviewPanel item={row.item} controls={controls} /></td></tr> : null}
-        </Fragment>)}
-        {!criterionRows.some(row => matchesFilter(row.status, filter)) ? <tr><td colSpan={3} className="ax-muted">해당 상태의 완료 기준 없음</td></tr> : null}
-      </tbody></table>
-    </section>
-  </section>;
+  const [open, setOpen] = useState(false);
+  const texts = plan ? criteria.map(item => item.text) : [...summary.success, ...summary.failure, ...summary.tests, ...summary.approvals];
+  const completed = controls ? criteria.filter(item => controls.validKeys.has(item.key)).length : 0;
+  return <AxReviewAccordion className="ax-plan-groups-surface" id="ax-completion-review" regionLabel="완료 기준" label={`완료 기준 (${texts.length}개)`} icon={Flag} meta={<ReviewCounts total={texts.length} completed={completed} />} open={open} onOpenChange={setOpen} keepMounted>
+    {texts.length ? <AxPlanSteps steps={texts} planItems={criteria} controls={controls} /> : <p className="ax-muted">기재된 완료 기준 없음</p>}
+  </AxReviewAccordion>;
 }
 function AxPrompt({ prompt, name, copySuffix = "올인원 지시문" }: { prompt: string; name: string; copySuffix?: string }) {
   const [expanded, setExpanded] = useState(false);
@@ -1344,14 +1288,14 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [stepsExpanded, setStepsExpanded] = useState(true);
   const controls: PlanReviewControls | undefined = reviewProps ? { reviews: reviewProps.reviews, validKeys, openKey, editingKey, setOpenKey, setEditingKey, onSaveReview: reviewProps.onSaveReview } : undefined;
-  // 화면 구성: 요약 카드 → 원본 실행 순서의 구현 계획 → 구현 범위·완료 기준 2열 → 올인원 지시문.
+  // 화면 구성: 4개 요약 카드 → 구현 전 확인 → 구현 계획 → 완료 기준 → 기존 후속 영역.
   // 바깥 래퍼는 기존 "자동화 구현 계획" 영역 이름과 이동 대상 id를 그대로 유지한다.
   return <div className="ax-plan-stack" id="ax-plan-section" role="region" aria-label="자동화 구현 계획"><section className="ax-surface ax-plan-overview-surface">
     <div className="ax-plan-head"><BarChart3 size={24} aria-hidden="true" className="ax-plan-head-icon" /><h3>자동화 구현 계획</h3></div>
     <AxStatCards cards={PLAN_OVERVIEW_CARDS.map(card => ({ ...card, count: card.key === "check" ? precheckListItems(summary).length : diagnosis.stepAssessments.filter(step => step.verdict === card.key).length }))} />
-    <AxPrecheckSection summary={summary} onGoToTarget={onGoToTarget} />
   </section>
-  <AxReviewAccordion className="ax-plan-groups-surface" id="ax-plan-review" regionLabel="구현 계획" label={`구현 계획 (${planItems.length}개)`} icon={ListChecks} meta={<span>검토 필요 {planItems.filter(item => !validKeys.has(item.key)).length}건</span>} open={stepsExpanded} onOpenChange={setStepsExpanded} keepMounted>
+  <AxPrecheckSection summary={summary} onGoToTarget={onGoToTarget} />
+  <AxReviewAccordion className="ax-plan-groups-surface" id="ax-plan-review" regionLabel="구현 계획" label={`구현 계획 (${reviewPlan?.implementation.length ?? 0}개)`} icon={ListChecks} meta={<ReviewCounts total={planItems.length} completed={planItems.filter(item => validKeys.has(item.key)).length} />} open={stepsExpanded} onOpenChange={setStepsExpanded} keepMounted>
       {reviewPlan ? <div className="ax-plan-groups-tools">
         {plans.codex && plans.claude ? <div className="ax-hitl-plan-tabs" role="group" aria-label="검토할 계획 도구">
           <Button type="button" variant={reviewTool === "codex" ? "default" : "outline"} size="sm" aria-pressed={reviewTool === "codex"} onClick={() => setSelectedTool("codex")}>Codex</Button>
@@ -1361,7 +1305,7 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
     {reviewPlan ? <AxPlanSteps steps={reviewPlan.implementation} planItems={planItems} controls={controls} />
       : <><p className="ax-muted">도구별 구현 계획을 생성하면 단계별 구현 계획이 표시됩니다</p>{!plans.codex && !plans.claude ? <div className="ax-actions">{generateButton("codex")}{generateButton("claude")}</div> : null}</>}
   </AxReviewAccordion>
-  <AxScopeCriteria summary={summary} diagnosis={diagnosis} plan={reviewPlan} planItems={planItems} criteria={criteriaItems} controls={controls} />
+  <AxCompletionCriteria summary={summary} plan={reviewPlan} criteria={criteriaItems} controls={controls} />
   <section className="ax-surface ax-instructions-surface">
     <section ref={instructionsRef} id={`${instructionsId}-section`} className="ax-plan-instructions" aria-labelledby={instructionsId}>
       {gate === "blocked" ? <><AxPlanHeading id={instructionsId} title="올인원 지시문" description="선택한 코딩 에이전트를 위한 통합 지시문을 생성합니다" /><p role="status" className="ax-notice">현재 진단에서는 구현 계획 생성 불가</p></> : <>
@@ -1374,7 +1318,7 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
               </div>
             </div>
             {(["codex", "claude"] as const).map(target => <TabsPanel key={target} value={target}>{target === activeTool ? plans[target] ? <><p className="ax-plan-tool-hint">{TOOL_GUIDES[target].name}에서 현재 프로젝트를 열고 올인원 지시문 붙여넣기</p><AxExecutionPackage plan={plans[target]} target={target} taskName={taskName} taskContext={taskContext} prerequisites={prerequisites} diagnosis={diagnosis} hitlReviews={reviewProps?.reviews} genericRules={genericRules} /></> : <><p className="ax-plan-generate-hint">{TOOL_GUIDES[target].name}용 구현 계획 생성 후 올인원 지시문 확인</p>{generateButton(target)}</> : null}</TabsPanel>)}
-          </Tabs> : <><AxPlanHeading id={instructionsId} title="올인원 지시문" description="선택한 코딩 에이전트를 위한 통합 지시문을 생성합니다" /><p className="ax-muted">도구별 구현 계획 생성 후 올인원 지시문 확인</p></>}
+          </Tabs> : <><AxPlanHeading id={instructionsId} title="올인원 지시문" description="선택한 코딩 에이전트를 위한 통합 지시문을 생성합니다" /><Alert variant="info" role="status" className="ax-plan-empty items-center"><Info /><AlertDescription>도구별 구현 계획을 생성하면 올인원 지시문을 확인할 수 있습니다.</AlertDescription></Alert></>}
       </>}
     </section>
     {gate !== "blocked" && (plans.codex || plans.claude) ? <section className="ax-plan-guide" aria-label="설치·시작 가이드">

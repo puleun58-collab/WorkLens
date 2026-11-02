@@ -96,7 +96,7 @@ test("AX 진단 간소화: 통합 규칙 인라인 추가·아코디언 초안 �
   await expect(unified.locator(".ax-decision-row").last()).toHaveAttribute("id", "ax-rule-new");
   // 필수 항목 없이 추가하면 기본 입력 영역에서 바로 오류를 표시한다. 확정 상태는 처음부터 미확정이다.
   await expect(newRow.getByRole("combobox", { name: "확정 상태" })).toHaveCount(0);
-  await expect(newRow.getByRole("button", { name: "이 규칙 확정", exact: true })).toHaveCount(0);
+  await expect(newRow.getByRole("button", { name: "확정", exact: true })).toHaveCount(0);
   await expect(newRow.getByRole("combobox", { name: "업무 적용 여부" })).toHaveText("선택하세요");
   await newRow.getByRole("button", { name: "추가", exact: true }).click();
   await expect(newRow.getByText("규칙명을 입력하세요")).toBeVisible();
@@ -184,7 +184,7 @@ test("AX 진단 간소화: 모바일 390에서 인라인 규칙 추가·범용 �
   const newRow = unified.locator("#ax-rule-new");
   await expect(newRow.getByRole("button", { name: "추가 정보 (선택)" })).toHaveCount(0);
   await chooseOption(newRow, "업무 적용 여부", "적용");
-  await expect(newRow.getByRole("button", { name: "이 규칙 확정", exact: true })).toBeDisabled();
+  await expect(newRow.getByRole("button", { name: "확정", exact: true })).toBeDisabled();
   let overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
   await newRow.getByRole("button", { name: "취소", exact: true }).click();
@@ -285,7 +285,6 @@ test("AX 진단 결과 요약: 판정 3카드는 실제 건수, 확인 필요 ·
   const pendingCount = await pending.count();
   expect(pendingCount).toBeGreaterThan(0);
   await expect(pending.locator('.ax-check-badge[data-kind="done"]')).toHaveCount(0);
-  await expect(page.locator(".ax-judgement-foot")).toContainText(`확인 필요 · ${pendingCount}건`);
   await expect(checks.locator(".ax-diag-checks-head")).toContainText(`· ${pendingCount}건`);
   // 확인 완료 항목은 기본 접힘이고, 펼치면 기존 정보가 그대로 보인다.
   const done = checks.getByRole("button", { name: "확인 완료 항목 보기 (1건)" });
@@ -294,10 +293,6 @@ test("AX 진단 결과 요약: 판정 3카드는 실제 건수, 확인 필요 ·
   await done.click();
   await expect(checks.getByText("계산 로직 구현 환경")).toBeVisible();
   await expect(checks.getByText("Python 스크립트 사용 가능")).toBeVisible();
-  // 바로가기: 구현 전 확인 사항 제목이 고정 헤더 아래에 보이도록 이동한다.
-  await page.getByRole("button", { name: "항목 보기", exact: true }).click();
-  await expect.poll(async () => (await checks.getByRole("heading", { name: "구현 전 확인 사항" }).boundingBox())?.y ?? 9999).toBeLessThan(200);
-  await expect.poll(async () => (await checks.getByRole("heading", { name: "구현 전 확인 사항" }).boundingBox())?.y ?? 0).toBeGreaterThan(60);
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
 });

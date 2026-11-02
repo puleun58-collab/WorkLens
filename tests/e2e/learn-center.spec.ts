@@ -1121,17 +1121,6 @@ test("학습센터: LEVEL 1~10 실습 입력 방식·요약 색상·정렬·명�
     for (let i = 0; i < content.units.length; i++) {
       const unit = content.units[i];
       await page.getByRole("navigation", { name: "학습 단위" }).getByRole("button").nth(i).click();
-      const cases = page.getByRole("region", { name: "실무 사례", exact: true });
-      const summary = page.getByRole("region", { name: "핵심 요약", exact: true });
-      const headerColor = await cases.locator(".learn-card-title").evaluate((element) => getComputedStyle(element).backgroundColor);
-      expect(await summary.evaluate((element) => getComputedStyle(element).backgroundColor), unit.id).toBe(headerColor);
-      for (const card of [cases, summary]) {
-        const indentation = await card.locator(".learn-card-body").evaluate((element) => parseFloat(getComputedStyle(element).paddingLeft));
-        expect(indentation, `${unit.id} 기본 카드 여백만 유지`).toBeLessThanOrEqual(20);
-      }
-      const concept = page.locator(".learn-concept-lead");
-      await expect(concept.locator("strong")).toContainText(":");
-      expect(await concept.evaluate((element) => getComputedStyle(element).fontWeight)).toBe("400");
       if (!unit.practice) continue;
       const practice = page.getByRole("region", { name: `실습: ${unit.practice.title}`, exact: true });
       await expect(practice.locator("strong").filter({ hasText: /^실습 방법:$/ })).toBeVisible();

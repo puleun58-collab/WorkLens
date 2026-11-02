@@ -12,10 +12,6 @@ const implementation = [
   "자료 형식 표준화",
   "원본 파일 다운로드",
 ];
-const categories = [
-  "데이터 처리 및 계산", "운영 및 관리", "데이터 준비 및 수집",
-  "결과 생성 및 보고", "데이터 처리 및 계산", "데이터 준비 및 수집",
-];
 const outputs = ["취합 결과 표", "대조 결과 목록", "담당자 전달 문서", "작업 이력 파일"];
 const integrations = ["입력 폴더 연결", "결과 폴더 연결", "사내 문서함 연결"];
 
@@ -49,97 +45,6 @@ async function openRoadmap(page: Page, id: string) {
   return task;
 }
 
-for (const [name, viewport] of [
-  ["desktop", { width: 1440, height: 900 }],
-  ["mobile", { width: 390, height: 844 }],
-] as const) {
-  test(`roadmap preserves execution order and independent scope cards (${name})`, async ({ page }) => {
-    await page.setViewportSize(viewport);
-    await openRoadmap(page, `roadmap-order-${name}`);
-    const plan = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
-    const review = plan.getByRole("region", { name: "구현 계획", exact: true });
-    const steps = review.locator(".ax-plan-steps > .ax-plan-step");
-    await expect(review.locator(".ax-plan-group")).toHaveCount(0);
-    await expect(steps).toHaveCount(implementation.length);
-    await expect(steps.locator(".ax-plan-step-no")).toHaveText(implementation.map((_, index) => String(index + 1).padStart(2, "0")));
-    await expect(steps.locator(".ax-plan-step-text")).toHaveText(implementation);
-    await expect(steps.locator(".ax-plan-step-category")).toHaveText(categories);
-    for (const step of await steps.all()) await expect(step).toBeVisible();
-
-    const scope = plan.locator('[data-scope-group="scope"]');
-    const criteria = plan.locator('[data-scope-group="criteria"]');
-    const sections = scope.locator(".ax-scope-section");
-    await expect(sections).toHaveCount(4);
-    const labels = ["구현 대상", "담당자 수행", "보류·제외", "적용 방식"];
-    await expect(scope.locator(".ax-scope-tiles > div")).toHaveCount(4);
-    await expect(scope.locator(".ax-scope-tiles dt")).toHaveText(labels);
-    await expect(scope.getByRole("button", { name: /전체 보기|전체 접기/ })).toHaveCount(0);
-    await expect(sections.first().locator('[data-slot="accordion-trigger"]')).toHaveAttribute("aria-expanded", "true");
-    for (const trigger of await sections.locator('[data-slot="accordion-trigger"]').all().then(items => items.slice(1))) {
-      await expect(trigger).toHaveAttribute("aria-expanded", "false");
-    }
-    await plan.locator(".ax-scope-summary").evaluate(element => {
-      (element as HTMLElement).style.scrollMarginTop = "90px";
-      element.scrollIntoView({ block: "start", behavior: "instant" });
-    });
-    await page.screenshot({ path: `artifacts/roadmap-ref2/roadmap-${name}-default.png` });
-    const counts: number[] = [];
-    for (const [index, label] of labels.entries()) {
-      const section = sections.nth(index);
-      const trigger = section.locator('[data-slot="accordion-trigger"]');
-      await expect(trigger).toHaveAttribute("aria-expanded", index === 0 ? "true" : "false");
-      await expect(trigger).toContainText(new RegExp(`${label} \\(\\d+개\\)`));
-      counts.push(Number(/\((\d+)개\)/.exec(await trigger.innerText())![1]));
-      if (index > 0) await trigger.click();
-      await expect(section.locator("tbody tr")).toHaveCount(counts[index]);
-      for (const item of await section.locator("tbody tr").all()) await expect(item).toBeVisible();
-    }
-    expect(counts[3]).toBe(integrations.length + outputs.length);
-    await expect(sections.nth(3).locator("tbody tr td:last-child")).toHaveText([
-      ...integrations.map(text => `${text} (계획안 · 확정 전)`),
-      ...outputs.map(text => `산출물: ${text}`),
-    ]);
-    const rows = criteria.locator("tr.ax-criteria-item.ax-criteria-row");
-    expect(await rows.count()).toBeGreaterThan(0);
-    await expect(rows.locator("td.ax-criteria-text")).toHaveCount(await rows.count());
-    await expect(rows.locator("span.ax-criteria-no")).toHaveText(
-      Array.from({ length: await rows.count() }, (_, index) => String(index + 1)),
-    );
-    for (const number of await rows.locator(".ax-criteria-no").all()) {
-      expect(await number.evaluate(element => Number.parseFloat(getComputedStyle(element).borderTopLeftRadius))).toBeGreaterThan(0);
-    }
-    const layout = plan.locator(".ax-scope-summary");
-    await expect(layout).toHaveCSS("align-items", "start");
-    // Sample both cards in one browser task: separate boundingBox calls can straddle
-    // smooth-scroll/accordion frames and report a false vertical offset.
-    const [scopeBox, criteriaBox] = await layout.evaluate(element =>
-      Array.from(element.querySelectorAll(":scope > .ax-scope-panel")).map(panel => {
-        const { x, y, width, height } = panel.getBoundingClientRect();
-        return { x, y, width, height };
-      }));
-    if (name === "desktop") {
-      expect(Math.abs(scopeBox.y - criteriaBox.y)).toBeLessThanOrEqual(1);
-      expect(criteriaBox.x).toBeGreaterThanOrEqual(scopeBox.x + scopeBox.width);
-    } else {
-      expect(Math.abs(scopeBox.x - criteriaBox.x)).toBeLessThanOrEqual(1);
-      expect(Math.abs(scopeBox.width - criteriaBox.width)).toBeLessThanOrEqual(1);
-      expect(criteriaBox.y).toBeGreaterThanOrEqual(scopeBox.y + scopeBox.height);
-    }
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
-    await layout.scrollIntoViewIfNeeded();
-    await page.screenshot({ path: `artifacts/roadmap-ref2/roadmap-${name}-expanded-full.png`, fullPage: true });
-    for (const trigger of await sections.locator('[data-slot="accordion-trigger"]').all()) await trigger.click();
-    for (const trigger of await sections.locator('[data-slot="accordion-trigger"]').all()) {
-      await expect(trigger).toHaveAttribute("aria-expanded", "false");
-    }
-    await layout.evaluate(element => Promise.allSettled(element.getAnimations({ subtree: true }).filter(animation => animation.effect?.getTiming().iterations !== Infinity).map(animation => animation.finished)));
-    await layout.evaluate(element => {
-      (element as HTMLElement).style.scrollMarginTop = "90px";
-      element.scrollIntoView({ block: "start", behavior: "instant" });
-    });
-    await page.screenshot({ path: `artifacts/roadmap-ref2/roadmap-${name}-collapsed.png` });
-  });
-}
 
 test("an interleaved implementation review persists on its original step after reload", async ({ page }) => {
   const task = await openRoadmap(page, "roadmap-order-persistence");
@@ -149,7 +54,7 @@ test("an interleaved implementation review persists on its original step after r
   // Original step 3 belongs to the first category in the old grouped presentation.
   const selected = steps.nth(2);
   await expect(selected.locator(".ax-plan-step-text")).toHaveText(implementation[2]);
-  await selected.getByRole("button", { name: "검토", exact: true }).click();
+  await selected.getByRole("button", { name: "보기", exact: true }).click();
   await selected.getByRole("radio", { name: /유지/ }).check();
   await selected.getByRole("textbox", { name: /의견/ }).fill("원본 03 단계만 확인 완료");
   await selected.getByRole("button", { name: "확정", exact: true }).click();
@@ -181,5 +86,4 @@ test("an interleaved implementation review persists on its original step after r
   }
   await selected.getByRole("button", { name: "보기", exact: true }).click();
   await expect(selected.locator(".ax-plan-review-panel")).toContainText("원본 03 단계만 확인 완료");
-  await expect(plan.locator("tr.ax-criteria-item .ax-criteria-no")).toHaveCount(2);
 });

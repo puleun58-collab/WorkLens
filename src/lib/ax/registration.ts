@@ -1,6 +1,6 @@
 import { AX_LIMITS, axDetailsSchema } from "./schema";
 import { taskAttachments } from "./attachments";
-import type { AxTask } from "./types";
+import type { AxTask, AxTaskV2 } from "./types";
 import { inputLimitFor } from "@/lib/parsers/policy";
 export function candidateTask(description: string): AxTask {
   if (!description.trim() || description.length > AX_LIMITS.description) throw new Error("업무 설명은 1~3,000자로 입력하세요");
@@ -36,6 +36,32 @@ export function registrationSnapshot(task: AxTask): string {
 /** True when the parsed edit result holds the same registration content as the stored task. */
 export function isRegistrationUnchanged(previous: AxTask, updated: AxTask): boolean {
   return registrationSnapshot(previous) === registrationSnapshot(updated);
+}
+
+export function registrationContext(task: AxTask): string {
+  return [task.description, ...Object.entries(taskDetails(task)).filter(([, value]) => value !== undefined).map(([key, value]) => `${key}: ${value}`)].join("\n");
+}
+
+/** Editing input does not confirm a new diagnosis. Keep the previous result and
+ * user-owned records until applyRediagnosis can reconcile them against new evidence.
+ * Start from parsed registration so clearing an optional input really clears it. */
+export function preserveRegistrationHistory(previous: AxTaskV2, registration: AxTaskV2): AxTaskV2 {
+  return {
+    ...registration,
+    diagnosisRegistration: previous.diagnosis ? previous.diagnosisRegistration ?? {
+      name: previous.name,
+      description: previous.description,
+      details: taskDetails(previous),
+      context: registrationContext(previous),
+    } : undefined,
+    status: previous.status,
+    diagnosis: previous.diagnosis,
+    reviews: previous.reviews,
+    exampleResults: previous.exampleResults,
+    genericRules: previous.genericRules,
+    verificationResults: previous.verificationResults,
+    checkConfirmations: previous.checkConfirmations,
+  };
 }
 
 export function legacyDetailValues(task: AxTask): Partial<Pick<AxTask, "people" | "painPoints" | "goal">> {

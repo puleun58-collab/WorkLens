@@ -56,7 +56,7 @@ for (const width of [1440, 390]) test(`범용 확정 버튼: 기존 기록·재�
   await save(page);
   await expect.poll(async () => (await stored(page)).tasks[0].genericRules?.[0].status).toBe("미확정");
   expect(prompt((await stored(page)).tasks[0])).not.toContain("수정 기준 XYZ로 승인한다");
-  await row.getByRole("button", { name: "이 규칙 확정", exact: true }).click();
+  await row.getByRole("button", { name: "확정", exact: true }).click();
   // Clicking confirm changes only the draft until the existing bottom save is used.
   expect((await stored(page)).tasks[0].genericRules?.[0].status).toBe("미확정");
   const geometry = await row.evaluate(element => {
@@ -79,7 +79,7 @@ for (const width of [1440, 390]) test(`범용 확정 버튼: 기존 기록·재�
   await chooseOption(row, "업무 적용 여부", "적용");
   await expect(row.getByRole("textbox", { name: "처리 기준", exact: true })).toHaveValue("수정 기준 XYZ로 승인한다");
   await expect(row.locator(".ax-decision-badge")).toHaveText("미확정");
-  await row.getByRole("button", { name: "이 규칙 확정", exact: true }).click();
+  await row.getByRole("button", { name: "확정", exact: true }).click();
   await save(page);
   await expect.poll(async () => (await stored(page)).tasks[0].genericRules?.[0].status).toBe("확정");
   await page.reload();
@@ -87,12 +87,13 @@ for (const width of [1440, 390]) test(`범용 확정 버튼: 기존 기록·재�
   await section.locator("#ax-rule-R2 .ax-decision-row-head").click();
   await expect(section.locator("#ax-rule-R2").getByRole("button", { name: "확정 취소", exact: true })).toBeEnabled();
   await section.locator("#ax-rule-R2").getByRole("button", { name: "확정 취소", exact: true }).click();
-  await expect(section.locator("#ax-rule-R2").getByRole("button", { name: "이 규칙 확정", exact: true })).toBeDisabled();
+  await expect(section.locator("#ax-rule-R2").getByRole("button", { name: "확정", exact: true })).toBeDisabled();
   await report(page);
-  const criterion = page.locator(".ax-criteria-item").first();
-  await criterion.getByRole("button", { name: "검토", exact: true }).click();
-  // Table review panels occupy the following row, not the criterion's data row.
-  const reviewPanel = criterion.locator("xpath=following-sibling::tr[1]").locator(".ax-plan-review-panel");
+  const completion = page.getByRole("region", { name: "완료 기준", exact: true });
+  await completion.getByRole("button", { name: /^완료 기준/ }).click();
+  const criterion = completion.locator(".ax-plan-step").first();
+  await criterion.getByRole("button", { name: "보기", exact: true }).click();
+  const reviewPanel = criterion.locator(".ax-plan-review-panel");
   await reviewPanel.getByRole("radio", { name: /유지/ }).check();
   await reviewPanel.getByRole("button", { name: "확정", exact: true }).click();
   await expect(criterion.locator(".ax-hitl-status-dot")).toHaveAttribute("data-status", "confirmed");
@@ -114,9 +115,9 @@ test("신규 등록·진단 제안을 적용하고 명시적 확정 후 저장�
   const section = page.getByRole("region", { name: "업무 규칙 확인", exact: true });
   const row = section.locator(".ax-decision-row").filter({ hasText: "최종 승인" });
   await row.locator(".ax-decision-row-head").click();
-  await expect(row.getByRole("button", { name: "이 규칙 확정", exact: true })).toHaveCount(0);
+  await expect(row.getByRole("button", { name: "확정", exact: true })).toHaveCount(0);
   await chooseOption(row, "업무 적용 여부", "적용");
-  const confirm = row.getByRole("button", { name: "이 규칙 확정", exact: true });
+  const confirm = row.getByRole("button", { name: "확정", exact: true });
   await expect(confirm).toBeDisabled();
   await row.getByLabel("처리 기준", { exact: true }).fill("   ");
   await expect(confirm).toBeDisabled();
@@ -131,9 +132,11 @@ test("신규 등록·진단 제안을 적용하고 명시적 확정 후 저장�
   expect(prompt(saved)).toContain("신규 식별표 NEW를 담당자가 확인한다");
   await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
   await page.getByRole("button", { name: "Codex용 구현 계획 생성", exact: true }).click();
-  const criterion = page.locator(".ax-criteria-item").first();
-  await criterion.getByRole("button", { name: "검토", exact: true }).click();
-  const reviewPanel = criterion.locator("xpath=following-sibling::tr[1]").locator(".ax-plan-review-panel");
+  const completion = page.getByRole("region", { name: "완료 기준", exact: true });
+  await completion.getByRole("button", { name: /^완료 기준/ }).click();
+  const criterion = completion.locator(".ax-plan-step").first();
+  await criterion.getByRole("button", { name: "보기", exact: true }).click();
+  const reviewPanel = criterion.locator(".ax-plan-review-panel");
   await reviewPanel.getByRole("radio", { name: /유지/ }).check();
   await reviewPanel.getByRole("button", { name: "확정", exact: true }).click();
   await expect(page.locator(".ax-prompt")).toContainText("신규 식별표 NEW를 담당자가 확인한다");
@@ -146,7 +149,7 @@ test("범용 규칙 저장 실패는 기존 데이터와 확정 초안을 보존
   await row.locator(".ax-decision-row-head").click();
   const original = (await stored(page)).tasks[0].genericRules;
   await row.getByRole("textbox", { name: "처리 기준", exact: true }).fill("저장 실패에도 보존할 편집 기준");
-  await row.getByRole("button", { name: "이 규칙 확정", exact: true }).click();
+  await row.getByRole("button", { name: "확정", exact: true }).click();
   await page.evaluate(() => {
     const put = IDBObjectStore.prototype.put;
     IDBObjectStore.prototype.put = function (...args: Parameters<IDBObjectStore["put"]>) {
