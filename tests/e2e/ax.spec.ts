@@ -2,11 +2,13 @@ import { expect, test, type Page, type Locator } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { navigateWorkspace } from "./navigation";
 import { diagnosisFixture, outputFixture, planFixture, taskFixture } from "../fixtures/ax";
-import { emptyAxState, type AxState, type AxDiagnosis, type AxPlan } from "../../src/lib/ax/types";
+import { emptyAxState, type AxStateV2, type AxDiagnosis, type AxPlan, type AxTaskV2 } from "../../src/lib/ax/types";
 import { buildAllInOnePrompt, TOOL_GUIDES } from "../../src/lib/ax/guide";
 import { exportAxState } from "../../src/lib/ax/transfer";
 import { equipmentRuleCase } from "../fixtures/ax-agent-cases";
 import { waitForFactorControlReady } from "./ax-ready-state";
+import { extractReviewableItems } from "../../src/lib/ax/hitl";
+import { registrationContext, taskDetails } from "../../src/lib/ax/registration";
 async function ax(page: Page) {
   await navigateWorkspace(page, "업무 자동화 진단");
   await expect(page.getByRole("heading", { name: "업무 자동화 진단", exact: true })).toBeVisible();
@@ -28,10 +30,10 @@ async function seed(page: Page, value: unknown) {
     db.close();
   }, value);
 }
-async function record(page: Page): Promise<AxState | undefined> {
+async function record(page: Page): Promise<AxStateV2 | undefined> {
   return page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>(resolve => { const req = indexedDB.open("worklens-ax", 1); req.onsuccess = () => resolve(req.result); });
-    const value = await new Promise<AxState | undefined>(resolve => { const req = db.transaction("state", "readonly").objectStore("state").get("current"); req.onsuccess = () => resolve(req.result); });
+    const value = await new Promise<AxStateV2 | undefined>(resolve => { const req = db.transaction("state", "readonly").objectStore("state").get("current"); req.onsuccess = () => resolve(req.result); });
     db.close(); return value;
   });
 }
@@ -97,7 +99,7 @@ test("AX ellipsis menu, keyboard controls and segmented steps", async ({ page })
   expect(await steps.locator('[data-slot="tab-indicator"]').evaluate(indicator => !["transparent", "rgba(0, 0, 0, 0)"].includes(getComputedStyle(indicator).backgroundColor))).toBe(true);
   await page.screenshot({ path: `artifacts/ax/registration-desktop-${test.info().project.name}.png` });
 });
-test("AX registration labels and common empty states", async ({ page }) => {
+test("AX registration accepts additional information and keeps undiagnosed steps empty", async ({ page }) => {
   await page.goto("/"); await ax(page);
   await expect(page.getByLabel("업무 설명", { exact: true })).toHaveAttribute("required", "");
   await expect(page.locator("form.ax-register")).toBeVisible();
@@ -111,11 +113,19 @@ test("AX registration labels and common empty states", async ({ page }) => {
   await details.click(); await expect(details).toHaveAttribute("aria-expanded", "true");
   await page.mouse.move(0, 0);
   await expect.poll(() => details.evaluate(element => getComputedStyle(element).backgroundColor)).toBe(closedBackground);
-  for (const [label, placeholder] of [
-    ["수행 주기", "예: 매주 월요일, 매월 말일, 필요 시"], ["1회 소요 시간(분)", "예: 30"], ["월 수행 횟수", "예: 8"],
-    ["사용 시스템", "예: Excel, ERP, 사내 시스템"], ["입력 자료", "예: 정산 Excel, 청구서, 시스템 조회 데이터"],
-    ["산출물", "예: 월간 정산표, 검토 결과, 보고서"], ["담당자 판단·승인 단계", "예: 예외 건 검토, 금액 확인, 최종 승인"],
-  ]) await expect(page.getByLabel(label, { exact: true })).toHaveAttribute("placeholder", placeholder);
+  const additionalInfo = [
+    ["수행 주기", "매월 말일"], ["1회 소요 시간(분)", "30"], ["월 수행 횟수", "8"],
+    ["사용 시스템", "Excel"], ["입력 자료", "정산 Excel"],
+    ["산출물·출력 컬럼", "정산.csv\n컬럼: 거래일, 금액, 검토결과\n타입: 금액=숫자"],
+    ["담당자 판단·승인 단계", "금액 확인 후 담당자 최종 승인"],
+  ];
+  for (const [label, value] of additionalInfo) {
+    const input = label === "산출물·출력 컬럼"
+      ? page.getByRole("textbox", { name: /^산출물·출력 컬럼/u })
+      : page.getByLabel(label, { exact: true });
+    await input.fill(value);
+    await expect(input).toHaveValue(value);
+  }
   await expect(page.getByLabel("1회 소요 시간(분)", { exact: true })).toHaveAttribute("type", "number");
   await expect(page.getByLabel("월 수행 횟수", { exact: true })).toHaveAttribute("type", "number");
   await expect(page.getByText("담당자가 처리·판단하는 단계", { exact: true })).toHaveCount(0);
@@ -133,6 +143,13 @@ test("AX registration labels and common empty states", async ({ page }) => {
     await expect(panel.locator(".ax-empty")).toBeVisible();
     await expect(panel.getByRole("heading")).toHaveCount(0);
   }
+  await page.getByRole("tab", { name: "업무 등록", exact: true }).click();
+  await register(page, "추가 정보 입력 업무");
+  await expect.poll(() => record(page)).toMatchObject({ tasks: [{
+    name: "추가 정보 입력 업무", status: "registered", cycle: "매월 말일",
+    minutesPerRun: 30, runsPerMonth: 8, systems: "Excel", inputs: "정산 Excel",
+    outputs: additionalInfo[5][1], humanSteps: "금액 확인 후 담당자 최종 승인",
+  }] });
 });
 test("AX registration → diagnosis → correction → matrix → plans → reload → export/reset/import", async ({ page }) => {
   const calls: Record<string, unknown>[] = []; await mock(page, calls);
@@ -702,8 +719,10 @@ test("AX attachment cleanup leaves another view's AI request running", async ({ 
   expect(failed).toHaveLength(0);
 });
 test("AX Execution Gate blocks no-go plans and displays ready tasks before higher-scoring blocked tasks", async ({ page }) => {
+  const requests: Record<string, unknown>[] = [];
   await page.route("**/api/ai", async route => {
     const req = route.request().postDataJSON();
+    requests.push(req);
     const output = outputFixture();
     const diagnosis = req.name === "차단 업무" ? {
       ...output,
@@ -736,8 +755,7 @@ test("AX Execution Gate blocks no-go plans and displays ready tasks before highe
   await expect(page.getByRole("button", { name: "전체 업무 보기", exact: true })).toHaveCount(0);
   const blocked = list.getByRole("listitem").filter({ hasText: "차단 업무" });
   const ready = list.getByRole("listitem").filter({ hasText: "가능 업무" });
-  // §10: 통합 목록에는 Gate 배지를 표시하지 않는다 — Gate는 업무 진단 단계 상세 카드와
-  // 선택 업무의 구현 전 확인 영역에서 확인한다.
+  // 통합 목록 대신 진단 상세와 선택 업무 결과에서 유효 Gate를 확인한다.
   await expect(blocked.locator(".ax-gate-badge")).toHaveCount(0);
   await expect(ready.locator(".ax-gate-badge")).toHaveCount(0);
   await expect(ready.locator(".ax-rank")).toHaveText("#2");
@@ -746,12 +764,10 @@ test("AX Execution Gate blocks no-go plans and displays ready tasks before highe
   await expect(page.getByRole("article", { name: "차단 업무 결과·로드맵", exact: true })).toContainText("진행 보류");
   await expect(page.getByRole("button", { name: "Codex용 구현 계획 생성", exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Claude Code용 구현 계획 생성", exact: true })).toBeDisabled();
-  const plans = page.locator("section.ax-surface").filter({ has: page.getByRole("heading", { name: "자동화 구현 계획", exact: true }) });
-  // ① 구현 전 확인 섹션에서는 진행 보류 배지만 보이고, 차단 사유 상세는 기본 화면에 없다
-  // (차단 사유는 업무 진단 단계 상세 카드에서 확인한다 — 위에서 이미 단언).
-  const precheck = plans.getByRole("region", { name: "구현 전 확인", exact: true });
-  await expect(precheck).toContainText("진행 보류");
-  await expect(precheck).not.toContainText("필수 시스템 접근 불가");
+  const plans = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
+  await expect.poll(async () => (await record(page))?.tasks.find(task => task.name === "차단 업무")?.diagnosis?.decisionGate)
+    .toEqual({ verdict: "no-go", reasons: ["필수 시스템 접근 불가", "두 번째 보류 사유"] });
+  expect(requests.filter(request => request.kind === "ax-plan")).toEqual([]);
   await expect(plans.locator(".ax-prompt")).toHaveCount(0);
   await expect(plans.locator(".ax-plan-tool-hint")).toHaveCount(0);
   await expect(plans.getByRole("button", { name: /용 올인원 지시문 복사$/ })).toHaveCount(0);
@@ -831,8 +847,38 @@ test("AX factor corrections and re-diagnosis invalidate existing implementation 
   await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
   await expect(codex).toHaveCount(0); await expect(claude).toHaveCount(0);
 });
-test("AX registration edits preserve hidden legacy fields and invalidate the diagnosis", async ({ page }) => {
-  const task = { ...taskFixture("legacy", diagnosisFixture), people: 3, painPoints: "수작업 오류", goal: "월말 마감 단축" };
+test("AX registration edits preserve diagnosis, HITL and rules until successful re-diagnosis replaces the evidence", async ({ page }) => {
+  const diagnosis: AxDiagnosis = {
+    ...diagnosisFixture, planCodex: planFixture,
+    decisionPoints: [{ id: "D1", status: "확정", detail: "담당자가 확정한 입력 표만 사용" }],
+  };
+  const item = extractReviewableItems(diagnosis)[0];
+  const task: AxTaskV2 = {
+    ...taskFixture("legacy", diagnosis), people: 3, painPoints: "수작업 오류", goal: "월말 마감 단축",
+    outputs: "기존정산.csv\n컬럼: 거래일, 금액",
+    reviews: [{
+      id: "preserved-review", target: { type: item.type, source: item.source, key: item.key, sourceText: item.text, sourceHash: item.sourceHash },
+      action: "keep", status: "confirmed", comment: "담당자 검토 완료",
+      reviewedAt: "2026-10-04T00:00:00.000Z", updatedAt: "2026-10-04T00:00:00.000Z",
+    }],
+    genericRules: [{ id: "R1", name: "담당자 최종 승인 유지", category: "권한·검토 기준", applicability: "적용", status: "확정", source: "업무 설명" }],
+  };
+  const editedOutputs = "변경정산.csv\n컬럼: 거래일, 금액, 검토결과\n타입: 금액=숫자";
+  const previousRegistration = JSON.parse(JSON.stringify({ name: task.name, description: task.description, details: taskDetails(task), context: registrationContext(task) }));
+  const requests: Record<string, unknown>[] = [];
+  let failDiagnosis = true;
+  const refreshedDiagnosis = { ...outputFixture(), asIs: { ...diagnosisFixture.asIs, outputs: ["변경정산.csv"] } };
+  await page.route("**/api/ai", async route => {
+    const request = route.request().postDataJSON();
+    requests.push(request);
+    if (request.kind === "ax-plan") {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { kind: "ax-plan", plan: planFixture } }) });
+      return;
+    }
+    await route.fulfill(failDiagnosis
+      ? { status: 500, contentType: "application/json", body: JSON.stringify({ error: "진단 일시 실패" }) }
+      : { status: 200, contentType: "application/json", body: JSON.stringify({ data: { kind: "ax-diagnosis", diagnosis: refreshedDiagnosis } }) });
+  });
   await page.goto("/");
   await seed(page, { ...emptyAxState(), tasks: [task], selectedTaskId: task.id, step: 2 });
   await ax(page);
@@ -840,15 +886,59 @@ test("AX registration edits preserve hidden legacy fields and invalidate the dia
   await page.getByRole("button", { name: "등록 정보 수정", exact: true }).click();
   await expect(page.getByRole("tab", { name: "업무 등록", exact: true })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByRole("heading", { name: "등록 정보 수정", exact: true })).toBeVisible();
-  await expect(page.locator("form.ax-register textarea")).toHaveValue(task.description);
+  await expect(page.getByRole("textbox", { name: "업무 설명 *", exact: true })).toHaveValue(task.description);
   await expect(page.getByRole("button", { name: "수정 저장", exact: true })).toHaveCount(0);
   await page.getByLabel("업무명", { exact: true }).fill("수정된 업무");
+  await page.getByRole("button", { name: "추가 정보", exact: true }).click();
+  await page.getByRole("textbox", { name: /^산출물·출력 컬럼/u }).fill(editedOutputs);
   await page.getByRole("button", { name: "수정 등록", exact: true }).click();
-  await expect.poll(() => record(page)).toMatchObject({ tasks: [{
-    id: "legacy", name: "수정된 업무", description: task.description,
-    people: 3, painPoints: "수작업 오류", goal: "월말 마감 단축", status: "registered",
-  }] });
-  expect((await record(page))?.tasks[0].diagnosis).toBeUndefined();
+  const expectPreservedEvidence = async () => {
+    await expect.poll(async () => (await record(page))?.tasks[0]).toMatchObject({
+      id: task.id, name: "수정된 업무", description: task.description, outputs: editedOutputs,
+      people: 3, painPoints: "수작업 오류", goal: "월말 마감 단축", status: "diagnosed",
+      diagnosisRegistration: previousRegistration,
+    });
+    const saved = (await record(page))!.tasks[0];
+    expect(saved.diagnosis).toEqual(diagnosis);
+    expect(saved.reviews).toEqual(task.reviews);
+    expect(saved.genericRules).toEqual(task.genericRules);
+  };
+  await expectPreservedEvidence();
+  await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
+  const prompt = page.getByRole("region", { name: "자동화 구현 계획", exact: true }).locator(".ax-prompt");
+  await expect(prompt).toContainText(task.outputs!);
+  await expect(prompt).not.toContainText(editedOutputs);
+  await page.reload(); await ax(page);
+  await expectPreservedEvidence();
+  await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
+  await expect(prompt).toContainText(task.outputs!);
+  await expect(prompt).not.toContainText(editedOutputs);
+  await page.getByRole("tab", { name: "업무 진단", exact: true }).click();
+  const diagnoseAgain = page.getByRole("button", { name: "업무 다시 진단", exact: true });
+  await diagnoseAgain.click();
+  await expect(page.getByText(/진단 실패 ·/)).toBeVisible();
+  await expect(diagnoseAgain).toBeEnabled();
+  await expectPreservedEvidence();
+  expect(requests).toHaveLength(1);
+  expect(requests[0]).toMatchObject({ kind: "ax-diagnosis", name: "수정된 업무", details: { outputs: editedOutputs } });
+  failDiagnosis = false;
+  await diagnoseAgain.click();
+  await expect.poll(async () => (await record(page))?.tasks[0].diagnosis?.asIs.outputs).toEqual(["변경정산.csv"]);
+  const rediagnosed = (await record(page))!.tasks[0];
+  expect(rediagnosed.diagnosisRegistration).toBeUndefined();
+  expect(rediagnosed.outputs).toBe(editedOutputs);
+  expect(rediagnosed.diagnosis?.decisionPoints).toEqual(diagnosis.decisionPoints);
+  expect(rediagnosed.reviews).toEqual(task.reviews);
+  expect(rediagnosed.genericRules).toEqual(task.genericRules);
+  expect(rediagnosed.diagnosis?.planCodex).toBeUndefined();
+  expect(requests).toHaveLength(2);
+  expect(requests[1]).toMatchObject({ kind: "ax-diagnosis", name: "수정된 업무", details: { outputs: editedOutputs } });
+  await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
+  await page.getByRole("button", { name: "Codex용 구현 계획 생성", exact: true }).click();
+  await expect(prompt).toContainText(editedOutputs);
+  await expect(prompt).not.toContainText(task.outputs!);
+  expect(requests).toHaveLength(3);
+  expect(requests[2]).toMatchObject({ kind: "ax-plan", task: { name: "수정된 업무", details: { outputs: editedOutputs } } });
 });
 test("AX Step 1 edit icon reuses the registration edit flow, keeps one selected row and deletes quietly", async ({ page }) => {
   const first = { ...taskFixture("first"), name: "월간 운임 정산 취합" }, second = { ...taskFixture("second"), name: "주간 고객사 뉴스 동향 보고", description: "매주 고객사 뉴스를 모아 동향 보고서를 작성합니다." };
@@ -1731,20 +1821,19 @@ test("AX coding tool selection syncs plan review, all-in-one instructions and se
   await ax(page);
   const planSection = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
   const review = planSection.getByRole("region", { name: "구현 계획", exact: true });
+  const basicSteps = review.locator(".ax-plan-steps > .ax-plan-step > .ax-plan-step-row .ax-plan-step-text");
   // 최초 진입: 양쪽 계획이 있으면 Codex가 기본 선택 (검토·지시문 모두)
   await expect(review.locator(".ax-plan-steps > .ax-plan-step")).toHaveCount(codexPlan.implementation.length);
-  await expect(review.getByText("Codex 계획 항목", { exact: true })).toBeVisible();
-  await expect(review.getByText("Claude 계획 항목", { exact: true })).toHaveCount(0);
+  await expect(basicSteps).toHaveText(codexPlan.implementation);
+  await expect(basicSteps).toBeVisible();
   await expect(planSection.getByRole("button", { name: "Codex용 올인원 지시문 복사", exact: true })).toBeVisible();
   // 올인원 지시문에서 Claude Code 선택 → 구현 계획 검토도 동일 도구 선택
   await planSection.getByRole("tab", { name: "Claude Code", exact: true }).click();
-  await expect(review.getByText("Claude 계획 항목", { exact: true })).toBeVisible();
-  await expect(review.getByText("Codex 계획 항목", { exact: true })).toHaveCount(0);
+  await expect(basicSteps).toHaveText(claudePlan.implementation);
   await expect(planSection.getByRole("button", { name: "Claude Code용 올인원 지시문 복사", exact: true })).toBeVisible();
   // 구현 계획 검토에서 Codex 선택 → 올인원 지시문도 동일 도구 선택
   await review.getByRole("button", { name: "Codex", exact: true }).click();
-  await expect(review.getByText("Codex 계획 항목", { exact: true })).toBeVisible();
-  await expect(review.getByText("Claude 계획 항목", { exact: true })).toHaveCount(0);
+  await expect(basicSteps).toHaveText(codexPlan.implementation);
   await expect(planSection.getByRole("button", { name: "Codex용 올인원 지시문 복사", exact: true })).toBeVisible();
   // 설치·시작 가이드는 현재 선택 도구(Codex)의 명령어를 표시 (레이아웃·클립보드 포함 검증)
   const guideTrigger = planSection.getByRole("button", { name: "설치·시작 가이드", exact: true });

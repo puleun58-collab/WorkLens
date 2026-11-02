@@ -26,7 +26,16 @@ test("AX 진단 간소화: D1~D7 아코디언 단일 펼침·진행률·저장·
   // 고정 7개가 아니라 진단에서 도출된 D3·D4·D5·D6 후보 4건과
   // 최종 승인 범용 후보 1건, 표시된 모든 규칙 5건이 검토 완료율 분모다.
   await expect(decision.getByText("0/5 완료", { exact: true })).toBeVisible();
-  await expect(decision.getByText("제안", { exact: true })).toHaveCount(5);
+  await expect(decision.locator(".ax-decision-row")).toHaveCount(5);
+  for (const id of ["D3", "D4", "D5", "D6"]) {
+    const row = decision.locator(`#ax-decision-${id}`);
+    await expect(row).toBeVisible();
+    await expect(row.locator(".ax-decision-badge")).toHaveText("미확정");
+    await expect(row.getByText("제안", { exact: true })).toHaveCount(0);
+  }
+  const approval = decision.locator(".ax-decision-row").filter({ has: page.getByText("최종 승인", { exact: true }) });
+  await expect(approval.getByText("제안", { exact: true })).toBeVisible();
+  await expect(approval.locator(".ax-decision-badge")).toHaveText("미확정");
   await expect(decision).not.toContainText("적용 확인");
 
   // 기본은 모두 접힘이므로 D3 행을 펼쳐 입력한다. D4를 펼치면 D3이 접히고,
