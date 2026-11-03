@@ -1,5 +1,6 @@
 import { axMessages, AX_DIAGNOSIS_RESPONSE_SCHEMA, AX_PLAN_RESPONSE_SCHEMA, copiesAttachment } from "@/lib/ax/prompt";
 import { axDiagnosisOutputSchema, axPlanSchema } from "@/lib/ax/schema";
+import { alignInformationSufficiency } from "@/lib/ax/policy";
 import { validateAxSemantics } from "@/lib/ax/semantic";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -226,12 +227,22 @@ export async function interpretResearchQuery(query: string, context: GroqRequest
   ];
   return observeGroq({ ...context, operation }, operation, async (budget) => {
     // A malformed answer is asked for once more; both layers share the provider-call budget.
+    // Groq reports a completion that ran out of tokens before closing its JSON as a
+    // 400 json_validate_failed: that is the same malformed answer, not a bad request.
     let value: z.infer<typeof researchInterpretationSchema> | undefined;
     for (let attempt = 0; attempt < 2 && !value; attempt++) {
-      // The provider's per-minute token limit counts this budget. Keep the existing
-      // 1,000-token ceiling when promoting interpretation to medium effort.
-      const completion = await complete(messages, RESEARCH_INTERPRETATION_SCHEMA, "worklens_research_interpretation", 1_000,
-        { ...context, operation }, budget);
+      // Production medium-effort answers used ~914 of a 1,000-token ceiling when they
+      // succeeded and were cut off (json_validate_failed) in 2 of 3 runs. Hidden reasoning
+      // varies per question, so the ceiling leaves room for it; the visible JSON is short.
+      let completion: GroqCompletion;
+      try {
+        completion = await complete(messages, RESEARCH_INTERPRETATION_SCHEMA, "worklens_research_interpretation", 2_000,
+          { ...context, operation }, budget);
+      } catch (error) {
+        if (budget.rejection?.providerCode !== "json_validate_failed") throw error;
+        budget.failure = new ApiError("INVALID_PROVIDER_OUTPUT", "AI 응답 형식이 올바르지 않습니다.", 502);
+        continue;
+      }
       let payload: unknown;
       try {
         payload = JSON.parse(completion.choices[0].message.content);
@@ -442,7 +453,7 @@ function parseResult(request: AiApiRequest, content: string): AiApiResult {
       }
       const parsed = axDiagnosisOutputSchema.safeParse(payload);
       if (!parsed.success || copiesAttachment(parsed.data, request.attachmentSummary)) throw new ApiError("INVALID_PROVIDER_OUTPUT", "AI 응답 형식이 올바르지 않습니다.", 502);
-      return { kind: "ax-diagnosis", diagnosis: parsed.data };
+      return { kind: "ax-diagnosis", diagnosis: alignInformationSufficiency(parsed.data, request.details) };
     }
     case "ax-plan": {
       const parsed = axPlanSchema.safeParse(payload);

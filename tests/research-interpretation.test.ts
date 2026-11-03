@@ -29,7 +29,7 @@ describe("research query interpretation", () => {
     expect(url).toContain("api.groq.com/openai/v1/chat/completions");
     const request = JSON.parse(String(init.body));
     expect(request.response_format.json_schema).not.toHaveProperty("strict");
-    expect(request).toMatchObject({ reasoning_effort: "medium", max_completion_tokens: 1_000, temperature: 0 });
+    expect(request).toMatchObject({ reasoning_effort: "medium", max_completion_tokens: 2_000, temperature: 0 });
     expect(request.messages[1].content).toContain(query);
     expect(log).toHaveBeenCalledExactlyOnceWith("[AI][Groq]", {
       kind: "research-interpretation",
@@ -121,7 +121,7 @@ describe("research query interpretation", () => {
     await expect(interpretResearchQuery(query, context)).resolves.toMatchObject({ issues: proposal.issues });
     expect(recovered).toHaveBeenCalledTimes(2);
     for (const [, init] of recovered.mock.calls as Array<[string, RequestInit]>) {
-      expect(JSON.parse(String(init.body))).toMatchObject({ reasoning_effort: "medium", max_completion_tokens: 1_000 });
+      expect(JSON.parse(String(init.body))).toMatchObject({ reasoning_effort: "medium", max_completion_tokens: 2_000 });
     }
     for (const invalid of [{ ...proposal, confidence: "certain" }, { ...proposal, citation: "법령을 확인했음" }]) {
       const failing = vi.fn().mockImplementation(async () => completion(invalid));
@@ -129,6 +129,29 @@ describe("research query interpretation", () => {
       await expect(interpretResearchQuery(query, context)).rejects.toMatchObject({ code: "INVALID_PROVIDER_OUTPUT" });
       expect(failing).toHaveBeenCalledTimes(2);
     }
+  });
+
+  it("treats a provider-side truncated JSON answer as malformed and asks once more, but not other rejections", async () => {
+    process.env.GROQ_API_KEY = "test-provider-key";
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    // Actual production rejection when hidden reasoning used the whole completion budget.
+    const truncated = () => new Response(JSON.stringify({ error: {
+      message: "Failed to validate JSON. Please adjust your prompt.", type: "invalid_request_error", code: "json_validate_failed",
+    } }), { status: 400 });
+    const recovered = vi.fn().mockResolvedValueOnce(truncated()).mockResolvedValueOnce(completion(proposal));
+    vi.stubGlobal("fetch", recovered);
+    await expect(interpretResearchQuery(query, context)).resolves.toMatchObject({ issues: proposal.issues });
+    expect(recovered).toHaveBeenCalledTimes(2);
+    const twice = vi.fn().mockImplementation(async () => truncated());
+    vi.stubGlobal("fetch", twice);
+    await expect(interpretResearchQuery(query, context)).rejects.toMatchObject({ code: "INVALID_PROVIDER_OUTPUT" });
+    expect(twice).toHaveBeenCalledTimes(2);
+    const otherRejection = vi.fn().mockImplementation(async () => new Response(JSON.stringify({ error: {
+      message: "model_not_found", type: "invalid_request_error", code: "model_not_found",
+    } }), { status: 400 }));
+    vi.stubGlobal("fetch", otherRejection);
+    await expect(interpretResearchQuery(query, context)).rejects.toMatchObject({ code: "AI_PROVIDER_REJECTED" });
+    expect(otherRejection).toHaveBeenCalledTimes(1);
   });
 
   it("waits out one short rate limit, but not a long one or a server failure", async () => {
