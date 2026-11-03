@@ -1,10 +1,11 @@
 import { compactLaw, sameLawFamily } from "@/lib/research-scope";
 import { researchResult } from "@/lib/law-research-parse";
+import { DECISION_DOMAINS, type DecisionDomain } from "@/lib/decision-domain";
 
 /**
- * Relevance of `legal_research` results to the user's question, decided by
- * WorkLens rather than the upstream order. Rule-based and explainable: every
- * judgement names the question terms (or cited article) it matched.
+ * Lexical candidate relevance, independent of upstream search order. Every
+ * judgement names the question terms (or cited article) it matched. Final
+ * full-research adoption separately verifies the actual official originals.
  *
  * The MCP falls back to full-text search when a title search misses, so a
  * decision can be listed only because a question word appears somewhere in a
@@ -24,14 +25,20 @@ export interface PrecedentRelevance {
   basis?: { issue: string[]; violation: string[]; action: string[]; articles: string[]; standard: string[] };
 }
 
-export type ResearchDecisionDomain = "precedent" | "interpretation" | "tribunal";
+export type ResearchDecisionDomain = DecisionDomain | "tribunal";
 
 /** Section labels, not record IDs, establish the upstream decision domain. */
 export function researchDecisionDomain(heading: string | undefined): ResearchDecisionDomain | undefined {
+  if (/헌재|헌법재판/u.test(heading ?? "")) return "constitutional";
+  const normalized = compact(heading ?? "");
+  const named = DECISION_DOMAINS.find((domain) => domain.value !== "precedent"
+    && normalized.includes(domain.label.replace(/\s+/gu, "")));
+  if (named && named.value !== "admin_appeal") return named.value;
   if (/해석례/u.test(heading ?? "")) return "interpretation";
   if (/행정심판|재결례|심판례/u.test(heading ?? "")) return "tribunal";
   if (/판례/u.test(heading ?? "")) return "precedent";
-  return undefined;
+  return DECISION_DOMAINS.find((domain) => domain.label.includes(" ")
+    && normalized.includes(domain.label.split(" ")[0]))?.value;
 }
 
 /** A title that names a definition (용어 정의) rather than a substantive duty, sanction or procedure. */
@@ -45,6 +52,8 @@ export interface SupplementArticle {
   jo: string;
   title: string;
   excerpt: string;
+  /** Complete fetched source, separate from the bounded display excerpt. */
+  original?: string;
   effectiveDate?: string;
   /** Question terms found in the article title. */
   matched: string[];
@@ -60,6 +69,38 @@ export interface SupplementArticle {
   explicit?: true;
 }
 
+/** Server-issued handles identify actual fetched texts, never model-invented laws or versions. */
+export type ResearchAdoptionCandidate = {
+  id: string;
+  kind: "article" | "precedent" | "decision";
+  text: string;
+  title?: string;
+  stage: string;
+  law?: string;
+  jo?: string;
+  effectiveDate?: string;
+  precedentId?: string;
+  domain?: ResearchDecisionDomain;
+  decisionId?: string;
+  decisionKey?: string;
+  source?: string;
+  caseNumber?: string;
+  body?: string;
+  date?: string;
+  /** An opening or visibly truncated original cannot establish a holding. */
+  partial?: boolean;
+};
+
+export interface ResearchAdoptionVerdict {
+  issueIndex: number;
+  candidateId: string;
+  role: "direct" | "supporting";
+  quote: string;
+  reason: string;
+  /** Server-recorded model-visible range of an otherwise complete original. */
+  window?: { start: number; end: number; total: number };
+}
+
 export interface ResearchEnrichment {
   /** Keyed by precedent id as printed by the MCP (`[619479]`). */
   precedents?: Record<string, PrecedentRelevance>;
@@ -68,6 +109,22 @@ export interface ResearchEnrichment {
   /** All three decision kinds; IDs are scoped because upstream domains can reuse them. */
   decisions?: Record<string, PrecedentRelevance>;
   decisionExcerpts?: Record<string, string>;
+  /** Complete official summaries/reasons already fetched, independent of lexical rank. */
+  decisionOriginals?: Record<string, { domain: ResearchDecisionDomain; id: string; title?: string; caseNumber?: string;
+    body?: string; date?: string; text: string; partial: boolean; source?: string }>;
+  /** Source-level adoption audit; rejected official texts remain inspectable, not evidence. */
+  adoptionReviews?: Array<{
+    query: string;
+    issueIndex?: number;
+    verification?: "verified" | "unavailable";
+    articles: Array<{ law: string; jo: string; title?: string; excerpt: string; effectiveDate?: string; stage: string;
+      adopted: boolean; reason: string; role?: "direct" | "supporting" | "identity"; quote?: string; window?: ResearchAdoptionVerdict["window"] }>;
+    precedents: Array<{ id: string; key?: string; domain?: "precedent"; title?: string; body?: string; date?: string; caseNumber?: string; excerpt?: string; partial?: boolean;
+      adopted: boolean; reason: string; role?: "direct" | "supporting"; quote?: string; window?: ResearchAdoptionVerdict["window"] }>;
+    decisions?: Array<{ key: string; domain: ResearchDecisionDomain; id: string; title?: string; body?: string; date?: string;
+      caseNumber?: string; excerpt?: string; partial?: boolean; source?: string; adopted: boolean; reason: string;
+      role?: "direct" | "supporting"; quote?: string; window?: ResearchAdoptionVerdict["window"] }>;
+  }>;
   /** `none`: looked up and nothing matched; `failed`: lookups failed; `not_searched`: no usable term. */
   supplement?: { status: "found" | "none" | "failed" | "not_searched"; articles: SupplementArticle[];
     /**
@@ -445,6 +502,52 @@ function titleVetoed(title: string, stripTerms: readonly string[]): boolean {
 }
 
 /**
+ * Narrow party/relationship cues, not a classification of laws. A provision
+ * confined to a named relationship cannot become a general rule just because
+ * its text also says 계약, 지급 or 손해배상. Only the user's words establish
+ * that relationship; an AI search phrase is never a fact about the parties.
+ * General civil rules (채무자·채권자·타인) deliberately carry no restriction.
+ */
+const RESTRICTED_RELATIONSHIPS: ReadonlyArray<{ source: RegExp; request: RegExp; contextual?: true }> = [
+  { source: /근로자|근로계약|고용기간|임금|퇴직급여/u, request: /직원|직장|근로|고용|사용자|사업주|퇴사|퇴직|해고|임금|월급|급여|연차/u, contextual: true },
+  { source: /차주(?:가|는|의|에게)|대주(?:가|는|의|에게)|사용대차|소비대차/u, request: /차주|대주|대차|빌[려린릴]|빌리|대여|차용/u },
+  { source: /조달청|수요기관|경쟁입찰|단가계약|다수공급자/u, request: /조달|수요기관|입찰|단가계약|다수공급자|공공계약|국가계약/u },
+  { source: /대표이사|임원|법인세|손금산입|손금불산입/u, request: /대표이사|임원|이사|법인세|손금|과세|세금|세무/u },
+  { source: /위탁매매인/u, request: /위탁|매매인|중개|대리상/u },
+  { source: /계약담당(?:자|공무원)|지출관|출납공무원/u, request: /조달|공공|국가|지방자치|지자체|관공서|공무원|공기업|입찰|교도/u },
+  // 상법상 사원은 회사의 구성원(출자자)이지 근로자가 아니다.
+  { source: /사원(?:은|이|의)\s*(?:영업년도|퇴사|지분|출자)|회사를\s*대표하는\s*사원|사원이\s*부득이한|총사원의\s*동의/u, request: /합명|합자|유한책임회사|출자|지분|사원권/u },
+  { source: /위원회소속직원|(?<!담당)공무원(?:은|이)/u, request: /공무원|공공기관|국가기관|위원회|공직|국가배상/u },
+  { source: /지방자치단체를\s*당사자로/u, request: /지방|지자체|자치단체|시청|도청|구청|군청/u },
+  // 민사집행 절차의 취소·정지 규정은 강제집행 관계를 묻지 않은 행정처분 취소 사유가 아니다.
+  { source: /민사집행법/u, request: /집행|경매|압류|가처분|가압류|강제|배당/u },
+];
+
+export function relationshipSupported(content: string, originalQuery: string): boolean {
+  const source = compact(content), request = compact(originalQuery);
+  return RESTRICTED_RELATIONSHIPS.every(({ source: cue, request: context, contextual }) =>
+    contextual || !cue.test(source) || context.test(request)
+    // A holding actually deciding employee status is relevant even when
+    // its other party is an officer; the role must be part of its legal test.
+    || (/직원|근로|고용/u.test(request) && /근로자(?:에|로|의)?\s*(?:해당|인정|볼|여부|성)|근로자성/u.test(content)));
+}
+
+/**
+ * An aggravated wage remedy is not the ordinary wage-payment obligation.
+ * Check its full conditions, not a quote ending just before the numbered list.
+ * This veto only limits direct adoption; conditional supporting evidence still
+ * needs the verifier's explanation and never becomes an automatic fallback.
+ */
+export function directConditionsSupported(content: string, originalQuery: string): boolean {
+  const source = compact(content), request = compact(originalQuery);
+  const aggravatedWageRemedy = /임금/u.test(source)
+    && /(?:[2-9]|[이삼사오육칠팔구])배/u.test(source)
+    && /명백한고의|개월수가총|개월이상의통상임금|상습체불/u.test(source);
+  return !aggravatedWageRemedy
+    || /고의|상습|반복|장기|대규모|(?:[2-9]|[이삼사오육칠팔구])배|[0-9일이삼사오육칠팔구십]+개월|손해배상/u.test(request);
+}
+
+/**
  * Title and law-name overlap only nominate candidates. Body text must support
  * the issue; requested violations, dispositions and judgment standards qualify
  * a direct match. An opening is supplementary at best, never a holding.
@@ -600,7 +703,8 @@ export function titleMatches(terms: readonly string[], law: string, title: strin
  *   it, so adopting it would show "근거 확인" with "표시 근거 없음" underneath.
  */
 export function researchEvidenceSources(text: string, query: string, enrichment?: ResearchEnrichment, requestTerms?: readonly string[],
-  options?: { fallback?: boolean }): {
+  options?: { fallback?: boolean; originalQuery?: string;
+    review?: (review: NonNullable<ResearchEnrichment["adoptionReviews"]>[number]) => void }): {
   articles: Array<{ law: string; jo: string }>; precedents: string[];
 } {
   const allTerms = questionTerms(query).filter((term) => !isLawName(term));
@@ -638,8 +742,8 @@ export function researchEvidenceSources(text: string, query: string, enrichment?
    * official name (개인정보보호법 vs 개인정보 보호법) are compacted away.
    * No named law means no restriction, as before.
    */
-  const namedLaws = [...new Set([...questionTerms(query).filter((term) => isLawName(term) && !BARE_LAW_TERM.has(term)),
-    ...(requestTerms ?? []).filter((term) => isLawName(term) && !BARE_LAW_TERM.has(term))])];
+  const namedLaws = [...new Set(questionTerms(options?.originalQuery ?? [query, ...(requestTerms ?? [])].join(" "))
+    .filter((term) => isLawName(term) && !BARE_LAW_TERM.has(term)))];
   // The question's own words, for reconstructing a spaced official name:
   // "개인정보 보호법" tokenizes to "보호법", which must not reject the
   // question's own law ("개인정보보호법") — nor admit a different
@@ -655,17 +759,22 @@ export function researchEvidenceSources(text: string, query: string, enrichment?
     return prefix.length > 0 && questionWords.includes(prefix);
   };
   const lawAllowed = (law: string) => !namedLaws.length || namedLaws.some((named) => lawMatches(law, named));
-  const request = [...new Set((requestTerms ?? []).filter((term) => !isLawName(term) && !JO_TERM.test(term)))];
+  const request = [...new Set((options?.originalQuery ? questionTerms(options.originalQuery) : requestTerms ?? [])
+    .filter((term) => !isLawName(term) && !JO_TERM.test(term)))];
   const subjectTerms = request.filter((term) => !terms.includes(term) && isSubjectTerm(term));
   // A single generic word ("정지" alone) names no subject and no regime:
   // one occurrence of it in an article must not adopt that article. Such an
   // issue stays unverified until a subject term or a second signal arrives.
   // Explicitly named law + article pairs are exempt: the user asked for them.
   const singleGeneric = terms.length === 1 && !isSubjectTerm(terms[0]);
-  const subjectLess = terms.every((term) => GENERIC_TERMS.has(term) || ACTOR_TERMS.has(term));
+  // 계약 is generic only at adoption; discovery keeps its existing subject
+  // semantics and therefore its existing lookup scope and search budget.
+  const subjectLess = terms.every((term) => term === "계약" || GENERIC_TERMS.has(term) || ACTOR_TERMS.has(term));
   const useDomainRule = subjectLess && subjectTerms.length > 0;
   const combined = [...new Set([...terms, ...subjectTerms])];
   const longest = Math.max(...terms.map((term) => term.length));
+  const coreTerms = terms.filter((term) => !ACTOR_TERMS.has(term));
+  const coreLongest = Math.max(0, ...coreTerms.map((term) => term.length));
   // For an unread question the request is the issue itself, so its subjects
   // come from its own terms rather than from sibling issues.
   const fallbackSubjects = options?.fallback
@@ -681,8 +790,14 @@ export function researchEvidenceSources(text: string, query: string, enrichment?
       return anchored.length >= Math.min(2, terms.length) && anchored.some((term) => fallbackSubjects.includes(term));
     }
     if (useDomainRule) {
-      return terms.some((term) => anchoredOrSplit(term, combined))
-        && subjectTerms.some((term) => anchoredOrSplit(term, combined));
+      const originalQuery = options?.originalQuery;
+      const relationshipAnchor = originalQuery !== undefined && RESTRICTED_RELATIONSHIPS.some(({ source, request: context }) =>
+        source.test(compact(content)) && context.test(compact(originalQuery)));
+      // Sharing a party and a short procedural word (청구) is not support
+      // for the issue's core act (손해배상). Keep the same longest-term
+      // anchor required by the ordinary issue rule.
+      return coreTerms.some((term) => term.length === coreLongest && anchoredOrSplit(term, combined))
+        && (subjectTerms.some((term) => anchoredOrSplit(term, combined)) || relationshipAnchor);
     }
     const compacted = compact(content);
     const matched = terms.filter((term) => termOccurs(term, compacted));
@@ -702,13 +817,26 @@ export function researchEvidenceSources(text: string, query: string, enrichment?
       && allMatched.some((term) => term.length === longest && (termAnchored(term, terms, content) || splitMatched.includes(term)));
   };
   const addressesTitle = (title: string | undefined) => title?.trim() ? addresses(title) : false;
+  const relationAllows = (content: string) => relationshipSupported(content, options?.originalQuery ?? [query, ...request].join(" "));
+  // General civil obligations do not require the special party's colloquial
+  // name (직원/거래처) to be repeated in a rule written for 채무자 or 타인.
+  const generalObligation = (content: string) => options?.originalQuery !== undefined
+    && /^(?:제\d+조[^\n]*\n\s*)?(?:채무자가\s*채무의|고의\s*또는\s*과실로\s*인한\s*위법행위로\s*타인)/u.test(content.trim())
+    && coreTerms.some((term) => /손해|배상|불이행|불법행위/u.test(term)
+      && term.length === coreLongest && termAnchored(term, terms, content));
+  const articleReviews: NonNullable<ResearchEnrichment["adoptionReviews"]>[number]["articles"] = [];
+  const precedentReviews: NonNullable<ResearchEnrichment["adoptionReviews"]>[number]["precedents"] = [];
   const stripTerms = [...new Set([...terms, ...request, ...GENERIC_TERMS, ...ACTOR_TERMS, ...FRAME_WORDS])];
-  const articles = [
+  const articleCandidates = [
     ...researchResult(text).sections.filter((section) => section.status === "available").flatMap((section) => section.articles ?? []),
     ...(enrichment?.supplement?.articles ?? []),
-  ].filter((article) => {
+  ];
+  const articles = articleCandidates.filter((article) => {
+    const adopted = (() => {
     if (!article.excerpt.trim()) return false;
     if (!lawAllowed(article.law)) return false;
+    if ((article as SupplementArticle).explicit && lawAllowed(article.law)) return true;
+    if (!relationAllows(article.excerpt)) return false;
     // A single generic word alone names no subject — but when the domain
     // rule already applies, adoption needs TWO anchored signals (the issue
     // term plus a request subject term), which is exactly the second
@@ -723,21 +851,30 @@ export function researchEvidenceSources(text: string, query: string, enrichment?
     // marks articles explicit for issues that named the pair or, for a
     // subject-less issue, whose text carries the delegation the issue asks
     // about — the flag never reaches an unrelated issue.
-    if ((article as SupplementArticle).explicit) return true;
     const title = article.title;
     if (title && terms.some((term) => termInText(term, title)) && titleVetoed(title, stripTerms)) {
       // A replacement/implementation clause can introduce a new title noun.
       // Require both topical body text and an operative citation, not a token whitelist.
-      if (!addresses(article.excerpt) || !/제\d+조[^.\n]{0,100}(?:따라|해당|갈음|정하는)/u.test(article.excerpt)) return false;
+      if (!generalObligation(article.excerpt)
+        && (!addresses(article.excerpt) || !/제\d+조[^.\n]{0,100}(?:따라|해당|갈음|정하는)/u.test(article.excerpt))) return false;
     }
     // A definition title never adopts on its title alone: the body itself
     // must address the issue, or the definition would stand in for the
     // substantive provision (e.g. a 정의 article for a 정지-요건 question).
     if (isDefinitionTitle(title)) return addresses(article.excerpt);
-    return addresses(article.excerpt) || addressesTitle(title);
+    return addresses(article.excerpt) || addressesTitle(title) || generalObligation(article.excerpt);
+    })();
+    articleReviews.push({ law: article.law, jo: article.jo, title: article.title, excerpt: article.excerpt,
+      effectiveDate: "effectiveDate" in article ? article.effectiveDate : "effective" in article ? article.effective : undefined,
+      stage: (article as SupplementArticle).stage ?? "chain", adopted,
+      reason: adopted ? "issue-supported" : !article.excerpt.trim() ? "official-text-unavailable"
+        : !relationAllows(article.excerpt) ? "party-or-relationship-mismatch"
+        : !lawAllowed(article.law) ? "requested-law-mismatch" : "issue-not-supported" });
+    return adopted;
   }).map(({ law, jo }) => ({ law, jo }));
   const precedents = Object.entries(enrichment?.precedents ?? {})
     .filter(([id, { rank }]) => {
+      const adopted = (() => {
       if (rank !== "direct" && rank !== "related") return false;
       // Judged on the holding text itself when it was read. A ranking whose
       // text is unavailable cannot be citation-verified: the matched-term
@@ -745,6 +882,7 @@ export function researchEvidenceSources(text: string, query: string, enrichment?
       // the question against itself. Such a precedent stays a candidate.
       const excerpt = enrichment?.precedentExcerpts?.[id];
       if (excerpt === undefined || !addresses(excerpt)) return false;
+      if (!relationAllows(excerpt)) return false;
       if (singleGeneric && !namedLaws.length && !useDomainRule) return false;
       // A named regime needs positive evidence in the holding itself —
       // but absence of a statute mention is not evidence of another
@@ -762,8 +900,14 @@ export function researchEvidenceSources(text: string, query: string, enrichment?
         .filter((run) => run !== "" && run !== "헌법");
       if (!anchors.length) return true;
       return anchors.some((cited) => namedLaws.some((named) => lawMatches(cited, named)));
+      })();
+      precedentReviews.push({ id, excerpt: enrichment?.precedentExcerpts?.[id], adopted,
+        reason: adopted ? "issue-supported" : !enrichment?.precedentExcerpts?.[id] ? "official-holding-unavailable"
+          : !relationAllows(enrichment.precedentExcerpts[id]) ? "party-or-relationship-mismatch" : "issue-not-supported" });
+      return adopted;
     })
     .map(([id]) => id);
+  options?.review?.({ query, articles: articleReviews, precedents: precedentReviews });
   return { articles, precedents };
 }
 

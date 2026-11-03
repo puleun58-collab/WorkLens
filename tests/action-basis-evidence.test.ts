@@ -30,7 +30,7 @@ describe("assessActionBasis", () => {
     const result = assessActionBasis(QUERY, BODY, { supplement: SUPPLEMENT });
     expect(result.status).toBe("matched");
     expect(result.items.map((item) => [item.label, item.status])).toEqual([
-      ["처분·허가 근거", "found"], ["적용 요건", "found"],
+      ["처분·허가 근거", "found"], ["적용 요건", "found"], ["세부 기준(별표)", "none"],
     ]);
   });
 
@@ -43,7 +43,7 @@ describe("assessActionBasis", () => {
     const result = assessActionBasis(QUERY, basisOnly);
     expect(result.status).toBe("partial");
     expect(result.items.map((item) => [item.label, item.status])).toEqual([
-      ["처분·허가 근거", "found"], ["적용 요건", "viewed"],
+      ["처분·허가 근거", "found"], ["적용 요건", "viewed"], ["세부 기준(별표)", "none"],
     ]);
   });
 
@@ -112,7 +112,7 @@ it("shortens confirmed source answers without upgrading missing annex originals 
   expect(result.items.map((entry) => [entry.status, entry.summary])).toEqual([
     ["found", "예시법 제12조 · 영업정지 등 처분 · 법정 상한 3개월 이내 · 예외 단서 있음"],
     ["found", "제12조 제1항 각 호의 위반행위 해당 여부 · 예외 규정 확인 · 개별 적용 미확정"],
-    ["none", undefined],
+    ["none", "세부 기준 원문 미확보 · 추가 확인 필요"],
   ]);
   expect(result.items[0].answer).toContain("시장은 영업자가");
   expect(result.items[1].requirementRefs?.[0].excerpt).toContain("2. 시설 기준을 위반한 경우");
@@ -353,6 +353,19 @@ describe("annex citation, original, row and individual duration are distinct", (
     expect(criteria(missing).optional).toBeUndefined();
     expect(criteria(assess(food.query, [annex])).optional).toBe(true);
     expect(criteria(assess("식품위생법 영업정지 처분기간", [annex])).optional).toBeUndefined();
+  });
+
+  it("keeps unresolved detailed criteria visible when only disposition authority is available", () => {
+    const result = assessActionBasis(QUERY, BODY, { supplement: SUPPLEMENT });
+    expect(result.status).toBe("matched");
+    const unresolved = criteria(result);
+    expect(unresolved).toMatchObject({
+      title: "세부 처분 기준", status: "none", optional: true,
+      summary: "세부 기준 원문 미확보 · 추가 확인 필요",
+    });
+    expect(unresolved.uncertainty).toContain("별표 원문 미확보");
+    expect(unresolved.answer).toBeUndefined();
+    expect(JSON.stringify(unresolved)).not.toMatch(/제89조|별표 23/);
   });
 });
 

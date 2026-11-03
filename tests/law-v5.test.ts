@@ -2,10 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ResearchInterpretation } from "@/lib/law-research";
 import { rankPrecedent, researchEvidenceSources } from "@/lib/research-relevance";
 import { runLegalResearch } from "@/server/law-research-mcp";
-import { interpretResearchQuery } from "@/server/groq";
+import { interpretResearchQuery, verifyResearchAdoption } from "@/server/groq";
+import { adoptionResponse } from "./research-adoption-fixtures";
 import { lookupIssue, type EnrichmentSources } from "@/server/research-enrichment";
 
-vi.mock("@/server/groq", () => ({ interpretResearchQuery: vi.fn() }));
+vi.mock("@/server/groq", () => ({ interpretResearchQuery: vi.fn(), verifyResearchAdoption: vi.fn() }));
 
 /** Chain text shaped like the live answers: law line, numbered article lines, body, 시행 line. */
 function chain(articles: Array<{ law: string; jo: string; title: string; body: string }>): string {
@@ -192,6 +193,7 @@ describe("V5-F7: per-issue status situations through runLegalResearch", () => {
     process.env.LAW_OC = "test-law-key";
     process.env.LAW_MCP_URL = "https://mcp.example.test/law";
     vi.spyOn(console, "info").mockImplementation(() => undefined);
+    vi.mocked(verifyResearchAdoption).mockResolvedValue([]);
   });
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -209,6 +211,10 @@ describe("V5-F7: per-issue status situations through runLegalResearch", () => {
       confidence: "medium",
     };
     vi.mocked(interpretResearchQuery).mockResolvedValue(interpretation);
+    vi.mocked(verifyResearchAdoption).mockImplementationOnce(adoptionResponse([{
+      issueIndex: 0, source: { law: "형법", jo: "제311조" }, quote: INSULT_311.body,
+      reason: "회사에서 사람에게 당한 모욕에 적용되는 일반 모욕죄 처벌 규정이다.",
+    }]));
     const articleChain = chain([INSULT_311]);
     const queries = upstream({
       legal_research: () => articleChain,
@@ -231,6 +237,11 @@ describe("V5-F7: per-issue status situations through runLegalResearch", () => {
       search_law: () => "[NOT_FOUND] 없음",
       search_decisions: () => "[NOT_FOUND] 없음",
     });
+    vi.mocked(verifyResearchAdoption).mockImplementationOnce(adoptionResponse([{
+      issueIndex: 0, source: { precedentId: "701" },
+      quote: "공연히 사람을 모욕한 경우 손해배상책임이 인정되는 요건",
+      reason: "사람에 대한 모욕으로 발생하는 손해배상책임의 요건을 직접 판단한다.",
+    }]));
     const byPrecedent = await runLegalResearch({ task: "full_research", query: question }, ctx);
     expect(byPrecedent).toMatchObject({ found: true,
       evidence: { status: "matched", issues: [{ label: "모욕", status: "found", precedents: ["701"] }] } });
@@ -254,10 +265,41 @@ describe("V5-F7: per-issue status situations through runLegalResearch", () => {
       search_law: () => "[NOT_FOUND] 없음",
       search_decisions: () => "[NOT_FOUND] 없음",
     });
+    vi.mocked(verifyResearchAdoption).mockImplementationOnce(adoptionResponse([
+      { issueIndex: 0, source: { law: "형법", jo: "제311조" }, quote: INSULT_311.body,
+        reason: "회사에서 사람에게 당한 모욕에 적용되는 일반 모욕죄 처벌 규정이다." },
+      { issueIndex: 0, source: { precedentId: "701" }, role: "supporting",
+        quote: "공연히 사람을 모욕한 경우 손해배상책임이 인정되는 요건",
+        reason: "일반 모욕죄 규정과 함께 민사상 손해배상책임의 판단을 보충하는 판례이다." },
+    ]));
     const result = await runLegalResearch({ task: "full_research", query: question }, ctx);
     expect(result).toMatchObject({ found: true,
       evidence: { status: "matched",
         issues: [{ label: "모욕", status: "found", articles: [{ law: "형법", jo: "제311조" }], precedents: ["701"] }] } });
+  });
+
+  it("keeps supporting sources in adopted arrays without confirming the issue", async () => {
+    const question = "회사에서 모욕을 당했어";
+    vi.mocked(interpretResearchQuery).mockResolvedValue({
+      original: question, situation: "", facts: [],
+      issues: [{ label: "모욕", query: "모욕" }], confidence: "medium",
+    });
+    upstream({
+      legal_research: () => chain([INSULT_311]),
+      search_law: () => "[NOT_FOUND] 없음",
+      search_decisions: () => "[NOT_FOUND] 없음",
+    });
+    vi.mocked(verifyResearchAdoption).mockImplementationOnce(adoptionResponse([{
+      issueIndex: 0, source: { law: "형법", jo: "제311조" }, quote: INSULT_311.body,
+      role: "supporting",
+      reason: "일반 모욕죄 조문을 참고자료로만 선택했으며 이 응답은 직접적인 쟁점 확인을 하지 않는다.",
+    }]));
+    const result = await runLegalResearch({ task: "full_research", query: question }, ctx);
+    expect(result).toMatchObject({ found: true, evidence: {
+      status: "unverified", articles: [{ law: "형법", jo: "제311조" }],
+      issues: [{ status: "none", articles: [{ law: "형법", jo: "제311조" }] }],
+    } });
+    expect(verifyResearchAdoption).toHaveBeenCalledTimes(1);
   });
 
   it("irrelevant-only (insult variants) → none, not found: the guard removes a false confirmation", async () => {
@@ -316,6 +358,10 @@ describe("V5-F7: per-issue status situations through runLegalResearch", () => {
       search_law: () => "[NOT_FOUND] 없음",
       search_decisions: () => "[NOT_FOUND] 없음",
     });
+    vi.mocked(verifyResearchAdoption).mockImplementationOnce(adoptionResponse([{
+      issueIndex: 0, source: { law: "형법", jo: "제311조" }, quote: INSULT_311.body,
+      reason: "사람에 대한 모욕 쟁점은 직접 규정하지만 별도의 명예훼손 쟁점을 확인하지 않는다.",
+    }]));
     const partial = await runLegalResearch({ task: "full_research", query: question }, ctx);
     expect(partial).toMatchObject({ found: true,
       evidence: { status: "partial",
@@ -368,6 +414,7 @@ describe("V5: chain supplement partial failure survives the merge", () => {
     process.env.LAW_OC = "test-law-key";
     process.env.LAW_MCP_URL = "https://mcp.example.test/law";
     vi.spyOn(console, "info").mockImplementation(() => undefined);
+    vi.mocked(verifyResearchAdoption).mockResolvedValue([]);
   });
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -410,14 +457,17 @@ describe("V5: chain supplement partial failure survives the merge", () => {
       },
       search_decisions: () => "[NOT_FOUND] 없음",
     });
+    vi.mocked(verifyResearchAdoption).mockImplementationOnce(adoptionResponse([
+      { issueIndex: 0, source: { law: "괴롭힘보호법", jo: "제76조의3" },
+        quote: "사용자는 직장 내 괴롭힘 발생 사실을 신고한 근로자에게 불리한 처우를 하여서는 아니 되며 필요한 조치를 하여야 한다.",
+        reason: "직장 내 괴롭힘 발생 후 사용자가 해야 하는 보호와 조치 의무를 직접 규정한다." },
+      { issueIndex: 0, source: { precedentId: "701" },
+        quote: "사용자가 직장 내 괴롭힘에 대해 필요한 조치를 하지 않은 경우 손해배상책임이 인정되는 요건",
+        reason: "괴롭힘 조치 의무 위반에 따른 사용자의 손해배상책임을 직접 판단한다." },
+    ]));
     const result = await runLegalResearch({ task: "full_research", query: question }, ctx);
-    // Policy (2026-10-28): the old matched came from a precedent-only
-    // issue plus a supplement article from a synthetic cross-law
-    // (괴롭힘보호법) that is not the question's law (근로기준법). A
-    // law-seeking question is matched only on an adopted article of its
-    // own named law, so the server status is partial here — while the
-    // merge behaviour under test, the flag and the article surviving,
-    // is unchanged.
+    // Semantic selection does not erase an actual supplement lookup failure:
+    // the merge preserves its partial flag and therefore caps the result.
     expect(result).toMatchObject({ found: true,
       evidence: { status: "partial", issues: [{ label: "직장 내 괴롭힘 조치 의무", status: "found" }] } });
     const data = result as { enrichment?: { supplement?: { partialFailure?: boolean; articles?: Array<{ jo: string }> } } };
@@ -445,6 +495,7 @@ describe("V5 perf: a per-issue retry chain skips precedent summaries", () => {
     process.env.LAW_OC = "test-law-key";
     process.env.LAW_MCP_URL = "https://mcp.example.test/law";
     vi.spyOn(console, "info").mockImplementation(() => undefined);
+    vi.mocked(verifyResearchAdoption).mockResolvedValue([]);
   });
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -489,6 +540,13 @@ describe("V5 perf: a per-issue retry chain skips precedent summaries", () => {
       search_law: () => "[NOT_FOUND] 없음",
       search_decisions: () => "[NOT_FOUND] 없음",
     });
+    vi.mocked(verifyResearchAdoption).mockImplementationOnce(adoptionResponse([
+      { issueIndex: 0, source: { law: "근로기준법", jo: "제76조의2" },
+        quote: "사용자 또는 근로자는 직장 내 괴롭힘을 하여서는 아니 된다.",
+        reason: "직장 상사의 괴롭힘에 적용되는 사용자와 근로자의 금지 의무를 직접 규정한다." },
+      { issueIndex: 1, source: { law: "형법", jo: "제311조" }, quote: INSULT_311.body,
+        reason: "상사의 사람에 대한 모욕 행위에 적용되는 일반 모욕죄 처벌 규정이다." },
+    ]));
     const result = await runLegalResearch({ task: "full_research", query: question }, ctx);
     expect(result).toMatchObject({ found: true,
       evidence: { status: "matched",

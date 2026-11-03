@@ -2,10 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ResearchInterpretation } from "@/lib/law-research";
 import { researchEvidenceSources } from "@/lib/research-relevance";
 import { runLegalResearch } from "@/server/law-research-mcp";
-import { interpretResearchQuery } from "@/server/groq";
+import { interpretResearchQuery, verifyResearchAdoption } from "@/server/groq";
+import { adoptionResponse } from "./research-adoption-fixtures";
 import { lookupIssue, type EnrichmentSources } from "@/server/research-enrichment";
 
-vi.mock("@/server/groq", () => ({ interpretResearchQuery: vi.fn() }));
+vi.mock("@/server/groq", () => ({ interpretResearchQuery: vi.fn(), verifyResearchAdoption: vi.fn() }));
 
 /** Chain text shaped like the live B (명예훼손) answer: 307조 is present, but its body splits the compound. */
 const DEFAMATION_CHAIN = [
@@ -125,6 +126,11 @@ describe("F1 M2: the supplement gate is articles==0, regardless of precedents", 
     process.env.LAW_MCP_URL = "https://mcp.example.test/law";
     vi.spyOn(console, "info").mockImplementation(() => undefined);
     vi.mocked(interpretResearchQuery).mockResolvedValue(interpretation);
+    vi.mocked(verifyResearchAdoption).mockImplementation(adoptionResponse([{
+      issueIndex: 0, source: { law: "근로기준법", jo: "제76조의3" },
+      quote: "사용자는 직장 내 괴롭힘 발생 사실을 신고한 근로자에게 불리한 처우를 하여서는 아니 되며 필요한 조치를 하여야 한다.",
+      reason: "직장 내 괴롭힘 신고 이후 사용자의 보호 및 조치 의무를 직접 규정한다.",
+    }]));
   });
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -218,6 +224,14 @@ describe("F1 M2: the supplement gate is articles==0, regardless of precedents", 
       "▶ AI 법령검색 결과", "지능형 법령검색 결과 (법령조문, 1건):", "",
       "근로기준법", "   제0076조의2 (직장 내 괴롭힘의 금지)", "   제76조의2(직장 내 괴롭힘의 금지)", " 사용자 또는 근로자는 직장 내 괴롭힘을 하여서는 아니 된다.", "   시행: 2026.08.20 | 고용노동부", "",
     ].join("\n");
+    vi.mocked(verifyResearchAdoption).mockImplementation(adoptionResponse([
+      { issueIndex: 0, source: { law: "근로기준법", jo: "제76조의2" },
+        quote: "사용자 또는 근로자는 직장 내 괴롭힘을 하여서는 아니 된다.",
+        reason: "직장 내 괴롭힘 금지 쟁점에 대해 사용자와 근로자의 금지 의무를 직접 규정한다." },
+      { issueIndex: 0, source: { law: "근로기준법", jo: "제76조의3" },
+        quote: "사용자는 직장 내 괴롭힘 발생 사실을 신고한 근로자에게 불리한 처우를 하여서는 아니 되며 필요한 조치를 하여야 한다.",
+        reason: "괴롭힘 금지 위반이 발생한 이후의 보호조치로서 해당 쟁점을 보충한다.", role: "supporting" },
+    ]));
     const queries = upstream({
       legal_research: () => chainWithArticle,
       search_law: () => lawList(),
@@ -229,15 +243,17 @@ describe("F1 M2: the supplement gate is articles==0, regardless of precedents", 
     // inherited (law-supplement-trace), its toc + article lookups still run for
     // the display-only reference even when the chain already adopted an article.
     // What must not run is the issue lookup itself: no precedent search.
-    // The supplement article is then judged by the unchanged adoption logic:
-    // 제76조의3's title and excerpt genuinely carry the issue's subject terms
-    // (직장 내 괴롭힘), so it is adopted as evidence — unlike B4, where a
-    // generic-only supplement article is not promoted.
+    // The final semantic response keeps the prohibition directly and the
+    // acquired protective-measures article as supporting evidence.
     expect(queries("search_decisions")).toEqual([]);
     expect(result).toMatchObject({
       evidence: { articles: [{ law: "근로기준법", jo: "제76조의2" }, { law: "근로기준법", jo: "제76조의3" }] },
       enrichment: { supplement: { articles: [{ law: "근로기준법", jo: "제76조의3" }] } },
     });
+    expect(result.found && result.enrichment?.adoptionReviews?.[0].articles).toEqual(expect.arrayContaining([
+      expect.objectContaining({ law: "근로기준법", jo: "제76조의2", stage: "chain", adopted: true, role: "direct" }),
+      expect.objectContaining({ law: "근로기준법", jo: "제76조의3", stage: "supplement", adopted: true, role: "supporting" }),
+    ]));
   });
 });
 

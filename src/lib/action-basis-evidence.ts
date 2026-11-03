@@ -30,7 +30,8 @@ import { capForFailure, detailArticles, hasAvailableContent, hasFailedSection, h
  *   Concrete case facts are never judged — the UI caution keeps that.
  * - 세부 기준(별표): asked → a matching annex original, not a list or a
  *   different numbered annex. Core criteria/duration questions require it.
- *   Otherwise a relevant disposition annex is supporting context only.
+ *   Otherwise disposition criteria remain visible as supporting context,
+ *   including an explicit unresolved state when no citation was retrieved.
  * - 불복 자료: a listed decision whose substance was fetched.
  * Required kinds all verified → `matched`, some → `partial`, material
  * retrieved but nothing verified → `viewed`. Optional kinds are shown only.
@@ -446,7 +447,7 @@ export function assessActionBasis(query: string, text: string, enrichment?: Rese
   const listed = annexEntries.filter((entry) => criteria.some((annex) => sameLawFamily(annex.law, entry.law ?? "")
     && requestedAnnexLabels(entry.title).some((label) => compactLaw(label) === compactLaw(annex.label)))
     || (asksAnnex && (acts.length === 0 || concernsAction(entry.title, acts) || compactLaw(query).includes(compactLaw(entry.title)))));
-  if (requiresCriteria || (disposition && (criteria.length > 0 || listed.length > 0))) {
+  if (requiresCriteria || disposition) {
     const selected = original[0] ?? matching.find((annex) => annexOriginal(annex) === "partial")
       ?? criteria.find((annex) => annexOriginal(annex) === "verified") ?? matching[0] ?? criteria[0];
     const missingIds = requested.filter((wanted) => !matching.some((annex) => compactLaw(annex.label) === compactLaw(wanted)));
@@ -464,7 +465,8 @@ export function assessActionBasis(query: string, text: string, enrichment?: Rese
     const summary = selected ? `${annexCitation(selected)} ${originalSummary} · ${state !== "verified"
       ? "세부 기준 원문 확인 필요" : row
         ? `해당 행 확인 · ${count ? `${count}차 위반 기준 확인` : "위반 차수 미특정"} · 개별 처분기간 미확정`
-        : "개별 처분기간 미확정"}` : requested.length ? `요청한 ${requested.join("·")} 원문 미확보` : undefined;
+        : "개별 처분기간 미확정"}` : requested.length ? `요청한 ${requested.join("·")} 원문 미확보`
+          : "세부 기준 원문 미확보 · 추가 확인 필요";
     items.push({ label: "세부 기준(별표)", title: disposition ? "세부 처분 기준" : "세부 기준", ...(requiresCriteria ? {} : { optional: true }),
       status: allOriginals ? "found" : criteria.length || listed.length ? "viewed" : "none",
       ...(selected ? { answer: `${mismatch ? `요청한 ${mismatchIds.join("·")}와 확인된 ${selected.label}의 번호가 다릅니다. 다음은 관련 기준이며 요청 기준을 확인한 것이 아닙니다. ` : ""}${selected.law} ${selected.sourceArticle}가 인용한 ${selected.label}${selected.title ? `(${selected.title})` : ""} — ${selected.citation.trim()}${row ? ` 해당 표의 확인 행: ${row}` : ""}` } : {}),

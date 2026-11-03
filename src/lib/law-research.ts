@@ -201,6 +201,8 @@ export interface IssueEvidence {
   status: "found" | "none" | "failed" | "timeout";
   articles: Array<{ law: string; jo: string }>;
   precedents: string[];
+  /** Adopted non-precedent decisions, scoped by canonical upstream domain + ID. */
+  decisions?: string[];
   /**
    * The issue's own lookup covered it through one branch while the other branch failed,
    * so the lookup as a whole was not confirmed. The UI surfaces this through the existing
@@ -227,6 +229,8 @@ export interface LawResearchData {
     status: "matched" | "partial" | "unverified";
     articles?: EvidenceArticle[];
     precedents?: string[];
+    /** Non-precedent decision references (`interpretation:ID`, `admin_appeal:ID`, …). */
+    decisions?: string[];
     precedentExcerpts?: Record<string, string>;
     /** 종합 리서치: per-issue attribution of the adopted sources above. */
     issues?: IssueEvidence[];

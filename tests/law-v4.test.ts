@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ResearchInterpretation } from "@/lib/law-research";
 import { runLegalResearch } from "@/server/law-research-mcp";
-import { interpretResearchQuery } from "@/server/groq";
+import { interpretResearchQuery, verifyResearchAdoption } from "@/server/groq";
+import { adoptionResponse } from "./research-adoption-fixtures";
 import { lookupIssue, type EnrichmentSources } from "@/server/research-enrichment";
 
-vi.mock("@/server/groq", () => ({ interpretResearchQuery: vi.fn() }));
+vi.mock("@/server/groq", () => ({ interpretResearchQuery: vi.fn(), verifyResearchAdoption: vi.fn() }));
 
 /**
  * V4 regression tests.
@@ -128,6 +129,7 @@ describe("V4-2: per-issue chain retry (M3-lite)", () => {
     process.env.LAW_OC = "test-law-key";
     process.env.LAW_MCP_URL = "https://mcp.example.test/law";
     vi.spyOn(console, "info").mockImplementation(() => undefined);
+    vi.mocked(verifyResearchAdoption).mockResolvedValue([]);
   });
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -148,6 +150,14 @@ describe("V4-2: per-issue chain retry (M3-lite)", () => {
       confidence: "medium",
     };
     vi.mocked(interpretResearchQuery).mockResolvedValue(interpretation);
+    vi.mocked(verifyResearchAdoption).mockImplementation(adoptionResponse([
+      { issueIndex: 0, source: { law: "근로기준법", jo: "제76조의2" },
+        quote: "사용자 또는 근로자는 직장 내 괴롭힘을 하여서는 아니 된다.",
+        reason: "직장 상사의 괴롭힘 쟁점에 적용되는 사용자와 근로자의 금지 의무이다." },
+      { issueIndex: 1, source: { law: "형법", jo: "제311조" },
+        quote: "공연히 사람을 모욕한 자는 1년 이하의 징역이나 금고 또는 200만원 이하의 벌금에 처한다.",
+        reason: "상사의 사람에 대한 모욕 행위에 적용되는 일반 모욕죄 처벌 규정이다." },
+    ]));
     const queries = upstream({
       legal_research: (args) => (args as { query?: string }).query === "모욕" ? insultChain : mainChain,
       search_law: () => "[NOT_FOUND] 없음",
@@ -184,6 +194,11 @@ describe("V4-2: per-issue chain retry (M3-lite)", () => {
       confidence: "medium",
     };
     vi.mocked(interpretResearchQuery).mockResolvedValue(interpretation);
+    vi.mocked(verifyResearchAdoption).mockImplementation(adoptionResponse([{
+      issueIndex: 0, source: { law: "형법", jo: "제311조" },
+      quote: "공연히 사람을 모욕한 자는 1년 이하의 징역이나 금고 또는 200만원 이하의 벌금에 처한다.",
+      reason: "사람에 대한 모욕 쟁점만 직접 규정하며 명예훼손과 손해배상까지 확인하지 않는다.",
+    }]));
     const queries = upstream({
       legal_research: (args) => {
         const q = (args as { query?: string }).query;
