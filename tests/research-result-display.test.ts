@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { articleDisplayKey, hasQuestionTermInTitle, taskSources } from "../src/components/research/research-result-display";
+import { articleDisplayKey, hasQuestionTermInTitle, taskSourceRole, taskSources, type TaskSource } from "../src/components/research/research-result-display";
+import { assessLawSystem } from "../src/lib/law-system-evidence";
+import { detailArticles } from "../src/lib/task-evidence";
+import { lawSourceUrl } from "../src/lib/research-scope";
+import privacy from "./fixtures/law-system-privacy-38.json";
 
 describe("research source presentation", () => {
   const article = { law: "근로기준법", jo: "제23조", excerpt: "① 원문", effective: "2025.01.01" };
@@ -49,5 +53,48 @@ describe("research source presentation", () => {
     ]);
     expect(rows).toHaveLength(1);
     expect(rows[0].links).toEqual([]);
+  });
+
+  it("keeps original privacy delegation and citation roles distinct without promoting unrelated retrieved rows", () => {
+    const evidence = assessLawSystem(privacy.text, privacy.query);
+    const originals = detailArticles(privacy.text).map((article) => ({
+      law: article.law, jo: article.jo, title: article.title, excerpt: article.body, source: lawSourceUrl(article.law, article.jo),
+    }));
+    const rows = taskSources(evidence.items, originals);
+    const before = structuredClone(rows);
+    const role = (jo: string) => taskSourceRole(rows.find((row) => row.law === "개인정보 보호법 시행령" && row.jo === jo)!,
+      [{ law: "개인정보 보호법", jo: "제38조" }], "law_system", privacy.query);
+    expect(role("제45조")).toBe("직접 관련 근거");
+    expect(role("제47조")).toBe("직접 관련 근거");
+    expect(role("제42조의5")).toBe("보충 근거");
+    expect(role("제42조의8")).toBe("보충 근거");
+    for (const jo of ["제2조", "제3조", "제4조의2", "제9조의3", "제12조", "제13조"]) expect(role(jo)).toBe("추가 조회 자료");
+    expect(rows).toEqual(before);
+  });
+
+  it("requires an actual asked-parent citation and the matched expression in the displayed original", () => {
+    const row: TaskSource = { law: "예시법 시행령", jo: "제9조", excerpt: "법 제8조에 따라 수수료를 정한다.",
+      links: [{ label: "시행령", status: "found", role: "직접 위임관계", expression: "법 제8조에 따라" }] };
+    const asked = [{ law: "예시법", jo: "제8조" }];
+    expect(taskSourceRole(row, asked, "law_system", "")).toBe("직접 관련 근거");
+    expect(taskSourceRole({ ...row, excerpt: "수수료를 정한다." }, asked, "law_system", "")).toBe("추가 조회 자료");
+    expect(taskSourceRole({ ...row, law: "다른법 시행령" }, asked, "law_system", "")).toBe("추가 조회 자료");
+    expect(taskSourceRole({ ...row, links: [{ ...row.links[0], role: "단순 인용·준용" }] }, [], "law_system", "예시법 제8조와 시행령 관계")).toBe("보충 근거");
+    for (const role of ["다른 조항 참조", "위임 대상 미확인", "간접 관련"]) {
+      expect(taskSourceRole({ ...row, links: [{ ...row.links[0], role }] }, asked, "law_system", "")).toBe("추가 조회 자료");
+    }
+    expect(taskSourceRole({ ...row, law: "예시법", jo: "제8조", links: [] }, asked, "law_system", "")).toBe("직접 관련 근거");
+    expect(taskSourceRole({ ...row, law: "다른법", jo: "제8조", links: [] },
+      [...asked, { law: "다른법", jo: "제8조" }], "law_system", "예시법 제8조와 시행령 관계")).toBe("추가 조회 자료");
+    expect(taskSourceRole({ ...row, law: "예시법", jo: "제8조", excerpt: "", links: [] },
+      asked, "law_system", "예시법 제8조와 시행령 관계")).toBe("추가 조회 자료");
+  });
+
+  it("preserves independently confirmed action-basis roles and supporting material", () => {
+    const row: TaskSource = { law: "식품위생법", jo: "제75조", excerpt: "영업정지를 명할 수 있다.",
+      links: [{ label: "처분 근거", status: "found", role: "법적 근거" }] };
+    expect(taskSourceRole(row, [], "action_basis", "")).toBe("직접 관련 근거");
+    expect(taskSourceRole({ ...row, links: [{ ...row.links[0], status: "viewed" }] }, [], "action_basis", "")).toBe("보충 근거");
+    expect(taskSourceRole({ ...row, links: [] }, [], "action_basis", "")).toBe("추가 조회 자료");
   });
 });

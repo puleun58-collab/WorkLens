@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { ApiError, apiError, ok, readBoundedJson, requireSameSite, runBoundedOperation } from "@/server/http";
+import { normalizeAnalysisDate } from "@/lib/law-analysis";
 import { getLawText } from "@/server/law-mcp";
 
 export const runtime = "nodejs";
@@ -14,11 +15,17 @@ const MAX_LAW_BODY_BYTES = 2 * 1024;
  */
 const mstIdentifier = z.string().regex(/^\d{1,6}$/u);
 const lawIdIdentifier = z.string().regex(/^\d{6}$/u);
-const articleNumber = z.string().regex(/^제[1-9]\d{0,3}조(?:의[1-9]\d?)?$/u);
+const articleNumber = z.string().regex(/^(?:제[1-9]\d{0,3}조(?:의[1-9]\d?)?|부칙)$/u);
+const compactDate = z.string().regex(/^\d{8}$/u).refine((value) => normalizeAnalysisDate(value) !== null);
+const versionFields = {
+  efYd: compactDate.optional(),
+  expectedEffectiveDate: compactDate.optional(),
+  expectedPromulgationDate: compactDate.optional(),
+};
 const lawTextRequestSchema = z.union([
-  z.object({ mst: mstIdentifier, jo: articleNumber.optional() }).strict(),
-  z.object({ lawId: lawIdIdentifier, jo: articleNumber.optional() }).strict(),
-]);
+  z.object({ mst: mstIdentifier, jo: articleNumber.optional(), ...versionFields }).strict(),
+  z.object({ lawId: lawIdIdentifier, jo: articleNumber.optional(), ...versionFields }).strict(),
+]).refine((value) => value.efYd || (!value.expectedEffectiveDate && !value.expectedPromulgationDate));
 
 export async function POST(request: Request) {
   const requestId = randomUUID();
@@ -29,9 +36,10 @@ export async function POST(request: Request) {
     }
     const parsed = lawTextRequestSchema.safeParse(await readBoundedJson(request, MAX_LAW_BODY_BYTES));
     if (!parsed.success) throw new ApiError("LAW_INVALID_REQUEST", "법령 식별자와 조문 번호를 확인하세요.", 400);
-    const { jo } = parsed.data;
+    const { jo, efYd, expectedEffectiveDate, expectedPromulgationDate } = parsed.data;
     const identifier = "mst" in parsed.data ? { mst: parsed.data.mst } : { lawId: parsed.data.lawId };
-    const result = await runBoundedOperation(() => getLawText(identifier, jo, { requestId, signal: request.signal }));
+    const result = await runBoundedOperation(() => getLawText(identifier, jo, { requestId, signal: request.signal },
+      { efYd, expectedEffectiveDate, expectedPromulgationDate }));
     return ok(result, 200, requestId);
   } catch (error) {
     return apiError(error, requestId);

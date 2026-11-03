@@ -48,14 +48,20 @@ const SEARCH_ADJUSTMENT = /^\s*검색\s*보정\s*:\s*body_search=.*$/u;
 const AGENT_LINE = /\bLLM\b|^\s*링크:\s*\/DRF\//u;
 /** What is left of a line whose guidance was removed: an icon and/or a bare label. */
 const LEFTOVER_LABEL = /^[\s\p{Extended_Pictographic}\uFE0F]*(?:[^\s:：][^:：]{0,24}[:：])?[\s\p{Extended_Pictographic}\uFE0F]*$/u;
+/** Only operator search-budget notices, never statutory deadlines or liability limits. */
+const SEARCH_BUDGET_NOTICE = /(?:시간\s*[·ㆍ/]\s*조회\s*한도로\s*추가\s*후보\s*미조회|(?:내부\s*)?검색\s*(?:시간\s*제한|예산|(?:호출|요청)\s*(?:횟수\s*)?한도)|(?:내부\s*)?API\s*(?:요청|호출)\s*횟수\s*제한)[^.!?。]*(?:[.!?。]|$)/gu;
+const SEARCH_SECTION_UNREAD = /^[\s\p{Extended_Pictographic}\uFE0F]*(?:시간|조회|호출)\s*한도로\s*(?:이\s*)?(?:섹션|추가\s*후보|추가\s*자료)[^\n]*$/u;
 
 function withoutOperatorGuidance(raw: string): string | undefined {
-  if (AGENT_LINE.test(raw)) return undefined;
+  if (AGENT_LINE.test(raw) || SEARCH_SECTION_UNREAD.test(raw)) return undefined;
+  if (/^\s*\[생략\][^\n]*응답\s*상한[^\n]*(?:소진|초과)/u.test(raw)) {
+    return raw.replace(/(?:이라(?:서)?|이므로|으로)?\s*응답\s*상한[^\n]*$/u, "").replace(/[.。]?\s*$/u, ".");
+  }
   // `법령ID: 011357 | MST: 283839 | 구분: 법률`: MST is the API's version serial and 법령ID is an
   // internal identifier — neither is something a default-screen reader uses. Both stay available
   // internally (search, identification, link generation) and in detailed evidence views; only the
   // default `<pre>` display drops them, so a law name already shown is never duplicated by an ID.
-  const line = raw.replace(/\s*\|\s*MST:?\s*\d+(?=\s*(?:\||$))/gu, "").replace(/^(\s*)MST:?\s*\d+\s*\|\s*/u, "$1")
+  const line = raw.replace(SEARCH_BUDGET_NOTICE, "").replace(/\s*\|\s*MST:?\s*\d+(?=\s*(?:\||$))/gu, "").replace(/^(\s*)MST:?\s*\d+\s*\|\s*/u, "$1")
     .replace(/\s*\|\s*법령ID:?\s*[\w-]+(?=\s*(?:\||$))/gu, "").replace(/^(\s*)법령ID:?\s*[\w-]+\s*\|\s*/u, "$1")
     .replace(/^(\s*)법령ID:?\s*[\w-]+\s*$/u, "");
   if (!OPERATOR_TEXT.test(line)) return line;

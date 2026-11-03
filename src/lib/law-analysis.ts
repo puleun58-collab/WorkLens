@@ -98,12 +98,31 @@ export function lawAnalysisRequestFor(mode: LawAnalysisMode, draft: LawAnalysisD
   return lawName && lawName.length <= LAW_ANALYSIS_LAW_NAME_MAX_CHARS && LAW_ANALYSIS_JO_PATTERN.test(jo) ? { mode, lawName, jo } : null;
 }
 
+export interface LawScheduledVersion {
+  lawName: string;
+  mst: string;
+  effectiveDate: string;
+  promulgationDate?: string;
+  promulgationNumber?: string;
+  revision?: string;
+  line: string;
+}
+
+/** Official search metadata, kept separate from the original analysis text. */
+export interface LawTemporalMetadata {
+  futureVersions: LawScheduledVersion[];
+  futureSourceText?: string;
+  futureComplete: boolean;
+  futureError?: string;
+}
+
 /** Successful analysis: the complete MCP text plus the machine markers it contained. */
 export interface LawAnalysisData {
   found: true;
   mode: LawAnalysisMode;
   text: string;
   markers: string[];
+  temporal?: LawTemporalMetadata;
   /**
    * Local claim-support assessments for verify_citations, one per verified
    * law citation by index. Absent when the check was skipped or failed as a

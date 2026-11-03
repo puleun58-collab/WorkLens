@@ -43,6 +43,13 @@ export interface LawTextArticle {
   title: string;
 }
 
+/** Date-anchored requests keep their selector separate from returned source metadata. */
+export interface LawTextVersion {
+  efYd?: string;
+  expectedEffectiveDate?: string;
+  expectedPromulgationDate?: string;
+}
+
 export type LawTextResult =
   | {
     found: true;
@@ -52,6 +59,13 @@ export type LawTextResult =
     promulgationDate?: string;
     effectiveDate?: string;
     articles?: LawTextArticle[];
+    sourceIdentity?: {
+      mst?: string;
+      lawId?: string;
+      efYd: string;
+      effectiveDate: string;
+      promulgationDate?: string;
+    };
   }
   | { found: false; marker: "NOT_FOUND"; text: string };
 
@@ -78,10 +92,15 @@ export async function getLawText(
   identifier: { mst: string } | { lawId: string },
   jo: string | undefined,
   context: LawContext,
+  version: LawTextVersion = {},
 ): Promise<LawTextResult> {
-  const { text, isError } = await callLawTool("get_law_text", jo === undefined ? identifier : { ...identifier, jo }, context);
+  const args = { ...identifier, ...(jo === undefined ? {} : { jo }), ...(version.efYd ? { efYd: version.efYd } : {}) };
+  const { text, isError } = await callLawTool("get_law_text", args, context);
   if (/^[ \t]*\[NOT_FOUND\](?=\s|$)/mu.test(text)) return { found: false, marker: "NOT_FOUND", text };
   if (isError || !text.trim()) throw new ApiError("LAW_MCP_ERROR", "법령 검색 서비스가 요청을 처리하지 못했습니다.", 502);
+  if (/^[ \t]*\[(?:INVALID_ARGUMENT|INVALID_PARAMETER|UPSTREAM_NO_DATA|EXTERNAL_API_ERROR|PARSE_ERROR|ERROR)\]/mu.test(text)) {
+    throw new ApiError("LAW_MCP_ERROR", "법령 원문을 확인하지 못했습니다. 다른 버전으로 대체하지 않습니다.", 502);
+  }
 
   const metadata: Pick<Extract<LawTextResult, { found: true }>, "name" | "promulgationDate" | "effectiveDate"> = {};
   const lines = text.split(/\r?\n/u);
@@ -93,10 +112,25 @@ export async function getLawText(
     else if (field[1] === "공포일" && /^\d{8}$/u.test(field[2])) metadata.promulgationDate = field[2];
     else if (field[1] === "시행일" && /^\d{8}$/u.test(field[2])) metadata.effectiveDate = field[2];
   }
+  let sourceIdentity: Extract<LawTextResult, { found: true }>["sourceIdentity"];
+  if (version.efYd) {
+    // MST alone is not a frozen effective-date selector (one act can have staged commencements).
+    // Require actual returned metadata; never infer it from the requested date or selected heading.
+    const resolvedMst = /그날[^\n]*시행 중이던 버전으로 조회했습니다:[^\n]*\bMST\s+(\d+)/u.exec(text)?.[1];
+    if (!metadata.effectiveDate || metadata.effectiveDate > version.efYd
+      || (version.expectedEffectiveDate && metadata.effectiveDate !== version.expectedEffectiveDate)
+      || (version.expectedPromulgationDate && metadata.promulgationDate !== version.expectedPromulgationDate)
+      || ("mst" in identifier && resolvedMst && resolvedMst !== identifier.mst)) {
+      throw new ApiError("LAW_VERSION_UNCONFIRMED", "기준일에 선택된 버전과 공식 원문의 메타데이터가 일치하는지 확인하지 못했습니다. 다른 시행일 원문으로 대체하지 않습니다.", 502);
+    }
+    sourceIdentity = { ...identifier, efYd: version.efYd, effectiveDate: metadata.effectiveDate,
+      ...(metadata.promulgationDate ? { promulgationDate: metadata.promulgationDate } : {}) };
+  }
+  const identity = sourceIdentity ? { sourceIdentity } : {};
 
-  if (jo !== undefined) return { found: true, mode: "article", text, ...metadata };
   const tocIndex = lines.findIndex((line) => /^\s*목차\s*\(총\s*[\d,]+\s*개\s*조문\)\s*$/u.test(line));
-  if (tocIndex < 0) return { found: true, mode: "full", text, ...metadata };
+  if (jo !== undefined && tocIndex < 0) return { found: true, mode: "article", text, ...metadata, ...identity };
+  if (tocIndex < 0) return { found: true, mode: "full", text, ...metadata, ...identity };
 
   const articles: LawTextArticle[] = [];
   for (let index = tocIndex + 1; index < lines.length; index++) {
@@ -106,13 +140,13 @@ export async function getLawText(
     if (!article) break;
     articles.push({ jo: article[1], title: article[2] ?? "" });
   }
-  return { found: true, mode: "toc", text, ...metadata, articles };
+  return { found: true, mode: "toc", text, ...metadata, ...identity, articles };
 }
 
 /** Tool names and arguments are fixed by server entry points, never supplied by the caller. */
 export async function callLawTool(
   tool: "get_annexes" | "search_law" | "get_law_text" | "search_decisions" | "get_decision_text" | "legal_analysis" | "legal_research" | "execute_tool",
-  args: { lawName: string; annexNo: string; knd: "1" | "2" } | { query: string } | { mst: string; jo?: string } | { lawId: string; jo?: string } |
+  args: { lawName: string; annexNo: string; knd: "1" | "2" } | { query: string } | { mst: string; jo?: string; efYd?: string } | { lawId: string; jo?: string; efYd?: string } |
     { domain: string; query: string; display: 20; page: number } | { domain: string; id: string; full?: true } |
     { mode: "verify_citations"; text: string; maxCitations: 15 } |
     { mode: "cite_check"; caseNumber: string; display: 20; deepScan: true } |

@@ -1,4 +1,4 @@
-import type { LawAnalysisAbsent, LawAnalysisData, LawAnalysisRequest } from "@/lib/law-analysis";
+import { normalizeAnalysisDate, type LawAnalysisAbsent, type LawAnalysisData, type LawAnalysisRequest, type LawScheduledVersion, type LawTemporalMetadata } from "@/lib/law-analysis";
 import { ApiError } from "@/server/http";
 import { callLawTool } from "@/server/law-mcp";
 
@@ -34,6 +34,52 @@ export function classifyLawToolResult(
   }
   return { kind: "found", markers: [...new Set(Array.from(text.matchAll(markerPattern), (match) => match[1]))] };
 }
+/** Expand each official staged commencement; a single MST/act number may have several dates. */
+export function scheduledLawVersions(source: string, lawName: string, referenceDate: string): LawScheduledVersion[] {
+  const versions = new Map<string, LawScheduledVersion>();
+  for (const line of source.split(/\r?\n/u)) {
+    const match = /^🔜\s*「([^」]+)」\s*개정 시행예정\s*\(([^,]+),\s*(\d{4}-\d{2}-\d{2})\s*공포\s*(제[^,\s]+호),\s*시행\s*([^)]+)\)[^\n]*get_law_text\(mst="(\d+)"/u.exec(line);
+    if (!match || match[1].replace(/\s/gu, "") !== lawName.replace(/\s/gu, "")) continue;
+    for (const date of match[5].matchAll(/\d{4}-\d{2}-\d{2}/gu)) {
+      const normalized = normalizeAnalysisDate(date[0]);
+      if (!normalized) continue;
+      const effectiveDate = normalized.replace(/-/gu, "");
+      if (effectiveDate <= referenceDate) continue;
+      const version: LawScheduledVersion = { lawName: match[1], mst: match[6], effectiveDate,
+        promulgationDate: match[3].replace(/-/gu, ""), promulgationNumber: match[4], revision: match[2], line };
+      versions.set(`${version.mst}:${effectiveDate}`, version);
+    }
+  }
+  return [...versions.values()].sort((a, b) => a.effectiveDate.localeCompare(b.effectiveDate) || a.mst.localeCompare(b.mst));
+}
+
+async function temporalMetadata(
+  request: Extract<LawAnalysisRequest, { mode: "applicable_law" }>,
+  text: string,
+  context: { requestId: string; signal?: AbortSignal },
+): Promise<LawTemporalMetadata | undefined> {
+  const count = /시행\s*예정\s*개정\s*(\d+)건/u.exec(text);
+  if (!count || Number(count[1]) === 0) return undefined;
+  const selectedName = /^\s*(.+?)\s*\[시행\s+\d{4}[.-]\d{2}[.-]\d{2}\]/mu.exec(text)?.[1];
+  if (!selectedName) return { futureVersions: [], futureComplete: false,
+    futureError: "선택 법령의 정확한 제명을 확인하지 못해 시행 예정 목록을 확정하지 않았습니다." };
+  try {
+    const result = await callLawTool("search_law", { query: selectedName }, context);
+    const classification = classifyLawToolResult(result.text, result.isError);
+    // The upstream count describes the published schedule, not the remainder after the user's reference date.
+    const publishedVersions = classification.kind === "found"
+      ? scheduledLawVersions(result.text, selectedName, "") : [];
+    const referenceDate = request.date.replace(/-/gu, "");
+    const futureVersions = publishedVersions.filter((version) => version.effectiveDate > referenceDate);
+    return { futureVersions, futureSourceText: result.text,
+      futureComplete: publishedVersions.length === Number(count[1]) };
+  } catch (error) {
+    if (context.signal?.aborted) throw error;
+    return { futureVersions: [], futureComplete: false,
+      futureError: "공식 시행 예정 목록을 조회하지 못했습니다. 분석 원자료의 일부 안내만 보존합니다." };
+  }
+}
+
 export async function runLegalAnalysis(
   request: LawAnalysisRequest,
   context: { requestId: string; signal?: AbortSignal },
@@ -59,5 +105,6 @@ export async function runLegalAnalysis(
   if (classification.kind === "absent") {
     return { found: false, mode: request.mode, marker: classification.marker, text };
   }
-  return { found: true, mode: request.mode, text, markers: classification.markers };
+  const temporal = request.mode === "applicable_law" ? await temporalMetadata(request, text, context) : undefined;
+  return { found: true, mode: request.mode, text, markers: classification.markers, ...(temporal ? { temporal } : {}) };
 }

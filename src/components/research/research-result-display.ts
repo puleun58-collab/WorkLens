@@ -1,6 +1,8 @@
 import type { SupplementArticle } from "@/lib/research-relevance";
 import type { TaskEvidenceItem, TaskEvidenceArticle, TaskEvidenceBodyRef } from "@/lib/task-evidence";
-import { lawSourceUrl } from "@/lib/research-scope";
+import { compactLaw, lawSourceUrl, sameLawFamily } from "@/lib/research-scope";
+import { citesParent } from "@/lib/research-citations";
+import { lawNamesInQuery, parseExplicitIdentities } from "@/lib/law-identity";
 export interface TaskSource {
   law: string;
   jo: string;
@@ -50,6 +52,33 @@ export function taskSources(
     }, { label: item.title ?? item.label, status: item.status, role, ...("expression" in article && article.expression ? { expression: article.expression } : {}) });
   }
   return rows;
+}
+
+/** Source roles describe evidenced relevance, not merely membership in a task item. */
+export function taskSourceRole(
+  row: TaskSource,
+  askedReferences: readonly { law: string; jo: string }[],
+  task: string,
+  query: string,
+): "직접 관련 근거" | "보충 근거" | "추가 조회 자료" {
+  const explicit = task === "law_system" ? parseExplicitIdentities(query) : [];
+  const namedLaws = task === "law_system" ? lawNamesInQuery(query) : [];
+  const asked = explicit.length ? explicit : askedReferences.filter((ref) =>
+    !namedLaws.length || namedLaws.some((law) => compactLaw(law) === compactLaw(ref.law)));
+  if (asked.some((ref) => compactLaw(ref.law) === compactLaw(row.law) && ref.jo === row.jo)
+    && (task !== "law_system" || Boolean(row.excerpt.trim()))) return "직접 관련 근거";
+  if (task !== "law_system") {
+    return row.links.some((link) => link.status === "found" && /^(?:직접 위임관계|법적 근거|요건 문언)$/u.test(link.role))
+      ? "직접 관련 근거" : row.links.length ? "보충 근거" : "추가 조회 자료";
+  }
+  const hasExpression = (link: TaskSource["links"][number]) => Boolean(link.expression?.trim())
+    && row.excerpt.replace(/\s+/gu, "").includes(link.expression!.replace(/\s+/gu, ""));
+  const citesAsked = asked.some((ref) => sameLawFamily(ref.law, row.law) && citesParent(row.excerpt, ref.jo));
+  if (row.links.some((link) => link.status === "found" && link.role === "직접 위임관계" && hasExpression(link))
+    && (!namedLaws.length || namedLaws.some((law) => sameLawFamily(law, row.law)))
+    && (!asked.length || citesAsked)) return "직접 관련 근거";
+  return citesAsked && row.links.some((link) => link.role === "단순 인용·준용" && hasExpression(link))
+    ? "보충 근거" : "추가 조회 자료";
 }
 /** Presentation only: never merge different versions or different source excerpts. */
 export function articleDisplayKey(article: { law: string; jo: string; excerpt: string; effective?: string }): string {

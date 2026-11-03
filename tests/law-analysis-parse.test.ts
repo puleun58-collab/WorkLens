@@ -217,7 +217,8 @@ describe("legal_analysis presentation parsing", () => {
     const failed = applicableLawPresentation(APPLICABLE);
     expect(failed.mst).toBe("247265");
     expect(failed.jo).toBe("제44조");
-    expect(failed.sections.flatMap(({ heading, lines }) => [heading, ...lines]).join("\n")).toContain("시행 예정 개정 1건");
+    expect(failed.future.count).toBe(1);
+    expect(failed.sections.flatMap(({ heading, lines }) => [heading, ...lines]).join("\n")).not.toContain("시행 예정 개정");
     expect(failed.sections.flatMap(({ heading, lines }) => [heading, ...lines]).join("\n")).toContain("부칙 조회에 실패했습니다.");
     expect(failed.sections.flatMap(({ heading, lines }) => [heading, ...lines]).join("\n")).not.toMatch(/get_law_text|술에 취한 상태에서의 운전 금지/u);
     expect(failed.excerpts.map(({ heading, lines }) => `${heading}\n${lines.join("\n")}`).join("\n")).toContain("① 누구든지 술에 취한 상태에서 운전하여서는 아니 된다.");
@@ -254,7 +255,9 @@ describe("legal_analysis presentation parsing", () => {
     expect(version?.lines[0]).toBe("도로교통법 · 시행 2023.04.04 · 법률 제19158호 (일부개정)");
     // Following lines lose the raw indent but keep their text, including the 현행 시행일.
     expect(version?.lines[1]).toBe("↳ 기준일 이후 현재까지 14차례 개정·시행됨 (현행: 시행 2026.07.01)");
-    expect(version?.lines[2]).toBe("⚠️ 시행 예정 개정 1건 존재 — 최근접: 시행 2027.06.03 (제21728호, 일부개정).");
+    expect(version?.lines).toHaveLength(2);
+    expect(presented.future.versions[0]).toMatchObject({ effectiveDate: "20270603", promulgationNumber: "21728" });
+    expect(presented.selected).toMatchObject({ mst: "247265", effectiveDate: "20230404", promulgationDate: "20230103" });
     expect(presented.mst).toBe("247265");
 
     const decree = applicableLawPresentation(APPLICABLE.replace(
@@ -289,6 +292,63 @@ describe("legal_analysis presentation parsing", () => {
     expect(presented.sections[0].lines[0]).not.toContain("MST");
   });
 
+  it("keeps a nearest-only future summary incomplete and does not upgrade selection to verified", () => {
+    const presented = applicableLawPresentation([
+      "═══ 행위시법 판단: 도로교통법 @ 2026.11.02 ═══",
+      "▶ 기준일에 시행 중이던 버전",
+      "도로교통법 [시행 2026.10.13] [제22067호, 2026.10.13, 일부개정] (MST 291133)",
+      "↳ 이 버전이 현행입니다 (기준일 이후 개정 없음)",
+      '⚠️ 시행 예정 개정 4건 존재 — 최근접: 시행 2026.12.03 (제21728호, 일부개정): get_law_text(mst="286419")',
+    ].join("\n"));
+    expect(presented).toMatchObject({
+      referenceDate: "20261102", selectionStatus: "selected",
+      selected: { mst: "291133", effectiveDate: "20261013", promulgationDate: "20261013" },
+      future: { count: 4, complete: false, versions: [{ mst: "286419", effectiveDate: "20261203" }] },
+    });
+    expect(presented.sections.flatMap((section) => section.lines).join(" ")).not.toContain("현행입니다");
+  });
+
+  it("uses complete official temporal metadata, sorting and deduplicating by serial plus effective date", () => {
+    const version = { mst: "286419", effectiveDate: "20261203", promulgationNumber: "21728", line: "공식 예정판본" };
+    const presented = applicableLawPresentation([
+      "═══ 행위시법 판단: 도로교통법 @ 2026.11.02 ═══",
+      "▶ 기준일에 시행 중이던 버전",
+      "도로교통법 [시행 2026.10.13] [제22067호, 2026.10.13, 일부개정] (MST 291133)",
+      "⚠️ 시행 예정 개정 9건 존재 — 최근접: 시행 2030.01.01 (제21728호, 일부개정)",
+    ].join("\n"), {
+      futureComplete: true,
+      futureVersions: [
+        { ...version, effectiveDate: "20270603" }, version, version,
+        { ...version, mst: "291133", effectiveDate: "20270414" },
+        { ...version, effectiveDate: "20261001" },
+      ],
+    });
+    expect(presented.future.count).toBe(3);
+    expect(presented.future.complete).toBe(true);
+    expect(presented.future.versions.map((item) => `${item.mst}:${item.effectiveDate}`)).toEqual([
+      "286419:20261203", "291133:20270414", "286419:20270603",
+    ]);
+  });
+
+  it("never selects a version effective after the reference date as the applicable source", () => {
+    const presented = applicableLawPresentation([
+      "═══ 행위시법 판단: 민법 @ 2026.11.02 ═══", "▶ 기준일에 시행 중이던 버전",
+      "민법 [시행 2027.01.01] [제22000호, 2026.01.01, 일부개정] (MST 123)",
+    ].join("\n"));
+    expect(presented.selectionStatus).toBe("unavailable");
+    expect(presented.mst).toBeUndefined();
+    expect(presented.future.versions[0].mst).toBe("123");
+  });
+
+  it("preserves an official scheduled-version lookup failure separately from zero scheduled versions", () => {
+    const presented = applicableLawPresentation("═══ 행위시법 판단: 민법 @ 2026.11.02 ═══", {
+      futureVersions: [], futureComplete: false, futureError: "시행 예정 법령 조회 실패",
+    });
+    expect(presented.future).toEqual({
+      count: 0, versions: [], complete: false, error: "시행 예정 법령 조회 실패",
+    });
+  });
+
   it("renders the caution section as restated list items without losing a rule or citation", () => {
     const text = [
       "═══ 행위시법 판단: 민법 @ 2020.01.15 ═══",
@@ -300,7 +360,7 @@ describe("legal_analysis presentation parsing", () => {
       "  - 위 원칙은 부칙 경과규정이 우선합니다 — 위 발췌를 반드시 확인하세요. 이 도구는 발췌만 제공하며 해석하지 않습니다.",
       "  - 새로운 주의 문구: 원문 그대로 유지",
     ].join("\n");
-    const caution = applicableLawPresentation(text).sections.find((section) => section.heading === "적용 법령 판단 시 주의");
+    const caution = applicableLawPresentation(text).cautions.find((section) => section.heading === "적용 법령 판단 시 주의");
     expect(caution?.list).toBe(true);
     expect(caution?.lines).toEqual([
       "형사처벌: 행위시법이 원칙입니다 (형법 제1조제1항). 단, 재판 시 법이 더 가벼우면 신법을 적용합니다 (같은 조 제2항).",

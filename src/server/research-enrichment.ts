@@ -6,7 +6,7 @@ import {
 } from "@/lib/research-relevance";
 import { parseExplicitIdentities, type ExplicitIdentity } from "@/lib/law-identity";
 import type { ResearchDecision } from "@/lib/law-research-parse";
-import { getDecisionText, searchDecisions } from "@/server/decision-mcp";
+import { getDecisionText, parseDecisionText, searchDecisions } from "@/server/decision-mcp";
 import { getLawText, searchLaw } from "@/server/law-mcp";
 
 type Context = { requestId: string; signal?: AbortSignal };
@@ -41,19 +41,21 @@ const isDisposition = (text: string) => text.split(/\r?\n/u).filter((line) => li
  */
 export function precedentEvidence(
   result: { text: string; sections?: Array<{ heading: string; text: string }> },
-  domain: ResearchDecisionDomain = "precedent",
 ): { text: string; excerpt: boolean } | undefined {
   const substantive = (result.sections ?? [])
     .filter((section) => Object.hasOwn(SUMMARY_HEADINGS, section.heading) && section.text.trim() && !isDisposition(section.text));
   if (substantive.length) {
     return { text: lawDisplayText(substantive.map((section) => section.text).join("\n")), excerpt: false };
   }
+  const reasons = result.sections?.filter((section) => section.heading === "이유" || section.heading === "결정이유")
+    .map((section) => section.text).join("\n");
+  if (reasons?.trim() && !isDisposition(reasons)) return { text: lawDisplayText(reasons), excerpt: false };
   const body = result.sections?.filter((section) => section.heading === "이유" || section.heading === "전문")
     .map((section) => section.text).join("\n") ?? result.text;
   if (!body.trim() || isDisposition(body)) return undefined;
-  // A court's opening is still only an excerpt. An interpretation/tribunal
-  // reason section is the official rationale, not an inferred conclusion.
-  return { text: lawDisplayText(body), excerpt: domain === "precedent" || !result.sections?.length };
+  // A body without a holding or identified reason section is only an opening,
+  // whatever its decision domain. A matching title cannot supply the ruling.
+  return { text: lawDisplayText(body), excerpt: true };
 }
 
 export function mcpEnrichmentSources(context: Context): EnrichmentSources {
@@ -64,7 +66,7 @@ export function mcpEnrichmentSources(context: Context): EnrichmentSources {
     },
     async decisionSummary(domain, id) {
       const result = await getDecisionText(domain === "tribunal" ? "admin_appeal" : domain, id, undefined, context);
-      return result.found ? precedentEvidence(result, domain) : undefined;
+      return result.found ? precedentEvidence(result) : undefined;
     },
     async laws(query) {
       const result = await searchLaw(query, context);
@@ -227,10 +229,13 @@ export async function enrichResearch(
     if (selected.length) {
       const relevance: Record<string, PrecedentRelevance> = {};
       const excerpts: Record<string, string> = {};
+      const originals: NonNullable<ResearchEnrichment["decisionOriginals"]> = {};
       await pool(selected, async ({ domain, entry }) => {
         const summary = await (domain === "precedent" ? sources.summary(entry.id)
           : sources.decisionSummary?.(domain, entry.id) ?? Promise.resolve(undefined)).catch(() => undefined);
         const key = `${domain}:${entry.id}`;
+        if (summary?.text) originals[key] = { domain, id: entry.id, title: entry.title, caseNumber: entry.caseNumber,
+          body: "body" in entry ? entry.body : undefined, date: entry.date, text: summary.text, partial: summary.excerpt };
         relevance[key] = rankPrecedent(terms, { title: entry.title,
           ...(summary ? { summary: summary.text, excerpt: summary.excerpt } : {}) }, cited, { query });
         if (summary?.text && (relevance[key].rank === "direct" || relevance[key].rank === "related")) {
@@ -243,11 +248,37 @@ export async function enrichResearch(
       }
       enrichment.decisions = relevance;
       enrichment.decisionExcerpts = excerpts;
+      if (Object.keys(originals).length) enrichment.decisionOriginals = originals;
       const precedents = Object.entries(relevance).filter(([key]) => key.startsWith("precedent:"));
       if (precedents.length) {
         enrichment.precedents = Object.fromEntries(precedents.map(([key, value]) => [key.slice("precedent:".length), value]));
         enrichment.precedentExcerpts = Object.fromEntries(Object.entries(excerpts).filter(([key]) => key.startsWith("precedent:"))
           .map(([key, value]) => [key.slice("precedent:".length), value]));
+      }
+    }
+  }
+  if (task === "full_research") {
+    // Automatic detail blocks are already part of the chain response. Reading
+    // them adds no search or detail request, including for constitutional and
+    // other decision domains outside the existing three-domain summary budget.
+    for (const section of document.sections) {
+      const domain = researchDecisionDomain(section.heading);
+      if (!domain || section.status !== "available" || section.kind !== "detail") continue;
+      const detail = section.lines.join("\n");
+      const records = [...detail.matchAll(/^\[(\d+)\][^\n]*\n(?=\s*=== [^\n]+ ===)/gmu)];
+      for (const [index, record] of records.entries()) {
+        const parsed = parseDecisionText(detail.slice(record.index + record[0].length, records[index + 1]?.index));
+        const evidence = precedentEvidence(parsed);
+        if (!evidence?.text.trim()) continue;
+        const entry = document.sections.filter((source) => researchDecisionDomain(source.heading) === domain)
+          .flatMap((source) => source.decisions?.entries ?? []).find((candidate) => candidate.id === record[1]);
+        const key = `${domain}:${record[1]}`;
+        const previous = enrichment.decisionOriginals?.[key];
+        if (previous && (!previous.partial && evidence.excerpt
+          || previous.partial === evidence.excerpt && previous.text.length >= evidence.text.length)) continue;
+        (enrichment.decisionOriginals ??= {})[key] = { domain, id: record[1], title: parsed.title ?? entry?.title,
+          caseNumber: entry?.caseNumber, body: entry?.body, date: entry?.date,
+          text: evidence.text, partial: evidence.excerpt };
       }
     }
   }
@@ -319,7 +350,7 @@ export async function followArticleCitations(
       const title = /제[1-9]\d{0,3}조(?:의[1-9]\d?)?\(([^)]+)\)/u.exec(fetched.text)?.[1]?.trim() ?? "";
       const key = `${article.law}\0${jo}`;
       seen.add(key);
-      followed.push({ law: article.law, jo, title, excerpt,
+      followed.push({ law: article.law, jo, title, excerpt, original: fetched.text,
         matched: keywords.filter((term) => termInText(term, excerpt)),
         role: isDefinitionTitle(title) ? "definition" : "other", stage: "supplement",
         ...(fetched.effectiveDate ? { effectiveDate: fetched.effectiveDate } : {}) });
@@ -425,7 +456,7 @@ async function titleArticles(
     const found = await sources.article(candidate.mst, candidate.jo).catch(() => { failures++; return undefined; });
     if (strictName && found?.name && found.name !== candidate.law) return; // Stale/misdirected MST.
     const excerpt = found ? articleExcerpt(found.text, candidate.jo) : "";
-    if (excerpt) articles.push({ law: candidate.law, jo: candidate.jo, title: candidate.title, excerpt, matched: candidate.matched,
+    if (excerpt) articles.push({ law: candidate.law, jo: candidate.jo, title: candidate.title, excerpt, original: found!.text, matched: candidate.matched,
       role: isDefinitionTitle(candidate.title) ? "definition" : "other", stage: "supplement",
       ...(found?.effectiveDate ? { effectiveDate: found.effectiveDate } : {}) });
   }, expired);
@@ -526,7 +557,7 @@ async function fetchExplicitArticles(
     // syllable, so a deleted body ("삭제…") must be caught by prefix.
     if (!excerpt || /^삭제/u.test(excerpt)) continue;
     const title = /제[1-9]\d{0,3}조(?:의[1-9]\d?)?\(([^)]+)\)/u.exec(fetched.text)?.[1]?.trim() ?? "";
-    articles.push({ law: law.name, jo: pair.jo, title, excerpt, matched: [], explicit: true, stage: "issue",
+    articles.push({ law: law.name, jo: pair.jo, title, excerpt, original: fetched.text, matched: [], explicit: true, stage: "issue",
       role: isDefinitionTitle(title) ? "definition" : "other",
       ...(fetched.effectiveDate ? { effectiveDate: fetched.effectiveDate } : {}) });
   }
@@ -671,7 +702,7 @@ export async function rereadShownArticles(
     const fetched = await sources.article(exact.mst, article.jo).catch(() => undefined);
     if (!fetched) continue;
     const excerpt = articleExcerpt(fetched.text, article.jo);
-    if (excerpt) articles.push({ law: article.law, jo: article.jo, title: article.title ?? "", excerpt, matched,
+    if (excerpt) articles.push({ law: article.law, jo: article.jo, title: article.title ?? "", excerpt, original: fetched.text, matched,
       role: isDefinitionTitle(article.title) ? "definition" : "other", stage: "reread",
       ...(fetched.effectiveDate ? { effectiveDate: fetched.effectiveDate } : {}) });
   }

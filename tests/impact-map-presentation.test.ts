@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { impactAxisView, impactMapPresentation } from "@/lib/law-analysis-parse";
 import real from "./fixtures/impact-map-real.json";
+import civil103 from "./fixtures/impact-map-civil103.json";
+
+const graph = (rows: string[], metadata = "") => [
+  "═══ Impact Map: 민법 제103조 ═══", "법령: 민법 (MST 284415, 법률)", "",
+  "▶ 영향 그래프 (이 조문이 인용된 곳)", ...rows, metadata, "",
+  "▶ 총 영향 건수(경계 확인분): 99건",
+].join("\n");
 
 const axis = (label: string, value: string, failed = false) => impactAxisView({ label, value, failed, items: [] });
 
@@ -32,29 +39,83 @@ describe("impact map reader states", () => {
 });
 
 describe("impact map presentation of real 법제처 results", () => {
-  it("drops internal wording and counts only article-confirmed citations", () => {
-    const view = impactMapPresentation(real.civil1);
-    expect(view.law).toBe("민법 · 법률");
-    expect(view.total).toEqual({ count: 0, headline: "확인된 인용 결과 0건", lines: [
-      "아직 확인하지 않은 검색 결과가 있어 실제로는 더 많을 수 있습니다.",
-      "판례 0 · 헌재 결정례 0 · 법령해석례 0 · 행정심판례 0",
-      "자치법규 2건은 조문 단위로 확인되지 않아 이 건수에 포함하지 않았습니다.",
-    ] });
-    expect(view.notes).toEqual(["법령 일치 확인: 확인 0건 · 추가 확인 필요 2건 (약칭·표기 차이로 같은 법령인지 판단하지 못한 결과도 제외하지 않고 포함했습니다.)"]);
-    expect(view.related.filter((item) => item.domain)).toEqual([
-      { query: "민법 제1조", label: "판례 상세", domain: "precedent" },
-      { query: "민법 제1조", label: "해석례 상세", domain: "interpretation" },
-    ]);
-    const shown = JSON.stringify({ ...view, sources: [] });
-    expect(shown).not.toMatch(/표본|강제|부분 일치|보류|미반영|영향 그래프|총 영향 건수|인용 법령: 0개|MST/u);
+  it("separates the actual civil103 four verified sources from two law-level candidates", () => {
+    const view = impactMapPresentation(civil103.text);
+    expect(view.total).toMatchObject({
+      count: 4, confirmedCount: 4, pendingCount: 2, sourceCount: 6, unexaminedCount: 0, pendingTypeCount: 1,
+      headline: "확인된 인용 결과 4건",
+    });
+    expect(view.axes.flatMap((row) => row.records ?? []).filter((row) => row.status === "confirmed")).toHaveLength(4);
+    expect(view.axes.map((row) => row.sourceCount)).toEqual([1, 3, 0, 0, 2]);
+    expect(view.notes).toEqual(["조문 인용이 확인되지 않은 자치법규 2건은 확인 건수에서 제외했습니다."]);
+    expect(view.related).toEqual([{ query: "민법 제103조", label: "판례 추가 검색", domain: "precedent" }]);
+    expect(civil103.text).toContain("총 영향 건수(경계 확인분): 6건");
   });
 
-  it("keeps each row's numbers consistent with the 법제처 summary", () => {
+  it("counts only available individual records when upstream metadata claims more", () => {
+    const view = impactMapPresentation(real.civil750);
+    expect(view.total).toMatchObject({ confirmedCount: 0, pendingCount: 5 });
+    expect(view.total?.lines.join(" ")).toContain("검증 집계와 개별 원문 자료가 일치하지 않아");
+  });
+
+  it("deduplicates within the official collection, not across different collections", () => {
+    const view = impactMapPresentation(graph([
+      "├─ 📚 대법원 판례: 2건", "│ • [12] 민법 제103조", "│ • [12] 민법 제103조",
+      "└─ ⚖️ 헌재 결정례: 1건", "  • [12] 민법 제103조",
+    ]));
+    expect(view.total).toMatchObject({ confirmedCount: 2, pendingCount: 0 });
+    expect(view.axes.flatMap((row) => row.records ?? []).map((row) => row.key)).toEqual(["prec:12", "detc:12"]);
+  });
+
+  it("never counts the same source as both confirmed and pending", () => {
+    const view = impactMapPresentation(graph([
+      "├─ 📚 대법원 판례: 1건", "│ • [12] 민법 제103조",
+      "└─ 📚 대법원 판례: 1건", "  • [12] [UNVERIFIED] 법령명 보류",
+    ]));
+    expect(view.total).toMatchObject({ confirmedCount: 0, pendingCount: 1 });
+    expect(view.axes[0].records?.[0].status).toBe("pending");
+  });
+
+  it("keeps unexamined candidates, failed lookups and empty searches separate", () => {
+    const view = impactMapPresentation(graph([
+      "├─ 📚 대법원 판례: 1건 확인 (조문 불일치 9건 제외) / 검색 30건 — 표본 10건만 경계 확인",
+      "│ • [12] 민법 제103조",
+      "├─ ⚖️ 헌재 결정례: 조회 실패", "└─ 📑 법령해석례: 0건",
+    ]));
+    expect(view.total).toMatchObject({ confirmedCount: 1, pendingCount: 0, sourceCount: 1, unexaminedCount: 20, pendingTypeCount: 2 });
+    expect(view.axes.map((row) => row.state)).toEqual(["partial", "failed", "empty"]);
+    expect(view.axes[0].detail).toContain("검색 결과 30건 중 10건");
+  });
+
+  it("does not infer article matching from an ordinance title, but accepts explicit verified evidence", () => {
+    const view = impactMapPresentation(graph([
+      "└─ 🏛️ 자치법규(법령 단위·조번호 미반영): 2건",
+      "  • [1] 민법 제103조 지원 조례", "  • [2] [VERIFIED] 조문 인용 확인: 민법 제103조",
+    ]));
+    expect(view.total).toMatchObject({ confirmedCount: 1, pendingCount: 1 });
+    expect(view.axes[0].records?.map((row) => row.status)).toEqual(["pending", "confirmed"]);
+  });
+
+  it("downgrades contradictory explicit verification metadata without choosing arbitrary IDs", () => {
+    const view = impactMapPresentation(graph([
+      "└─ 📚 대법원 판례: 2건", "  • [1] 민법 제103조", "  • [2] 민법 제103조",
+    ], "ℹ️ 법령명 대조: 확정 1건 / 보류 1건"));
+    expect(view.total).toMatchObject({ confirmedCount: 0, pendingCount: 2 });
+  });
+
+  it("does not manufacture source records from a count or from a title without an official ID", () => {
+    const view = impactMapPresentation(graph(["└─ 📚 대법원 판례: 4건", "  • 민법 제103조 인용"]));
+    expect(view.total).toMatchObject({ confirmedCount: 0, pendingCount: 0 });
+    expect(view.axes[0].items).toEqual([]);
+  });
+
+  it("keeps every shown count derived from the same source records", () => {
     for (const text of Object.values(real)) {
       const view = impactMapPresentation(text);
-      const confirmed = view.axes.filter((row) => row.state !== "law_only")
-        .reduce((sum, row) => sum + Number(/확인된 결과 (\d+)건/u.exec(row.headline)?.[1] ?? 0), 0);
-      expect(view.total?.headline).toBe(`확인된 인용 결과 ${confirmed}건`);
+      expect(view.total?.confirmedCount).toBe(view.axes.reduce((sum, row) => sum + (row.confirmedCount ?? 0), 0));
+      expect(view.total?.pendingCount).toBe(view.axes.reduce((sum, row) => sum + (row.pendingCount ?? 0), 0));
+      expect(view.total?.sourceCount).toBe(view.axes.flatMap((row) => row.records ?? []).length);
+      expect(view.total?.unexaminedCount).toBe(view.axes.reduce((sum, row) => sum + (row.unexaminedCount ?? 0), 0));
     }
   });
 });

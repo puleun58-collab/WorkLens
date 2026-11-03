@@ -1,4 +1,5 @@
 import type { TaskEvidenceArticle, TaskEvidenceItem } from "@/lib/task-evidence";
+import { sameLawFamily } from "@/lib/research-scope";
 
 /**
  * Law-system display rules (no counts at the top, one grouped list below).
@@ -12,15 +13,17 @@ import type { TaskEvidenceArticle, TaskEvidenceItem } from "@/lib/task-evidence"
 
 /** Top summary for one law-system tier item: the directly linked provisions
  * by name, or that the direct link to the asked article is unconfirmed. */
-export function lawSystemTopSummary(item: TaskEvidenceItem): string | undefined {
+export function lawSystemTopSummary(item: TaskEvidenceItem, parentLaw?: string): string | undefined {
   const articles = item.articles ?? [];
   const direct = articles.filter((article) => article.relation === "twoWay")
     .sort((a, b) => Number(a.parentParagraph ?? Infinity) - Number(b.parentParagraph ?? Infinity));
   if (direct.length) return direct.map((article) => {
-    const parent = article.parentJo ? `법 ${article.parentJo}${article.parentParagraph ? ` 제${article.parentParagraph}항` : ""} → ` : "";
+    const parentPrefix = parentLaw && sameLawFamily(parentLaw, article.law) ? ""
+      : parentLaw ? `${article.law.replace(/\s*시행(?:령|규칙)$/u, "")} ` : "법 ";
+    const parent = article.parentJo ? `${parentPrefix}${article.parentJo}${article.parentParagraph ? ` 제${article.parentParagraph}항` : ""} → ` : "";
     const subject = article.subject ?? article.title;
     return `${parent}${item.label} ${article.jo}${subject ? `\n${subject}에 관한 사항` : ""}`;
-  }).join("\n");
+  }).join("\n\n");
   if (articles.some((article) => article.relation === "citation" || article.relation === "direct")) {
     return "질문 조항을 인용·준용하는 규정 확인";
   }

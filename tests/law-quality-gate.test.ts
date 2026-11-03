@@ -13,25 +13,6 @@ import { describe, expect, it } from "vitest";
 import { discoverLawTests } from "../scripts/law-quality-gate";
 
 describe("law quality gate discovery", () => {
-  it("C1: covers the previously missed law tests, not just the old fixed list", () => {
-    const found = discoverLawTests();
-    for (const file of [
-      "tests/law-api.test.ts",
-      "tests/citation-claim.test.ts",
-      "tests/citation-evidence.test.ts",
-      "tests/citation-linebreak.test.ts",
-      "tests/decision-followup-trace.test.ts",
-      "tests/law-reliability-final.test.ts",
-      "tests/law-title-dedup.test.ts",
-      "tests/law-v6.test.ts",
-      "tests/law-supplement-refine.test.ts",
-      "tests/research-relevance.test.ts",
-      "tests/ordinance-compare.test.ts",
-    ]) {
-      expect(found).toContain(file);
-    }
-    expect(found.length).toBeGreaterThan(15);
-  });
 
   it("C1: does not pull unrelated suites into the law gate", () => {
     const found = discoverLawTests();

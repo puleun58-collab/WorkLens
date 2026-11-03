@@ -138,6 +138,15 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
         await expect(sections.nth(index).locator("h3")).toContainText(String(index + 1).padStart(2, "0"));
         await expect(sections.nth(index)).toHaveAttribute("id", `research-issue-${index + 1}`);
         for (const label of ["핵심 검토 결과", "근거 상태", "추가 확인"]) await expect(sections.nth(index).locator(".research-issue-findings")).toContainText(label);
+        const issue = sections.nth(index);
+        await expect(issue.locator(".research-core-sources button, .research-core-sources a")).toHaveCount(0);
+        const details = issue.locator(".research-issue-refs");
+        if (index < 3) {
+          const actualCount = await details.locator(":scope > .research-hits > li").count();
+          expect(actualCount).toBe(index < 2 ? 2 : 1);
+          await expect(details.locator(":scope > summary")).toContainText(String(actualCount));
+          await expect(details.locator('a[href^="https://www.law.go.kr/"]')).not.toHaveCount(0);
+        } else await expect(details).toHaveCount(0);
       }
       const expand = output.getByRole("button", { name: "전체 펼치기", exact: true });
       await expect(expand).toHaveAttribute("aria-pressed", "false");
@@ -146,7 +155,11 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       await expect(output.locator(`[id="${descriptionId}"]`)).toHaveText("상세 근거");
       await expect(output.locator(".research-issue-refs[open]")).toHaveCount(0);
       if (count === 2) await output.screenshot({ path: `artifacts/research-issues-${viewport.width}.png` });
-      await sections.first().locator("summary").click();
+      await sections.first().locator(".research-issue-refs > summary").click();
+      await expect(output.locator(".research-original-body[open]")).toHaveCount(0);
+      await expect(sections.first().locator(".research-original-body .legal-analysis-lines")).not.toBeVisible();
+      await sections.first().locator(".research-original-body > summary").click();
+      await expect(sections.first().locator(".research-original-body .legal-analysis-lines")).toBeVisible();
       await expect(sections.first().locator(".research-issue-refs")).toHaveAttribute("open", "");
       await expect(output.getByRole("button", { name: count === 1 ? "전체 접기" : "전체 펼치기", exact: true })).toBeVisible();
       await expect(sections.first().locator(".research-issue-refs .research-hits")).toContainText("② 원문 마지막 항도 그대로 확인한다.");
@@ -161,12 +174,12 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
         await expect(sections.nth(1)).toBeInViewport();
         // A mouse jump marks the section with its own highlight only — no second box on the heading.
         expect(await sections.nth(1).locator("h3").evaluate((element) => getComputedStyle(element).outlineStyle)).toBe("none");
-        // "관련 법령·판례 상세 보기" starts on the same line as the "근거 보기" rows above it.
-        const [toggleLeft, jumpLeft] = await sections.nth(1).evaluate((section) => [
+        // The single disclosure retains the core source list's content edge.
+        const [toggleLeft, sourceLeft] = await sections.nth(1).evaluate((section) => [
           section.querySelector(".research-issue-refs > summary > span")!.getBoundingClientRect().left,
-          section.querySelector(".research-core-sources .research-source-jump")!.getBoundingClientRect().left,
+          section.querySelector(".research-core-sources > li > strong")!.getBoundingClientRect().left,
         ]);
-        expect(Math.abs(toggleLeft - jumpLeft)).toBeLessThanOrEqual(1);
+        expect(Math.abs(toggleLeft - sourceLeft)).toBeLessThanOrEqual(1);
         // A keyboard jump keeps the heading's focus ring for keyboard users.
         await output.locator(".research-issues .research-issue-jump").first().focus();
         await page.keyboard.press("Enter");
@@ -174,18 +187,22 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
         expect(await sections.first().locator("h3").evaluate((element) => getComputedStyle(element).outlineStyle)).toBe("solid");
         await output.locator(".research-issues .research-issue-jump").nth(1).click();
         await expect(sections.nth(1).locator("h3")).toBeFocused();
-        await sections.nth(1).locator("summary").click();
+        await sections.nth(1).locator(".research-issue-refs > summary").click();
+        await expect(sections.nth(1).locator(".research-original-body")).not.toHaveAttribute("open", "");
+        await expect(sections.first().locator(".research-original-body")).toHaveAttribute("open", "");
         await expect(sections.nth(1).locator("h3")).toContainText("부당해고 여부");
         await expect(sections.nth(1).locator(".research-issue-refs .research-hits")).toContainText("부당해고 여부");
         await expect(sections.nth(1).locator(".research-issue-refs .research-hits")).toContainText("해고 근거 원문 마지막 문장");
         await expect(sections.nth(1).locator(".research-issue-refs .research-hits")).not.toContainText("퇴직금 근거 원문 마지막 문장");
-        await expect(sections.nth(1).getByRole("button", { name: "공통 근거 원문 보기" })).toBeVisible();
-        await expect(sections.nth(1).locator(".research-issue-refs .legal-analysis-lines")).toHaveCount(0);
+        await expect(sections.nth(1).locator(".research-issue-refs button")).toHaveCount(0);
+        await expect(sections.nth(1).locator(".research-issue-refs .legal-analysis-lines")).toContainText("② 원문 마지막 항도 그대로 확인한다.");
+        await expect(sections.nth(1).locator(".research-issue-refs")).toContainText("72");
+        await expect(sections.nth(1).locator('.research-issue-refs a[href*="precSeq=72"]')).toBeVisible();
         if (count === 2) await expect(output.getByRole("button", { name: "전체 접기", exact: true })).toBeVisible();
-        await sections.nth(1).locator("summary").click();
+        await sections.nth(1).locator(".research-issue-refs > summary").click();
         await expect(output.getByRole("button", { name: "전체 펼치기", exact: true })).toBeVisible();
       }
-      await sections.first().locator("summary").click();
+      await sections.first().locator(".research-issue-refs > summary").click();
       await expect(output.getByRole("button", { name: "전체 펼치기", exact: true })).toHaveAttribute("aria-pressed", "false");
       const rawSource = output.locator(".research-source");
       await rawSource.locator("summary").click();
@@ -195,8 +212,8 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       await expect(output.locator(".research-issue-refs[open]")).toHaveCount(Math.min(count, 3));
       await expect(output.getByRole("button", { name: "전체 접기", exact: true })).toHaveAttribute("aria-pressed", "true");
       expect(await rawSource.evaluate((element) => (element as HTMLDetailsElement).open)).toBe(rawOpen);
-      await sections.first().locator("summary").focus();
-      await sections.first().locator("summary").press("Space");
+      await sections.first().locator(".research-issue-refs > summary").focus();
+      await sections.first().locator(".research-issue-refs > summary").press("Space");
       await expect(output.getByRole("button", { name: "전체 펼치기", exact: true })).toHaveAttribute("aria-pressed", "false");
       await expect(output.locator(".research-issue-refs[open]")).toHaveCount(Math.min(count, 3) - 1);
       await expand.focus();
@@ -249,7 +266,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await expect(second.locator(".research-issue-findings")).toContainText("직접 관련 근거 미확인");
     await expect(second.locator(".research-issue-refs")).toHaveCount(0);
     await expect(second).not.toContainText("2025다71");
-    await output.locator(".research-issue-refs summary").click();
+    await output.locator(".research-issue-refs > summary").click();
     await expect(output.locator(".research-issue-refs")).not.toHaveAttribute("open", "");
     await expect(output.getByRole("button", { name: "전체 펼치기", exact: true })).toHaveAttribute("aria-pressed", "false");
     await form.getByLabel("질문 또는 검색어").fill("두 번째 결과");

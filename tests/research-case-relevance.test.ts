@@ -104,7 +104,7 @@ describe("official holding and interpretation evidence", () => {
       [{ heading: "질의요지", text: HOLDING }],
       [{ heading: "주문", text: "청구를 기각한다." }],
     ]) {
-      expect(precedentEvidence({ text: HOLDING, sections }, "interpretation")).toBeUndefined();
+      expect(precedentEvidence({ text: HOLDING, sections })).toBeUndefined();
     }
   });
 
@@ -121,13 +121,13 @@ describe("official holding and interpretation evidence", () => {
     expect(precedentEvidence({ text: "원문", sections: [
       { heading: "질의요지", text: HOLDING },
       { heading: "회답", text: "무신고 영업정지에 해당하지 않습니다." },
-    ] }, "interpretation")).toEqual({ text: "무신고 영업정지에 해당하지 않습니다.", excerpt: false });
+    ] })).toEqual({ text: "무신고 영업정지에 해당하지 않습니다.", excerpt: false });
     expect(precedentEvidence({ text: "원문", sections: [
       { heading: "재결요지", text: HOLDING },
-    ] }, "tribunal")).toEqual({ text: HOLDING, excerpt: false });
+    ] })).toEqual({ text: HOLDING, excerpt: false });
     expect(precedentEvidence({ text: "원문", sections: [
       { heading: "이유", text: HOLDING },
-    ] }, "tribunal")).toEqual({ text: HOLDING, excerpt: false });
+    ] })).toEqual({ text: HOLDING, excerpt: false });
   });
 });
 
@@ -175,6 +175,9 @@ describe("research enrichment across all three official decision domains", () =>
     expect(researchDecisionDomain("관련 판례")).toBe("precedent");
     expect(researchDecisionDomain("법령 해석례")).toBe("interpretation");
     expect(researchDecisionDomain("행정심판례")).toBe("tribunal");
+    expect(researchDecisionDomain("헌재 결정례 상세")).toBe("constitutional");
+    expect(researchDecisionDomain("조세심판원 재결례")).toBe("tax_tribunal");
+    expect(researchDecisionDomain("개인정보위 결정례 상세")).toBe("pipc");
     expect(researchDecisionDomain("관련 조문")).toBeUndefined();
   });
 

@@ -73,9 +73,31 @@ describe("lawDisplayText", () => {
       "구분: 법률",
       "법령: 행정심판법 (법률)",
       "시점 A: 2021.11.19 시행 | 공포 제18176호, 2021.05.18 공포, 일부개정 | 126개 조문",
-      "⏱ 시간 한도로 이 섹션은 수집하지 못했습니다",
       "[생략] 법령 전체 조문의 이력입니다.",
     ].join("\n"));
+  });
+
+  it("hides only internal search limits while preserving unavailability, legal deadlines and raw input", () => {
+    const raw = [
+      "핵심 근거를 확인했습니다. 시간·조회 한도로 추가 후보 미조회",
+      "내부 검색 시간 제한으로 추가 검색 중단",
+      "API 요청 횟수 제한으로 추가 후보 미조회",
+      "원문 조회 실패: 법제처 응답 오류",
+      "[생략] 법령 전체 조문의 제정 이후 이력이라 응답 상한을 소진합니다.",
+      "청구는 6개월 이내에 하여야 한다.",
+      "배상책임 한도액은 2천억원으로 한다.",
+      "영업정지 기간은 6개월 이내로 한다.",
+    ].join("\n");
+    const original = raw;
+    const shown = lawDisplayText(raw);
+    expect(shown).not.toMatch(/추가 후보 미조회|검색 시간 제한|API 요청 횟수 제한/u);
+    expect(shown).toContain("원문 조회 실패: 법제처 응답 오류");
+    expect(shown).toContain("청구는 6개월 이내에 하여야 한다.");
+    expect(shown).toContain("배상책임 한도액은 2천억원으로 한다.");
+    expect(shown).toContain("영업정지 기간은 6개월 이내로 한다.");
+    expect(shown).toContain("[생략] 법령 전체 조문의 제정 이후 이력.");
+    expect(shown).not.toContain("응답 상한");
+    expect(raw).toBe(original);
   });
 
   it("never touches legal prose that merely shares words with the guidance", () => {
