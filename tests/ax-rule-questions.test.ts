@@ -366,6 +366,37 @@ describe("AX 통합 완료 현황·저장 페이로드", () => {
     expect(rules.map(rule => rule.name)).not.toContain("시스템 접근");
   });
 
+  it.each(["선택적으로 작성한 담당자 검토 조건", ""])("저장 후보 상세 '%s'는 재저장·새로고침 후에도 중복 없이 5/9이고 입력값을 보존한다", detail => {
+    const context = diagnosis({ decisionPoints: [{ id: "D1", status: "확정", detail: "기존 D 비교 기준" }] });
+    const stored: GenericRule[] = [
+      { id: "R1", name: "확인 기준", category: "처리·판단 기준", applicability: "적용", status: "확정", detail: "식별표 ABC에 따라 승인한다", linkedDecisionId: "D1", source: "기존 근거 ABC", step: "기존 단계 ABC" },
+      { id: "R2", name: "저장된 빈 규칙", category: "처리·판단 기준", applicability: "적용 여부 미확정", status: "미확정" },
+    ];
+    const initial = deriveUnifiedRules(context, stored);
+    expect(unifiedRuleProgress(initial)).toEqual({ done: 2, total: 8, applicabilityPending: 2 });
+    const confirmed = initial.map(item => item.kind === "generic" && item.origin === "candidate"
+      ? { ...item, touched: true, applicability: "적용" as const, status: "확정" as const } : item);
+    const firstSave = unifiedSavePayloads(confirmed, stored);
+    const candidate = firstSave.rules.find(rule => rule.id === "R3")!;
+    expect(candidate).toMatchObject({ name: "최종 승인", source: "AS-IS 사람 판단: 최종 승인", status: "확정" });
+    expect(candidate.detail).toBeUndefined();
+
+    const afterSave = deriveUnifiedRules({ ...context, decisionPoints: firstSave.points }, firstSave.rules);
+    const edited = afterSave.map(item => item.kind !== "generic" ? item
+      : item.id === "R3" ? { ...item, detail, touched: true }
+      : item.id === "R2" ? { ...item, applicability: "적용" as const, status: "확정" as const, touched: true } : item);
+    edited.push({ kind: "generic", id: "R4", name: "추가 기준 없는 신규 규칙", category: "처리·판단 기준", applicability: "적용", status: "확정", detail: "", source: "", step: "", origin: "user", touched: true });
+    expect(unifiedRuleProgress(edited)).toEqual({ done: 5, total: 9, applicabilityPending: 0 });
+    const saved = JSON.parse(JSON.stringify(unifiedSavePayloads(edited, firstSave.rules)));
+    const restored = deriveUnifiedRules({ ...context, decisionPoints: saved.points }, saved.rules);
+    expect(unifiedRuleProgress(restored)).toEqual({ done: 5, total: 9, applicabilityPending: 0 });
+    expect(restored.filter(item => item.kind === "generic" && item.name === "최종 승인"))
+      .toEqual([expect.objectContaining({ id: "R3", origin: "stored", detail, status: "확정", source: candidate.source })]);
+    expect(saved.rules[0]).toEqual(stored[0]);
+    expect(saved.points).toEqual(context.decisionPoints);
+    expect(unifiedSavePayloads(restored, saved.rules)).toEqual(saved);
+  });
+
   it("저장 페이로드: 후보보다 뒤에 있는 모달 추가 규칙(R1)과 후보 id가 충돌하지 않는다", () => {
     const items = deriveUnifiedRules(diagnosis());
     const withUser = [

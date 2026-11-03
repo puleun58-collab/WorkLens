@@ -106,7 +106,7 @@ test("AX 진단 간소화: 통합 규칙 인라인 추가·아코디언 초안 �
   // 필수 항목 없이 추가하면 기본 입력 영역에서 바로 오류를 표시한다. 확정 상태는 처음부터 미확정이다.
   await expect(newRow.getByRole("combobox", { name: "확정 상태" })).toHaveCount(0);
   await expect(newRow.getByRole("button", { name: "확정", exact: true })).toHaveCount(0);
-  await expect(newRow.getByRole("combobox", { name: "업무 적용 여부" })).toHaveText("선택하세요");
+  await expect(newRow.getByRole("combobox", { name: "적용 여부" })).toHaveText("선택하세요");
   await newRow.getByRole("button", { name: "추가", exact: true }).click();
   await expect(newRow.getByText("규칙명을 입력하세요")).toBeVisible();
   await expect(newRow.getByText("분류를 선택하세요")).toBeVisible();
@@ -192,8 +192,9 @@ test("AX 진단 간소화: 모바일 390에서 인라인 규칙 추가·범용 �
   await unified.getByRole("button", { name: "+ 규칙 추가", exact: true }).click();
   const newRow = unified.locator("#ax-rule-new");
   await expect(newRow.getByRole("button", { name: "추가 정보 (선택)" })).toHaveCount(0);
-  await chooseOption(newRow, "업무 적용 여부", "적용");
-  await expect(newRow.getByRole("button", { name: "확정", exact: true })).toBeDisabled();
+  await chooseOption(newRow, "적용 여부", "적용");
+  // 지시문 §4·PR #408: 적용 선택 시 추가 기준이 비어 있어도 확정 버튼은 활성화된다.
+  await expect(newRow.getByRole("button", { name: "확정", exact: true })).toBeEnabled();
   let overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
   await newRow.getByRole("button", { name: "취소", exact: true }).click();
@@ -212,19 +213,19 @@ test("AX 업무 규칙 검토 완료율: 미적용 결정은 완료, 선택 전�
   await expect(row.locator(".ax-decision-badge")).toHaveText("미확정");
   await row.locator(".ax-decision-row-head").click();
   // 미선택 상태는 "선택하세요"로 보이고, 후보 근거 문구는 표시하지 않는다.
-  await expect(row.getByRole("combobox", { name: "업무 적용 여부" })).toHaveText("선택하세요");
+  await expect(row.getByRole("combobox", { name: "적용 여부" })).toHaveText("선택하세요");
   await expect(row).not.toContainText("후보 근거");
   // 도출 규칙의 규칙명·분류 입력과 수정 버튼은 표시하지 않는다. 기존 값은 저장 후에도 보존된다.
   await expect(row.getByLabel("규칙명")).toHaveCount(0);
   await expect(row.getByRole("combobox", { name: "분류" })).toHaveCount(0);
   await expect(row.getByRole("button", { name: "규칙명·분류 수정" })).toHaveCount(0);
-  await chooseOption(row, "업무 적용 여부", "미적용");
+  await chooseOption(row, "적용 여부", "미적용");
   await expect(row.locator(".ax-decision-badge")).toHaveText("미적용");
   await expect(unified.getByText("1/5 완료", { exact: true })).toBeVisible();
   // 다시 적용으로 바꾸면 확정 전이므로 미완료로 돌아간다.
-  await chooseOption(row, "업무 적용 여부", "적용");
+  await chooseOption(row, "적용 여부", "적용");
   await expect(unified.getByText("0/5 완료", { exact: true })).toBeVisible();
-  await chooseOption(row, "업무 적용 여부", "미적용");
+  await chooseOption(row, "적용 여부", "미적용");
   await unified.getByRole("button", { name: "저장", exact: true }).click();
   await expect(unified.getByText("업무 규칙을 저장했습니다", { exact: true })).toBeVisible();
   await expect.poll(async () => page.evaluate(async () => {
@@ -307,7 +308,7 @@ test("AX 진단 결과 요약: 판정 3카드는 실제 건수, 구현 전 확�
 });
 
 for (const width of [1440, 390]) {
-  test(`AX D규칙 패널 정렬: ${width}px에서 제목 시작선과 대칭 여백`, async ({ page }) => {
+  test(`AX D규칙 패널 정렬: ${width}px에서 제목 시작선과 ${width === 1440 ? "입력창·배지 우측 끝선" : "대칭 여백"}`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await registerAndDiagnose(page, "운송장 검증", "운송장 데이터를 입력받아 누락·중복을 검사하고 검증 결과를 출력한다.");
     const row = page.locator("#ax-decision-D3");
@@ -316,10 +317,15 @@ for (const width of [1440, 390]) {
       const panel = element.querySelector(".ax-decision-panel")!;
       const title = element.querySelector(".ax-decision-title strong")!.getBoundingClientRect();
       const label = panel.querySelector("label")!.getBoundingClientRect();
+      const input = panel.querySelector('[data-slot="textarea-control"]')!.getBoundingClientRect();
+      const badge = element.querySelector(".ax-decision-badge")!.getBoundingClientRect();
       const style = getComputedStyle(panel);
-      return { titleX: title.x, labelX: label.x, paddingLeft: parseFloat(style.paddingLeft), paddingRight: parseFloat(style.paddingRight) };
+      return { titleX: title.x, labelX: label.x, inputRight: input.right, badgeRight: badge.right, paddingLeft: parseFloat(style.paddingLeft), paddingRight: parseFloat(style.paddingRight) };
     });
-    expect(Math.abs(geometry.paddingLeft - geometry.paddingRight), JSON.stringify(geometry)).toBeLessThanOrEqual(1);
+    // 지시문 §3·PR #408: 1440px에서는 입력창 우측 끝선을 배지에 맞춘다.
+    // 좌 62px / 우 14px은 의도된 정렬이며, 대칭 여백은 모바일에서 유지한다.
+    if (width === 1440) expect(Math.abs(geometry.inputRight - geometry.badgeRight), JSON.stringify(geometry)).toBeLessThanOrEqual(1);
+    else expect(Math.abs(geometry.paddingLeft - geometry.paddingRight), JSON.stringify(geometry)).toBeLessThanOrEqual(1);
     if (width === 1440) expect(Math.abs(geometry.labelX - geometry.titleX), JSON.stringify(geometry)).toBeLessThanOrEqual(2);
   });
 }
