@@ -73,11 +73,6 @@ export function LearnCompletion({ progress, onBack }: LearnCompletionProps) {
         <p className="learn-completion-note">
           학습을 완료한 후에도 언제든 다시 학습하고 퀴즈에 응시할 수 있습니다.
         </p>
-        <div className="learn-actions" style={{ justifyContent: "center" }}>
-          <Button type="button" variant="default" onClick={onBack}>
-            학습센터로 돌아가기
-          </Button>
-        </div>
       </div>
     </div>
   );

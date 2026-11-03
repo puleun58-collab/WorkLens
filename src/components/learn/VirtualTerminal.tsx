@@ -89,7 +89,7 @@ export function VirtualTerminal({ scenario, instructions, successChecks, hint, o
         ) : (
           <ol className="learn-terminal-steps">
             {instructions.map((step, i) => (
-              <li key={i}>{i === 0 ? <><strong>실습 방법:</strong> </> : null}<LearnSeparatedText text={step} /></li>
+              <li key={i}><LearnSeparatedText text={step} /></li>
             ))}
           </ol>
         )}
@@ -140,7 +140,7 @@ export function VirtualTerminal({ scenario, instructions, successChecks, hint, o
       </div>
       {checked !== null ? (
         <p role="status" className={checked ? "learn-result-pass" : "learn-result-fail"}>
-          {checked ? <><strong>과제 성공:</strong> 요구한 상태가 모두 확인되었습니다.</> : <><strong>확인 결과:</strong> 아직 성공 조건을 만족하지 못했습니다. 실습 방법을 다시 확인해 보세요.</>}
+          {checked ? <><strong>과제 성공:</strong> 요구한 상태가 모두 확인되었습니다.</> : <><strong>확인 결과:</strong> 아직 성공 조건을 만족하지 못했습니다. 과제 내용을 다시 확인해 보세요.</>}
         </p>
       ) : null}
     </div>

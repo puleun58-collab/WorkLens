@@ -270,7 +270,7 @@ export function LearnLesson({ level, initialUnitId, progress, onPersistUnit, pra
             {inputKind !== "writing" ? (
               <div className="learn-practice-guidance">
                 <ol className="learn-practice-steps">
-                  {unit.practice.steps.map((step, index) => <li key={index}>{index === 0 ? <><strong>실습 방법:</strong>{" "}</> : null}<LearnSeparatedText text={step} /></li>)}
+                  {unit.practice.steps.map((step, index) => <li key={index}><LearnSeparatedText text={step} /></li>)}
                 </ol>
               </div>
             ) : null}

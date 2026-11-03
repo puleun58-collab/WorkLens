@@ -186,9 +186,6 @@ export function LearnQuiz({ level, questions, initialAnswers, initialIndex, init
 
         {q.type === "terminal-task" && q.terminalTask ? (
           <>
-            <p className="learn-muted">
-              <small><strong>공식 평가:</strong> 이 실습 과제의 결과는 점수에 반영됩니다.</small>
-            </p>
             <VirtualTerminal
               key={q.id}
               scenario={q.terminalTask.scenario}
