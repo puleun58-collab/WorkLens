@@ -119,10 +119,10 @@
 .ax-view [data-region=strategic] { --ax-region-color: #1d4ed8; }
 .ax-view [data-region=maybe] { --ax-region-color: #b45309; }
 .ax-view [data-region=hold] { --ax-region-color: #64748b; }
-/* 결과·로드맵: 목록과 우측 현황의 시작선을 맞추고, 기존 상세 영역을 순서대로 유지한다. */
+/* 결과·로드맵: 상단만 1:2로 배치하고, 하단 상세는 전체 폭으로 유지한다. */
 .ax-step4-grid { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,2fr); gap: 24px; align-items: start; }
 .ax-step4-content { display: grid; gap: 20px; min-width: 0; }
-.ax-step4-content .ax-kpi-cards { grid-template-columns: repeat(2,minmax(0,1fr)); }
+.ax-step4-content .ax-kpi-cards { grid-template-columns: minmax(0,1fr); grid-auto-rows: 1fr; }
 .ax-result-task-panel .ax-priority-list { display: grid; grid-auto-rows: 1fr; }
 .ax-result-task-panel .ax-priority-list > li { display: flex; margin: 0; padding-block: 4px; }
 .ax-result-task-panel .ax-priority-list > li + li { border-top: 1px solid var(--border); }
