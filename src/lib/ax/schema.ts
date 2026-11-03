@@ -239,6 +239,17 @@ export const checkConfirmationSchema = z.object({
 }).strict();
 
 // v2: HITL 검토 데이터 포함
+export const axFollowUpResponseSchema = z.object({
+  id: z.string().min(1).max(120),
+  question: z.string().trim().min(1).max(1000),
+  answer: z.string().max(500),
+  attachments: z.array(axAttachmentMetaSchema).max(AX_LIMITS.attachments),
+  updatedAt: z.iso.datetime(),
+}).strict().superRefine((response, ctx) => {
+  if (new Set(response.attachments.map(file => file.fingerprint)).size !== response.attachments.length) {
+    ctx.addIssue({ code: "custom", message: "질문 첨부 파일이 중복되었습니다." });
+  }
+});
 export const axTaskV2Schema = axTaskSchema.extend({
   // 등록 수정 후 재진단 전까지 기존 결과가 새 입력을 확정 근거로 사용하지 않도록 보존한다.
   diagnosisRegistration: z.object({
@@ -263,6 +274,21 @@ export const axTaskV2Schema = axTaskSchema.extend({
   verificationResults: z.array(verificationResultSchema).max(50).optional(),
   // 기술 확인 항목 확인 기록: 진단 원본과 분리된 사용자 기록 (선택 필드, 기존 데이터 호환).
   checkConfirmations: z.array(checkConfirmationSchema).max(30).optional(),
+  followUpResponses: z.array(axFollowUpResponseSchema).max(100).optional(),
+  followUpDiagnosis: z.object({
+    description: axTaskSchema.shape.description,
+    context: z.string().max(60000),
+    files: z.array(z.object({
+      responseId: z.string().min(1).max(120), fingerprint: axAttachmentMetaSchema.shape.fingerprint,
+      status: z.enum(["read", "partial", "unavailable"]), reason: z.string().max(1000),
+    }).strict()).max(1000).optional(),
+  }).strict().optional(),
+}).superRefine((task, ctx) => {
+  const records = task.followUpResponses ?? [];
+  if (new Set(records.map(record => record.id)).size !== records.length
+    || new Set(records.map(record => record.question)).size !== records.length) {
+    ctx.addIssue({ code: "custom", message: "질문 기록의 식별자 또는 질문이 중복되었습니다." });
+  }
 });
 
 export const axStateV2Schema = z.object({

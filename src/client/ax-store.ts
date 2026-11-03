@@ -37,6 +37,52 @@ export function restoreAxRecord(record: unknown): { state: AxStateV2; protection
   catch { return { state: emptyAxState(), protection: "invalid", notice: "저장된 AI•AX 데이터가 손상되었거나 지원하지 않는 버전입니다. 원본을 보존하고 자동 저장을 중단했습니다. 화면 작업은 내보내기로 보관하고, 초기화 또는 가져오기를 확인하면 저장을 다시 시작할 수 있습니다." }; }
 }
 export async function loadAxState() { return restoreAxRecord(await transaction("readonly", store => store.get(KEY))); }
+
+// Question originals are local-only Blob records, never part of the JSON state/export.
+function questionFileKey(taskId: string, responseId: string, fingerprint: string): IDBValidKey {
+  return ["question-file", taskId, responseId, fingerprint];
+}
+export async function saveAxQuestionFile(taskId: string, responseId: string, fingerprint: string, file: Blob): Promise<void> {
+  await transaction("readwrite", store => store.put(file, questionFileKey(taskId, responseId, fingerprint)));
+}
+export async function loadAxQuestionFile(taskId: string, responseId: string, fingerprint: string): Promise<Blob | undefined> {
+  return transaction("readonly", store => store.get(questionFileKey(taskId, responseId, fingerprint)));
+}
+export async function deleteAxQuestionFile(taskId: string, responseId: string, fingerprint: string): Promise<void> {
+  await transaction("readwrite", store => store.delete(questionFileKey(taskId, responseId, fingerprint)));
+}
+export async function deleteAxQuestionFiles(taskId?: string): Promise<void> {
+  const prefix = taskId === undefined ? ["question-file"] : ["question-file", taskId];
+  // Array keys sort after string keys: this range covers only this exact prefix.
+  const range = IDBKeyRange.bound(prefix, [...prefix, []], false, true);
+  const db = await openDb();
+  const { promise, resolve, reject } = Promise.withResolvers<void>();
+  let tx: IDBTransaction | undefined;
+  let failure: unknown;
+  try {
+    const active = db.transaction(STORE, "readwrite");
+    tx = active;
+    active.oncomplete = () => { db.close(); resolve(); };
+    active.onerror = active.onabort = () => { db.close(); reject(failure ?? active.error ?? new Error("브라우저 저장에 실패했습니다.")); };
+    const store = active.objectStore(STORE);
+    const request = store.openKeyCursor(range);
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor) return;
+      try {
+        store.delete(cursor.primaryKey);
+        cursor.continue();
+      } catch (error) {
+        failure = error;
+        active.abort();
+      }
+    };
+  } catch (error) {
+    if (tx) { failure = error; tx.abort(); }
+    else { db.close(); reject(error); }
+  }
+  return promise;
+}
 async function writeAxRecord(record: AxStateV2 | undefined, expected: string | undefined, explicit: boolean): Promise<string | undefined> {
   const db = await openDb();
   const { promise, resolve, reject } = Promise.withResolvers<string | undefined>();

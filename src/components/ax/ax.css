@@ -171,27 +171,28 @@
 .ax-process-head, .ax-result-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
 .ax-process-head h3, .ax-result-head h3 { margin: 0; }
 .ax-process-head small, .ax-result-head small { font-size: var(--font-size-xs); }
-.ax-process-core { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; margin-top: 16px; align-items: start; }
+.ax-process-core { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; margin-top: 16px; align-items: stretch; }
 .ax-process-field { display: grid; grid-template-columns: 34px minmax(0,1fr); align-content: start; gap: 12px; min-width: 0; padding: 16px; border-radius: 8px; background: color-mix(in srgb, var(--primary) 4%, var(--card)); }
 .ax-process-icon, .ax-tobe-icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 8px; background: color-mix(in srgb, var(--primary) 11%, var(--card)); color: var(--primary); }
 .ax-process-icon svg, .ax-tobe-icon svg { width: 18px; height: 18px; }
-.ax-process-field > div, .ax-process-extra > div { min-width: 0; }
-.ax-process-field h4, .ax-process-extra h4 { margin: 0 0 4px; font-size: var(--font-size-sm); }
-.ax-process-field p, .ax-process-extra p { margin: 0; }
-.ax-view .ax-process-field ul, .ax-view .ax-process-extra ul { margin: 0; padding: 0; list-style: none; }
+.ax-process-field > div, .ax-process-extra > div { min-width: 0; overflow-wrap: anywhere; word-break: normal; }
+.ax-process-field h4, .ax-process-extra h4 { margin: 0 0 8px; font-size: var(--font-size-sm); line-height: 1.5; }
+.ax-process-field p, .ax-process-extra p { margin: 0; line-height: 1.65; white-space: pre-line; }
+.ax-view .ax-process-field ul, .ax-view .ax-process-extra ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.ax-view .ax-process-field li, .ax-view .ax-process-extra li { margin: 0; line-height: 1.65; white-space: pre-line; }
 .ax-view .ax-tobe-flow { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%, 90px),1fr)); gap: 16px; padding: 12px; margin: 0; list-style: none; border: 1.5px solid var(--border); border-radius: 8px; }
 .ax-process-node, .ax-tobe-item { position: relative; display: flex; flex-direction: column; align-items: center; min-width: 0; margin: 0; padding: 8px 4px; overflow-wrap: anywhere; text-align: center; }
 .ax-process-node > span:nth-child(2) { margin-top: 8px; font-weight: var(--font-weight-medium); }
 .ax-step-number { display: inline-grid; place-items: center; min-width: 26px; height: 24px; padding: 0 5px; border-radius: 5px; background: var(--muted-surface); color: var(--muted-foreground); font-size: var(--font-size-xs); font-weight: var(--font-weight-semibold); font-variant-numeric: tabular-nums; }
 .ax-process-arrow, .ax-tobe-arrow { position: absolute; top: 24px; right: -14px; width: 14px; height: 14px; color: color-mix(in srgb, var(--primary) 50%, var(--muted-foreground)); }
-.ax-process-extras { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; margin-top: 12px; align-items: start; }
-.ax-process-extra { display: grid; grid-template-columns: 22px minmax(0,1fr); gap: 10px; align-items: start; min-width: 0; padding: 14px; border-radius: 8px; background: color-mix(in srgb, var(--warning) 6%, var(--card)); }
-/* Match the first title line, independent of wrapped titles and the list below. */
-.ax-process-extra > svg { width: 18px; height: 18px; font-size: var(--font-size-sm); line-height: inherit; margin-top: calc((1lh - 18px) / 2); color: var(--warning); }
+.ax-process-extras { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; margin-top: 12px; align-items: stretch; }
+.ax-process-extra { display: grid; grid-template-columns: 34px minmax(0,1fr); gap: 12px; align-content: start; align-items: start; min-width: 0; padding: 16px; border-radius: 8px; background: color-mix(in srgb, var(--warning) 6%, var(--card)); }
+/* 아이콘 폭과 제목 시작선은 기본 정보 카드와 같게 유지한다. */
+.ax-process-extra > svg { justify-self: center; width: 18px; height: 18px; margin-top: 2px; color: var(--warning); }
 .ax-process-extra[data-kind="human"] { background: var(--muted-surface); }
 .ax-process-extra[data-kind="human"] > svg { color: #d97706; }
 /* 사용 시스템은 정보량에 맞춰 한 줄로 표시한다 (시스템명·구분자는 원본 표시 그대로). */
-.ax-process-systems { display: flex; align-items: center; gap: 8px; min-width: 0; margin-top: 10px; padding: 9px 14px; border-radius: 8px; background: color-mix(in srgb, var(--primary) 5%, var(--card)); font-size: var(--font-size-sm); }
+.ax-process-systems { display: flex; align-items: flex-start; gap: 12px; min-width: 0; margin-top: 12px; padding: 12px 16px; border-radius: 8px; background: color-mix(in srgb, var(--primary) 5%, var(--card)); font-size: var(--font-size-sm); line-height: 1.65; }
 .ax-process-systems > svg { flex: none; width: 18px; height: 18px; color: var(--primary); }
 .ax-process-systems p { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .ax-process-systems strong { font-weight: 600; }
@@ -770,16 +771,11 @@
 .ax-diag-summary-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .ax-diag-summary-head h3 { margin: 0; font-size: 15px; }
 .ax-diag-summary > p.ax-diag-source { margin: 0; font-size: 12px; }
-/* 업무 진단(3카드+확인 필요)·자동화 구현 계획(4열) 공통 요약 카드 (AxStatCards): 흰색 원형 아이콘 + 항목명 + 큰 숫자·단위. */
+/* 업무 진단·결과·로드맵 공통 판정 분포 3카드: 흰색 원형 아이콘 + 항목명 + 큰 숫자·단위. */
 .ax-verdict-cards { margin: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-.ax-verdict-cards[data-cols="4"] { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .ax-verdict-card { --tone: #2563eb; --tone-bg: #eff6ff; --tone-border: #dbeafe; display: grid; grid-template-columns: 40px minmax(0, 1fr); grid-template-rows: auto auto; column-gap: 12px; align-items: center; padding: 14px 16px; border: 1px solid var(--tone-border); border-radius: 12px; background: var(--tone-bg); }
 .ax-verdict-card[data-tone="violet"] { --tone: #7c3aed; --tone-bg: #f5f3ff; --tone-border: #ede9fe; }
 .ax-verdict-card[data-tone="green"] { --tone: #16a34a; --tone-bg: #f0fdf4; --tone-border: #dcfce7; }
-.ax-verdict-card[data-tone="yellow"] { --tone: #ca8a04; --tone-bg: #fefce8; --tone-border: #fef08a; }
-/* 확인 필요(구현 전 미확인 항목) 카드: 기존 확인 필요 안내의 파란 계열(핵심 판단 패널과 같은 톤). */
-.ax-verdict-card[data-tone="info"] { --tone: var(--primary); --tone-bg: #f5f9ff; --tone-border: #dbeafe; }
-.ax-verdict-action { grid-column: 2; justify-self: start; margin-top: 6px; }
 .ax-verdict-icon { grid-row: 1 / span 2; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; color: var(--tone); background: var(--card); box-shadow: inset 0 0 0 1px var(--tone-border); }
 .ax-verdict-card dt { min-width: 0; font-size: 13px; font-weight: 600; color: var(--muted-foreground); overflow-wrap: anywhere; }
 .ax-verdict-card dd { margin: 0; font-size: 13px; color: var(--muted-foreground); }
@@ -827,11 +823,8 @@
   .ax-diag-head { flex-direction: column; align-items: stretch; }
   .ax-diag-actions { width: 100%; }
   .ax-diag-actions > * { flex: 1; }
-  .ax-verdict-cards, .ax-verdict-cards[data-cols="4"] { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .ax-verdict-cards { grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .ax-verdict-card { padding: 10px 14px; }
-}
-@media (min-width: 701px) and (max-width: 1100px) {
-  .ax-verdict-cards[data-cols="4"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 /* HITL 검토 UI */
@@ -872,9 +865,9 @@
 .ax-hitl-type-badge { font-size: 11px; padding: 2px 8px; border-radius: 4px; background: var(--muted-surface, #f1f5f9); color: var(--foreground, #1e293b); white-space: nowrap; flex-shrink: 0; }
 /* HITL 테이블형 UI (레퍼런스 기준) */
 .ax-hitl-table-card { background: var(--card); border: 1.5px solid var(--line-soft); border-radius: 12px; overflow: hidden; }
-/* 검토 영역 공통 아코디언 트리거(단계별 자동화 판단·위험·확인사항 검토·구현 계획 검토·
-   구현 전 확인): 헤더 전체가 트리거이고 셰브론은 COSS 기본 지시자다. 항목 패널이 열려
-   입력 중일 때 비활성화돼도 흐려 보이지 않게 하고, 헤더 하단 구분선은 펼침 상태에서만
+/* 검토 영역 공통 아코디언 트리거(단계별 자동화 판단·위험·확인사항 검토·구현 계획 검토):
+   헤더 전체가 트리거이고 셰브론은 COSS 기본 지시자다. 항목 패널이 열려 입력 중일 때
+   비활성화돼도 흐려 보이지 않게 하고, 헤더 하단 구분선은 펼침 상태에서만
    카드 전체 너비로 표시한다(접힘 상태에 남는 선·여백 없음). */
 /* 제목줄 셰브론의 오른쪽 끝을 하단 표 검토 버튼의 오른쪽 테두리선에 맞춘다.
    검토 버튼의 오른쪽 여백 = 작업 열 너비 76px − 셀 오른쪽 여백 8px − 버튼 너비 46px
@@ -1105,29 +1098,7 @@
 /* 업무 규칙 확인 통합 — 신규 배지 */
 .ax-decision-no-new { width: auto; padding: 0 10px; font-size: 11px; }
 
-/* 결과·로드맵: 요약 카드·구현 전 확인 → 원본 실행 순서 목록 → 구현 범위·완료 기준 */
-.ax-precheck { padding: 16px 0 0; text-align: left; }
-.ax-precheck-items { margin: 0; padding: 0 16px; list-style: none; display: grid; gap: 0; }
-.ax-precheck-row { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; padding: 12px 0; border-top: 1px solid var(--line-soft); }
-.ax-precheck-row:first-child { border-top: 0; }
-.ax-precheck-row-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.ax-precheck-row > button { flex: none; }
-.ax-precheck-row strong { min-width: 0; font-size: 14px; overflow-wrap: anywhere; }
-.ax-precheck-row-text > span { font-size: 13px; color: var(--muted-foreground); line-height: 1.55; overflow-wrap: anywhere; }
-.ax-precheck-row small { font-size: 12px; color: var(--muted-foreground); }
-.ax-precheck-empty { margin: 0; padding: 12px 16px; }
-.ax-precheck-blocked { margin-top: 14px; }
-.ax-precheck-blocked h4 { margin: 0 0 8px; font-size: 14px; }
-.ax-precheck-blocked ul, .ax-precheck-list { margin: 0; padding: 0; list-style: none; }
-.ax-precheck-blocked li { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--border); }
-.ax-precheck-blocked li:first-child { border-top: 0; }
-.ax-precheck-list { display: grid; gap: 0; margin-top: 6px; }
-.ax-precheck-item { padding: 12px 0; border-top: 1px solid var(--border); }
-.ax-precheck-item-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.ax-precheck-item-head strong { font-size: 14px; }
-.ax-precheck-item-head .ax-precheck-action { margin-left: auto; }
-.ax-precheck-item p { margin: 6px 0 0; color: var(--muted-foreground); font-size: 13px; line-height: 1.6; }
-.ax-precheck-guidance { font-size: 13px; }
+/* 결과·로드맵: 진단 결과 요약 → 원본 실행 순서 목록 → 완료 기준 */
 .ax-plan-head-icon { flex: none; color: var(--primary); }
 .ax-plan-groups-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 0; }
 .ax-plan-groups-tools .ax-hitl-plan-tabs { margin: 0; }
@@ -1167,3 +1138,15 @@
 .ax-fix-rounds ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .ax-fix-rounds li { font-size: 14px; line-height: 1.6; }
 .ax-fix-preview { margin-top: 16px; }
+
+.ax-question { display: grid; gap: 8px; margin-top: 16px; min-width: 0; }
+.ax-question-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.ax-question-head > label { min-width: 0; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.ax-question-head .ax-file-input { flex: none; margin: 0; }
+.ax-question-actions { display: flex; justify-content: flex-end; }
+.ax-priority-row { align-items: center; padding-block: 10px; }
+.ax-priority-row > .ax-task-name { min-width: 0; white-space: normal; }
+@media (max-width: 480px) {
+  .ax-question-head { gap: 8px; align-items: flex-start; }
+  .ax-question-head .ax-file-input button { padding-inline: 10px; }
+}

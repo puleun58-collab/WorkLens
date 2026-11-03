@@ -61,42 +61,13 @@ test("AX 간소화·COSS 통일: 판단 하단 문구 제거·매트릭스 버�
   await expect(page.locator('section[aria-label$="매트릭스 상세"]')).toHaveCount(0);
   await expect(page.getByRole("button", { name: "업무 진단으로 이동" })).toHaveCount(0);
 
-  // C·D. 결과·로드맵: 목록의 다음 행동 형식과 로드맵 헤더, 계획 헤더를 확인한다.
+  // 결과·로드맵 목록에는 업무명과 순위만 표시한다.
   await page.getByRole("button", { name: "다음 단계" }).click();
-  const nextAction = page.locator(".ax-next-action").first();
-  await expect(nextAction).toBeVisible();
-  await expect(nextAction).not.toContainText("먼저 확인");
-  await expect(nextAction).not.toContainText("—");
-  await expect(nextAction).toContainText("다음 행동");
+  await expect(page.locator(".ax-next-action")).toHaveCount(0);
   await expect(page.locator(".ax-report-intro").getByRole("button", { name: "업무 진단으로 이동" })).toHaveCount(0);
   await expect(page.locator("#ax-plan-section .ax-plan-head")).not.toContainText("운송장 검증");
 
-  const precheck = page.locator('section[aria-label="구현 전 확인"]');
-  await expect(precheck).toBeVisible();
-  // 반복 문구 제거: 기존 "업무 진단에서 확인" 버튼은 precheck에 남아 있지 않다.
-  await expect(precheck.getByRole("button", { name: "업무 진단에서 확인" })).toHaveCount(0);
-  // 요약 전용: ①에는 상세 문구가 없고 미해결 건수 배지만 표시된다.
-  await expect(precheck.getByText("업무 처리 예시 미확정")).toHaveCount(0);
-  await expect(precheck).not.toContainText("업무 처리 예시 미확정");
-  await expect(precheck.locator(".ax-precheck-head")).toContainText(/미해결 \d+건/);
-
-  // E. ①에는 헤더 펼침 토글 버튼 1개만 있고, 항목별 이동 버튼은 없다.
-  // 각 목적지는 단계 내비게이션과 진단 화면에서 도달한다.
-  await expect(precheck.getByRole("button")).toHaveCount(1);
-  await expect(precheck.getByRole("button", { name: "계획 검토" })).toHaveCount(0);
-  await expect(precheck.getByRole("button", { name: "HITL 검토" })).toHaveCount(0);
-  await expect(precheck.getByRole("button", { name: "규칙 확인" })).toHaveCount(0);
-  await expect(precheck.getByRole("button", { name: "예시 확인" })).toHaveCount(0);
-  // 펼치면 실제 미해결 항목과 해당 항목의 확인 위치로 가는 버튼이 보인다.
-  // 표시 건수는 배지 건수와 같다 (같은 집계 기준).
-  await precheck.getByRole("button", { name: /구현 전 확인/ }).click();
-  await expect(precheck.locator(".ax-precheck-items")).toBeVisible();
-  const badgeText = await precheck.locator(".ax-precheck-head").textContent();
-  const badgeCount = Number(/미해결 (\d+)건/.exec(badgeText ?? "")?.[1]);
-  await expect(precheck.locator(".ax-precheck-row")).toHaveCount(badgeCount);
-  await expect(precheck.getByRole("button", { name: "확인", exact: true })).toHaveCount(badgeCount);
-  await expect(precheck.getByRole("button", { name: "계획 검토" })).toHaveCount(0);
-  await expect(precheck.getByRole("button", { name: "업무 정보 수정" })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "구현 전 확인", exact: true })).toHaveCount(0);
 
   // E. 구현 계획은 원본 실행 순서의 단계별 검토에서 직접 확인한다.
   await page.getByRole("button", { name: "Codex용 구현 계획 생성" }).click();
@@ -126,7 +97,7 @@ test("AX 간소화·COSS 통일: 판단 하단 문구 제거·매트릭스 버�
   await expect(unified.getByText("업무 규칙을 저장했습니다", { exact: true })).toBeVisible();
   await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
   await expect(page.locator(".ax-report-intro h2")).toContainText("운송장 검증");
-  await expect(precheck).toBeVisible();
+  await expect(page.getByRole("region", { name: "구현 전 확인", exact: true })).toHaveCount(0);
 
   // E. 업무 정보 수정은 업무 진단 화면의 등록 정보 수정 버튼으로 이동한다.
   await page.getByRole("tab", { name: "업무 진단", exact: true }).click();
@@ -135,14 +106,13 @@ test("AX 간소화·COSS 통일: 판단 하단 문구 제거·매트릭스 버�
   await expect(page.getByLabel("업무명", { exact: true })).toHaveValue("운송장 검증");
 });
 
-test("AX 간소화·COSS 통일: 모바일 390에서 목록·다음 행동이 넘치지 않는다", async ({ page }) => {
+test("AX 간소화·COSS 통일: 모바일 390에서 업무 목록이 넘치지 않는다", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await registerAndDiagnose(page);
   await page.getByRole("button", { name: "다음 단계" }).click();
   await page.getByRole("button", { name: "다음 단계" }).click();
-  const nextAction = page.locator(".ax-next-action").first();
-  await expect(nextAction).toBeVisible();
-  await expect(nextAction).not.toContainText("먼저 확인");
+  await expect(page.getByRole("list", { name: "업무 목록", exact: true })).toBeVisible();
+  await expect(page.locator(".ax-next-action")).toHaveCount(0);
   const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
   expect(scrollWidth).toBeLessThanOrEqual(391);
 });

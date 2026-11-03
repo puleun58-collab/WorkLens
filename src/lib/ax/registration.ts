@@ -61,6 +61,8 @@ export function preserveRegistrationHistory(previous: AxTaskV2, registration: Ax
     genericRules: previous.genericRules,
     verificationResults: previous.verificationResults,
     checkConfirmations: previous.checkConfirmations,
+    followUpResponses: previous.followUpResponses,
+    followUpDiagnosis: previous.followUpDiagnosis,
   };
 }
 

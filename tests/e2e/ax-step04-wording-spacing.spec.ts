@@ -18,16 +18,6 @@ async function seed(page: Page, value: unknown) {
     db.close();
   }, value);
 }
-// 계획이 없는 진단도 구현 전 확인의 집계와 실제 확인 위치 이동을 제공한다.
-async function openStep4NoPlan(page: Page) {
-  const task = taskFixture("step04-spacing", diagnosisFixture);
-  await page.goto("/");
-  await seed(page, { ...emptyAxState(), tasks: [task], selectedTaskId: task.id, step: 4 });
-  await ax(page);
-  const section = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
-  await expect(section.getByRole("region", { name: "구현 전 확인", exact: true })).toBeVisible();
-  return section;
-}
 // 한쪽 도구에 계획이 있을 때만 반대쪽 탭에 안내 문구 + 생성 버튼이 표시된다.
 // (양쪽 계획이 없으면 탭 UI 대신 안내 문단만 표시된다.)
 async function openStep4WithPlan(page: Page, existing: "codex" | "claude") {
@@ -39,7 +29,6 @@ async function openStep4WithPlan(page: Page, existing: "codex" | "claude") {
   await seed(page, { ...emptyAxState(), tasks: [task], selectedTaskId: task.id, step: 4 });
   await ax(page);
   const section = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
-  await expect(section.getByRole("region", { name: "구현 전 확인", exact: true })).toBeVisible();
   return section;
 }
 async function hintButtonGap(page: Page, tab: "Codex" | "Claude Code") {
@@ -66,38 +55,6 @@ async function hintButtonGap(page: Page, tab: "Codex" | "Claude Code") {
   return gap!;
 }
 
-test("구현 전 확인: 미해결 집계·겹침 없음·실제 확인 위치 이동", async ({ page }) => {
-  const section = await openStep4NoPlan(page);
-  const block = section.getByRole("region", { name: "구현 전 확인", exact: true });
-  const toggle = block.getByRole("button", { name: /구현 전 확인/ });
-  await expect(toggle).toHaveAttribute("aria-expanded", "false");
-  const summary = await block.locator(".ax-precheck-head").innerText();
-  const count = Number(/(?:미해결|진행 보류)\s+(\d+)건/u.exec(summary)?.[1]);
-  expect(count).toBeGreaterThan(0);
-  await expect(block.locator(".ax-precheck-row")).toHaveCount(0);
-  // 제목·다음 섹션 사이 간격이 자연스럽다(겹침 없음).
-  // 위쪽·아래쪽 박스를 한 번의 evaluate 안에서 읽는다(스크롤 경합 방지).
-  const headNextGap = await block.evaluate(root => {
-    const upper = root;
-    const lower = root.closest(".ax-plan-stack")?.querySelector("#ax-plan-review");
-    if (!upper || !lower) return null;
-    const u = upper.getBoundingClientRect();
-    const l = lower.getBoundingClientRect();
-    return Math.round(l.top - u.bottom);
-  });
-  expect(headNextGap).not.toBeNull();
-  expect(headNextGap!).toBeGreaterThanOrEqual(0);
-  await toggle.click();
-  const rows = block.locator(".ax-precheck-row");
-  await expect(rows).toHaveCount(count);
-  const systemCheck = rows.filter({ has: page.getByText("시스템 접근", { exact: true }) });
-  await systemCheck.getByRole("button", { name: "확인", exact: true }).click();
-  const checks = page.locator(".ax-diag-checks");
-  await expect(checks).toBeVisible();
-  const target = checks.locator("li").filter({ has: page.getByText("시스템 접근", { exact: true }) });
-  await expect(target).toBeVisible();
-  await expect(target.getByRole("combobox", { name: "확인 결과", exact: true })).toHaveText("미확인");
-});
 
 test("올인원 지시문: 안내 문구와 생성 버튼 간격 12~16px (Codex·Claude 동일)", async ({ page }) => {
   // Claude 계획만 있을 때 Codex 탭에 힌트 + 생성 버튼이 표시된다.

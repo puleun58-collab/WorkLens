@@ -84,26 +84,16 @@ test("AX 확인 필요 항목: 근거와 함께 확인 완료를 저장하면 �
   await page.reload();
   await navigateWorkspace(page, "업무 자동화 진단");
   await expect(card.locator(".ax-diag-checks > ul > li")).toHaveCount(1);
-  // 결과·로드맵: 구현 전 확인에서 제외되고, 남은 항목의 '확인하러 가기'는 업무 진단의 해당 입력을 연다.
   await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
   const plan = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
-  const precheck = plan.getByRole("region", { name: "구현 전 확인", exact: true });
-  await precheck.getByRole("button", { name: /구현 전 확인/ }).click();
-  await expect(precheck).not.toContainText("파일 저장소 접근 권한");
   // 올인원 지시문에 담당자 확인 근거가 반영된다.
   await plan.getByRole("region", { name: "올인원 지시문", exact: true }).getByRole("button", { name: "전체 보기", exact: true }).click();
   await expect(plan.locator(".ax-prompt")).toContainText("IT팀이 서비스 계정에 읽기·쓰기 권한 부여 확인");
-  const target = precheck.locator(".ax-precheck-row").filter({ hasText: "보고서 템플릿 자동화" });
-  // 한 줄 구성(굵은 항목명 + 확인)이며 보조 설명·확인 위치 문구는 없다.
-  await expect(target).not.toContainText("확인 위치");
+  await page.getByRole("tab", { name: "업무 진단", exact: true }).click();
+  const target = card.locator(".ax-diag-checks > ul > li").filter({ hasText: "보고서 템플릿 자동화" });
   await target.getByRole("button", { name: "확인", exact: true }).click();
-  await expect(page.getByRole("tab", { name: "업무 진단", exact: true })).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".ax-diag-card h2")).toHaveText("업무 A");
   await expect(page.getByRole("group", { name: "보고서 템플릿 자동화 확인 결과 입력" })).toBeVisible();
-  // 이동 후 항목 제목이 고정 헤더 아래에 먼저 보인다.
-  const title = page.locator(".ax-diag-checks li").filter({ hasText: "보고서 템플릿 자동화" }).locator(".ax-check-text strong");
-  await expect.poll(async () => (await title.boundingBox())?.y ?? -1).toBeGreaterThan(60);
-  await expect.poll(async () => (await title.boundingBox())?.y ?? 9999).toBeLessThan(220);
   // 업무 B는 영향 없음
   await page.locator('section[aria-label="등록 업무 목록"]').getByRole("button", { name: /업무 B/ }).click();
   await expect(card.locator(".ax-diag-checks > ul > li")).toHaveCount(2);

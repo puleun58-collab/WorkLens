@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useId, useRef, useState } from "react";
-import { AlertTriangle, ArrowRight, BarChart3, Bot, BrainCircuit, Check, CheckCircle2, CircleCheck, Clipboard, ClipboardCheck, ClipboardList, CloudUpload, Copy, Database, Download, FileCode2, FileOutput, FilePlus2, FileSpreadsheet, FileText, Flag, Folder, GitBranch, GitMerge, GitPullRequest, Globe, Info, ListChecks, Monitor, MonitorCog, Play, Plug, Rocket, Settings2, ShieldAlert, ShieldCheck, Sparkles, Target, Terminal, UserRound } from "lucide-react";
+import { AlertTriangle, ArrowRight, BarChart3, Bot, BrainCircuit, Check, CheckCircle2, CircleCheck, Clipboard, ClipboardList, CloudUpload, Copy, Database, Download, FileCode2, FileOutput, FilePlus2, FileSpreadsheet, FileText, Flag, Folder, GitBranch, GitMerge, GitPullRequest, Globe, Info, ListChecks, Monitor, MonitorCog, Play, Plug, Rocket, Settings2, ShieldAlert, ShieldCheck, Sparkles, Target, Terminal, UserCheck, UserRound, Zap } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { AxDiagnosis, AxPlan, AxTask, AxTaskV2, HitlReview, VerificationResult } from "@/lib/ax/types";
 import { automationLevel, axes, executionGate, executionProfile, factorEffectiveValue, GATE_LABELS, gateBlockReasons, levelDescription, levelDisplayLabel, nextAction, prerequisiteTopicKey, splitGatePrerequisites } from "@/lib/ax/policy";
@@ -343,7 +343,7 @@ export function AxProcess({ diagnosis: d, reviewProps }: { diagnosis: AxDiagnosi
   ];
   return <>
     <section className="ax-section ax-panel ax-process-card">
-      <header className="ax-process-head"><h3>AS-IS · 현재 업무</h3><small>현재 업무 구조 분석</small></header>
+      <header className="ax-process-head"><h3>AS-IS · 현재 업무</h3></header>
       <div className="ax-process-core">{core.map(({ label, icon: Icon, value }) => <div className="ax-process-field" key={label}>
         <span className="ax-process-icon"><Icon aria-hidden="true" /></span><div><h4>{label}</h4>{typeof value === "string" ? <p>{uiText(value)}</p> : value}</div>
       </div>)}</div>
@@ -371,8 +371,8 @@ function ReviewCounts({ total, completed }: { total: number; completed: number }
   </>;
 }
 
-/** 검토 영역 공통 COSS 아코디언: 단계별 자동화 판단·위험·확인사항 검토·구현 계획 검토·
- * 구현 전 확인이 같은 카드·헤더(아이콘 + 제목 | 상태·건수 + 셰브론) 규격을 쓴다.
+/** 검토 영역 공통 COSS 아코디언: 단계별 자동화 판단·위험·확인사항 검토·구현 계획 검토가
+ * 같은 카드·헤더(아이콘 + 제목 | 상태·건수 + 셰브론) 규격을 쓴다.
  * 셰브론은 COSS AccordionTrigger 기본 지시자(접힘 아래·펼침 위)이며, 헤더 전체가
  * 트리거라 클릭·Enter·Space·aria-expanded를 Base UI가 처리한다. 펼침 상태는 호출부가
  * 소유한다. locked는 항목 검토 패널이 열려 입력 중일 때 접기를 막는 입력 보호다. */
@@ -803,13 +803,8 @@ function AxSetupGuide({ tool, instructionsId, onGoToInstructions }: { tool: AxTo
 function AxPlanHeading({ no, title, description, id }: { no?: string; title: string; description?: string; id?: string }) {
   return <div className="ax-plan-title"><h4 id={id} tabIndex={id ? -1 : undefined}>{no ? <><span className="ax-plan-no">{no}</span> </> : null}{title}</h4>{description ? <p className="ax-plan-desc">{uiText(description)}</p> : null}</div>;
 }
-/** ① 구현 전 확인: 검토 영역 공통 아코디언(기본 접힘)에 제목 + 미해결 건수만 표시한다.
- * 펼치면 배지 건수와 같은 집계 기준의 실제 미해결 항목을 짧은 목록으로 보여준다
- * (차단 사유 + 미완료 기술 확인 + 미완료 추가 확인 + 기준 충돌). 항목을 펼쳐 보는
- * 것만으로 완료 처리하지 않으며, 확인 위치는 안내 문구로만 표시하고 개별 이동
- * 버튼은 만들지 않는다. 의미상 중복을 확정할 수 없는 항목은 임의로 합치거나
- * 숨기지 않으므로, 목록 길이는 항상 배지 건수와 같다.
- * 항목별 이동 대상 판정(resolvePrecheckTarget)은 단위 테스트가 유지하므로 삭제하지 않는다. */
+/** 원본 요약의 미해결 조건 표시 모델. 독립 확인 UI와 무관하게 확인 기록·조건 집계에서
+ * 같은 기준을 사용한다. 원본 데이터와 실행 조건은 변경하지 않는다. */
 export type PrecheckListItem = { title: string; detail: string; target: PrecheckTarget };
 /** 표시 정리: 제목과 설명이 같은 문장이면 제목에서 끝의 상태 표기("(확인 필요)" 등)만 떼어 설명으로 쓰고,
  * 제목·설명이 모두 같은 항목(같은 확인 조건이 여러 출처에서 온 경우)은 한 번만 보인다. 서로 다른
@@ -839,23 +834,6 @@ export function precheckListItems(summary: AxPlanSummary): PrecheckListItem[] {
   for (const text of summary.conflictingCriteria ?? []) items.push({ title: text, detail: "성공·실패 기준 충돌 — 확인 필요", target: resolvePrecheckTarget({ topic: text, origin: "conflict" }) });
   for (const text of summary.numericConflictCriteria ?? []) items.push({ title: text, detail: "수치·허용 기준 상충 — 확인 필요", target: resolvePrecheckTarget({ topic: text, origin: "conflict" }) });
   return tidyPrecheckItems(items);
-}
-/** 모든 미해결 항목은 같은 확인 버튼으로 실제 확인·수정 위치에 연결한다.
- * 이동만으로 완료 처리하지 않는다. */
-function AxPrecheckSection({ summary, onGoToTarget }: { summary: AxPlanSummary; onGoToTarget?: (target: PrecheckTarget, topic: string) => void }) {
-  const [open, setOpen] = useState(false);
-  const items = precheckListItems(summary);
-  const count = items.length;
-  const blocked = summary.blockReasons.length > 0;
-  return <AxReviewAccordion className="ax-precheck" headClassName="ax-precheck-head" label="구현 전 확인" icon={ClipboardList} meta={<span>{blocked ? "진행 보류" : "미해결"} {count}건</span>} open={open} onOpenChange={setOpen}>
-    {count ? <ul className="ax-precheck-items">{items.map((item, i) => {
-      const target = item.target;
-      return <li key={i} className="ax-precheck-row">
-        <strong>{uiText(item.title)}</strong>
-        {onGoToTarget ? <Button type="button" variant="outline" size="sm" onClick={() => onGoToTarget(target, item.title)}>확인</Button> : null}
-      </li>;
-    })}</ul> : <p className="ax-muted ax-precheck-empty">필수 확인사항 없음</p>}
-  </AxReviewAccordion>;
 }
 /**
  * Display-only folding of a step method label: the unconfirmed-method boilerplate
@@ -971,28 +949,28 @@ export function scopeSummaryRows(summary: AxPlanSummary): {
     criteriaNotices: [...new Set(orderedCriteriaRows.map(row => row.notice).filter((notice): notice is string => !!notice))],
   };
 }
-/** 업무 진단(3카드+확인 필요)·자동화 구현 계획(4카드) 공통 요약 카드: 흰색 원형 아이콘 + 항목명 + 큰 숫자·단위.
- * 열 수는 카드 개수로 정해지고(3열·4열), 카드 디자인은 동일하다. 숫자는 호출부가 각 화면의 집계로 넘긴다.
- * action은 해당 카드의 이동 버튼(예: 확인 필요 항목 보기)만 둔다. */
-export interface AxStatCard { key: string; label: string; tone: "blue" | "violet" | "green" | "yellow" | "info"; icon: LucideIcon; count: number; unit?: string; action?: React.ReactNode }
+/** 업무 진단·결과·로드맵의 공통 판정 분포 3카드. 숫자는 원본 단계 판정 건수를 쓴다. */
+export interface AxStatCard { key: string; label: string; tone: "blue" | "violet" | "green"; icon: LucideIcon; count: number }
 export function AxStatCards({ cards }: { cards: readonly AxStatCard[] }) {
-  return <dl className="ax-verdict-cards" data-cols={cards.length}>
+  return <dl className="ax-verdict-cards">
     {cards.map(card => <div key={card.key} className="ax-verdict-card" data-tone={card.tone}>
       <span className="ax-verdict-icon" aria-hidden="true"><card.icon size={18} /></span>
       <dt>{card.label}</dt>
-      <dd><strong>{card.count}</strong>{card.unit ?? "개"}</dd>
-      {card.action ? <div className="ax-verdict-action">{card.action}</div> : null}
+      <dd><strong>{card.count}</strong>개</dd>
     </div>)}
   </dl>;
 }
-/** 자동화 구현 계획 상단 4개 요약 카드: 단계 판정 건수(진단 stepAssessments)와 구현 전 확인의
- * 고유 미해결 항목 수(precheckListItems — 구현 전 확인 목록과 같은 집계)를 그대로 쓴다. */
-const PLAN_OVERVIEW_CARDS = [
-  { key: "자동화", label: "자동화 대상 단계", tone: "blue", icon: Settings2 },
-  { key: "AI 보조", label: "AI 보조 단계", tone: "violet", icon: Sparkles },
-  { key: "사람 유지", label: "담당자 수행 단계", tone: "green", icon: UserRound },
-  { key: "check", label: "확인 필요 항목", tone: "yellow", icon: ClipboardCheck },
+/** 두 화면에서 같은 라벨·아이콘·단계 판정 집계를 재사용한다. */
+const DIAGNOSIS_VERDICT_CARDS = [
+  { key: "자동화", label: "자동화 적합", tone: "blue", icon: Zap },
+  { key: "AI 보조", label: "AI 보조 적합", tone: "violet", icon: Sparkles },
+  { key: "사람 유지", label: "담당자 수행", tone: "green", icon: UserCheck },
 ] as const;
+export function diagnosisSummaryStats(diagnosis: AxDiagnosis): AxStatCard[] {
+  return DIAGNOSIS_VERDICT_CARDS.map(card => ({
+    ...card, count: diagnosis.stepAssessments.filter(step => step.verdict === card.key).length,
+  }));
+}
 /** 계획 검토 행 공통: 상태 표시(검토 완료·재확인 필요·보완 중·검토 전)와 검토 버튼, 펼치면 HITL 검토 패널. */
 interface PlanReviewControls {
   reviews: HitlReview[];
@@ -1225,7 +1203,7 @@ export function AxFixPromptSection({ diagnosis, plan, taskName, taskContext, pre
   </section>;
 }
 
-export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenerate, reviewProps, genericRules, activeTool: controlledTool, onToolChange, onGoToTarget }: {
+export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenerate, reviewProps, genericRules, activeTool: controlledTool, onToolChange }: {
 
   diagnosis: AxDiagnosis;
   taskName: string;
@@ -1238,8 +1216,6 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
    * 미제공 시 기존 내부 상태 동작을 유지한다. */
   activeTool?: AxToolId;
   onToolChange?: (tool: AxToolId) => void;
-  /** 구현 전 확인 '확인하러 가기' 이동 (선택 업무 기준). */
-  onGoToTarget?: (target: PrecheckTarget, topic: string) => void;
 }) {
   const profile = executionProfile(diagnosis);
   const gate = profile.gate;
@@ -1273,13 +1249,12 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [stepsExpanded, setStepsExpanded] = useState(true);
   const controls: PlanReviewControls | undefined = reviewProps ? { reviews: reviewProps.reviews, validKeys, openKey, editingKey, setOpenKey, setEditingKey, onSaveReview: reviewProps.onSaveReview } : undefined;
-  // 화면 구성: 4개 요약 카드 → 구현 전 확인 → 구현 계획 → 완료 기준 → 기존 후속 영역.
-  // 바깥 래퍼는 기존 "자동화 구현 계획" 영역 이름과 이동 대상 id를 그대로 유지한다.
+  // 화면 구성: 진단 결과 요약 3카드 → 구현 계획 → 완료 기준 → 기존 후속 영역.
+  // 실행 조건·요약·HITL·올인원 지시문에 전달하는 안전정보는 그대로 유지한다.
   return <div className="ax-plan-stack" id="ax-plan-section" role="region" aria-label="자동화 구현 계획"><section className="ax-surface ax-plan-overview-surface">
-    <div className="ax-plan-head"><BarChart3 size={24} aria-hidden="true" className="ax-plan-head-icon" /><h3>자동화 구현 계획</h3></div>
-    <AxStatCards cards={PLAN_OVERVIEW_CARDS.map(card => ({ ...card, count: card.key === "check" ? precheckListItems(summary).length : diagnosis.stepAssessments.filter(step => step.verdict === card.key).length }))} />
+    <div className="ax-plan-head"><BarChart3 size={24} aria-hidden="true" className="ax-plan-head-icon" /><h3>진단 결과 요약</h3></div>
+    <AxStatCards cards={diagnosisSummaryStats(diagnosis)} />
   </section>
-  <AxPrecheckSection summary={summary} onGoToTarget={onGoToTarget} />
   <AxReviewAccordion className="ax-plan-groups-surface" id="ax-plan-review" regionLabel="구현 계획" label={`구현 계획 (${reviewPlan?.implementation.length ?? 0}개)`} icon={ListChecks} meta={<ReviewCounts total={planItems.length} completed={planItems.filter(item => validKeys.has(item.key)).length} />} open={stepsExpanded} onOpenChange={setStepsExpanded} keepMounted>
       {reviewPlan ? <div className="ax-plan-groups-tools">
         {plans.codex && plans.claude ? <div className="ax-hitl-plan-tabs" role="group" aria-label="검토할 계획 도구">

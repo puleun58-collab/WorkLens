@@ -27,17 +27,6 @@ test("review accordions toggle by keyboard and retain review input across header
   await seed(page, { ...emptyAxState(), tasks: [task], selectedTaskId: task.id, step: 4 });
   await navigateWorkspace(page, "업무 자동화 진단");
   const plan = page.getByRole("region", { name: "자동화 구현 계획", exact: true });
-  const precheck = plan.getByRole("region", { name: "구현 전 확인", exact: true });
-  const trigger = precheck.getByRole("button", { name: /구현 전 확인/ });
-  const count = Number(/미해결 (\d+)건/.exec(await precheck.locator(".ax-hitl-table-counts").innerText())?.[1]);
-  await trigger.focus();
-  await page.keyboard.press("Enter");
-  await expect(trigger).toHaveAttribute("aria-expanded", "true");
-  // 펼치면 헤더 건수와 같은 수의 실제 미해결 항목이 보인다 (펼침만으로 완료 처리하지 않음).
-  await expect(precheck.locator(".ax-precheck-row")).toHaveCount(count);
-  await page.keyboard.press("Space");
-  await expect(trigger).toHaveAttribute("aria-expanded", "false");
-  await expect(precheck.locator(".ax-hitl-table-counts")).toHaveText(`미해결 ${count}건`);
 
   // 헤더로 전체 패널을 접고 다시 열어도 저장 전 입력과 원본 순서를 유지한다.
   const review = plan.locator("#ax-plan-review");
