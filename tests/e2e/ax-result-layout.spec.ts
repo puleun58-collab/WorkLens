@@ -39,6 +39,7 @@ for (const width of [1440, 390]) {
     const ranks = await page.locator(".ax-result-task-panel .ax-rank").allTextContents();
     const counts = diagnosisCounts(tasks);
     await expect(page.locator(".ax-kpi > strong")).toHaveText(["4개", `${counts.results}개`]);
+    await expect(page.locator(".ax-kpi-label")).toHaveText(["등록 업무", "진단 완료"]);
     const initialSections = await page.locator(".ax-selected-report section[aria-label]").evaluateAll(nodes => nodes.map(node => node.getAttribute("aria-label")));
     expect(initialSections).toEqual(expect.arrayContaining(["구현 계획", "완료 기준"]));
     await expect(page.getByRole("heading", { name: "올인원 지시문", exact: true })).toBeVisible();
@@ -60,22 +61,34 @@ for (const width of [1440, 390]) {
           alignment: getComputedStyle(button).justifyContent, background: getComputedStyle(button).backgroundColor,
           selected: button.getAttribute("aria-pressed") === "true", highlightInsetTop: b.y - box.y };
       });
-      return { viewport: { width: innerWidth, height: innerHeight }, panel, cards, detail,
-        columns: [...document.querySelectorAll(".ax-kpi")].map(node => { const b = node.getBoundingClientRect(); return { x: b.x, y: b.y, right: b.right, width: b.width, height: b.height, padding: getComputedStyle(node).padding, scrollWidth: node.scrollWidth, clientWidth: node.clientWidth }; }),
+      const orderedNodes = [document.querySelector(".ax-result-task-panel")!, ...document.querySelectorAll(".ax-kpi"), document.querySelector(".ax-selected-report")!];
+      return { viewport: { width: innerWidth, height: innerHeight }, panel, cards, detail, container: rect(".ax-step4-grid"),
+        followsDomOrder: orderedNodes.slice(1).every((node, index) => Boolean(orderedNodes[index].compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING)),
+        columns: [...document.querySelectorAll(".ax-kpi")].map(node => { const b = node.getBoundingClientRect(); return { x: b.x, y: b.y, right: b.right, bottom: b.bottom, width: b.width, height: b.height, padding: getComputedStyle(node).padding, scrollWidth: node.scrollWidth, clientWidth: node.clientWidth }; }),
         topDifference: Math.abs(panel.y - cards.y), leftRatio: panel.width / (panel.width + cards.width),
         gap: cards.x - panel.right, scrollWidth: document.documentElement.scrollWidth, rows };
     });
     await writeFile(testInfo.outputPath("measurements.json"), JSON.stringify(measurements, null, 2));
     expect(measurements.scrollWidth).toBe(width);
-    expect(measurements.columns[0].y).toBe(measurements.columns[1].y);
+    // 지시문: 결과·로드맵 상단 2열·하단 전체 폭 복원 — 우측 요약 카드는 세로 2행이다.
+    expect(measurements.columns[0].x).toBe(measurements.columns[1].x);
     expect(measurements.columns[0].width).toBeCloseTo(measurements.columns[1].width, 1);
-    expect(measurements.columns[0].height).toBe(measurements.columns[1].height);
+    // Firefox는 세로 스택(grid-auto-rows: 1fr)의 행 높이를 독립적으로 소수점 반올림한다.
+    // 1440px에서 Expected 131.40000915527344 / Received 131.39999389648438로 재실패한
+    // 약 0.000015px 측정 정밀도 차이만 허용하며, 두 요약 카드 높이가 같다는 의도는 유지한다(너비와 동일한 정밀도).
+    expect(measurements.columns[0].height).toBeCloseTo(measurements.columns[1].height, 1);
     expect(measurements.columns[0].padding).toBe(measurements.columns[1].padding);
-    expect(measurements.columns[0].right).toBeLessThan(measurements.columns[1].x);
+    // 지시문: 결과·로드맵 상단 2열·하단 전체 폭 복원 — 등록 업무 아래 진단 완료, 기존 간격 유지.
+    expect(measurements.columns[1].y - measurements.columns[0].bottom).toBe(20);
     for (const column of measurements.columns) expect(column.scrollWidth).toBeLessThanOrEqual(column.clientWidth);
     const longName = measurements.rows.find(row => row.name === tasks[0].name)!;
     expect(longName.nameHeight / longName.nameLineHeight).toBeGreaterThanOrEqual(2);
-    expect(measurements.cards.x).toBe(measurements.detail.x);
+    // 지시문: 결과·로드맵 상단 2열·하단 전체 폭 복원 — 상세는 상단 그리드 아래 전체 폭이다.
+    expect(measurements.detail.x).toBe(measurements.panel.x);
+    expect(measurements.detail.width).toBeCloseTo(measurements.container.width, 1);
+    expect(measurements.detail.y).toBeGreaterThan(measurements.container.bottom);
+    // 지시문: 결과·로드맵 상단 2열·하단 전체 폭 복원 — 모바일도 DOM 순서가 목록→등록→완료→상세다.
+    expect(measurements.followsDomOrder).toBe(true);
     if (width === 1440) {
       expect(measurements.topDifference).toBeLessThanOrEqual(1);
       expect(measurements.leftRatio).toBeGreaterThanOrEqual(0.30);

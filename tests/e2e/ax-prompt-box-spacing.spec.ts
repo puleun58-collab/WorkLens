@@ -173,10 +173,8 @@ test("STEP 07 PR·CI box displays sentences continuously without forced line bre
 });
 
 test("STEP 07 PR·CI box is shorter than its forced-line-break version at the same column width", async ({ page }) => {
-  // 229px measured #329's eight forced lines in the old full-width detail area.
-  // The 1:2 result grid now puts this guide in the narrower right column, where
-  // even continuous prose naturally wraps to 229px at the same viewport size.
-  // Compare against the original sentence breaks at the CURRENT width instead:
+  // 결과·로드맵 상단 2열·하단 전체 폭 복원으로 가이드도 전체 폭을 사용한다.
+  // Keep #409's same-width hidden clone reference at the restored detail width:
   // joining the sentences must still save height, not merely meet a looser cap.
   await page.setViewportSize({ width: 1440, height: 900 });
   const panel = await openGuide(page);

@@ -1004,19 +1004,19 @@ export function AxDiagnosisView() {
         </div>}
       </TabsPanel>
       <TabsPanel value="4">
-        {!ranked.length ? <p className="ax-empty ax-muted">완료된 진단 결과 없음</p> : <div className="ax-step4-grid">
-          <aside className="ax-surface ax-step4-overview ax-result-task-panel" aria-label="결과 업무 목록">
-            <h3>업무 목록 ({ranked.length})</h3>{unifiedTaskRows()}
-          </aside>
-          <div className="ax-step4-content">
-          <section aria-label="전체 업무 현황">
-            <AxKpiCards tasks={state.tasks} needsCheckTasks={needsCheckTasks} onGoNeedsCheck={goToCheckTarget} needsCheckDisabled={!!busy} />
-          </section>
+        {!ranked.length ? <p className="ax-empty ax-muted">완료된 진단 결과 없음</p> : <div className="ax-step4-content">
+          <div className="ax-step4-grid">
+            <aside className="ax-surface ax-step4-overview ax-result-task-panel" aria-label="결과 업무 목록">
+              <h3>업무 목록 ({ranked.length})</h3>{unifiedTaskRows()}
+            </aside>
+            <section aria-label="전체 업무 현황">
+              <AxKpiCards tasks={state.tasks} needsCheckTasks={needsCheckTasks} onGoNeedsCheck={goToCheckTarget} needsCheckDisabled={!!busy} />
+            </section>
+          </div>
           {selected?.diagnosis ? <article className="ax-selected-report" aria-label={`${selected.name} 결과·로드맵`}>
             <header className="ax-report-intro"><div><span className="ax-report-eyebrow">선택한 업무 · 결과·로드맵</span><div className="ax-title-group"><h2>{selected.name}</h2><span className="ax-gate-badge" data-gate={executionGate(viewTask(selected).diagnosis!)}>{GATE_LABELS[executionGate(viewTask(selected).diagnosis!)]}</span><AxLevelBadge level={automationLevel(selected.diagnosis)} className="ax-level-badge" /><Badge className="ax-status-badge">{STATUS[taskDisplayStatus(selected).status]}</Badge>{taskDisplayStatus(selected).needsCheck ? <span className="ax-status-note">추가 질문 필요</span> : null}</div></div></header>
             <AxSelectedReport key={selected.id} task={selected} busy={busy} onGenerate={target => void generatePlan(selected, target)} onSaveReview={r => saveHitlReview(selected.id, r)} />
           </article> : <p className="ax-muted">우선순위에서 업무 선택 후 상세 결과 확인</p>}
-          </div>
         </div>}
       </TabsPanel>
     </Tabs>}
