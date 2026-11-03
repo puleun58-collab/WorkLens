@@ -519,12 +519,12 @@ export function AxDiagnosisView() {
       ? { ...task, followUpResponses: upsertFollowUpResponse(task.followUpResponses, { ...record, updatedAt: new Date().toISOString() }) }
       : task) }));
   }
-  /** 재진단 직전 자동 저장은 변경된 초안만 쓰고, 사용자의 저장 버튼은 이전 저장 실패 후 재시도도 항상 기록한다. */
+  /** 재진단 직전 자동 저장은 변경된 초안만 쓴다. 저장 실패 후 재시도도 기존 저장 경로를 따른다. */
   async function saveAnswer(task: AxTaskV2, question: string, onlyChanged = false) {
     try {
       const record = responseDraft(task, question);
       const draft = answers[task.id]?.[question];
-      if (draft === undefined || (onlyChanged && followUpResponse(task, question) && draft === record.answer)) return true;
+      if (draft === undefined || (onlyChanged && saveStatus === "이 브라우저에 저장됨" && followUpResponse(task, question) && draft === record.answer)) return true;
       record.answer = draft;
       const saved = await saveResponse(task.id, record);
       setMessage(saved ? "답변을 저장했습니다. 답변 반영 후 재진단하면 분석에 반영됩니다" : "답변 저장 실패 · 입력은 유지됩니다");
@@ -599,29 +599,30 @@ export function AxDiagnosisView() {
   }
   async function diagnose(task: AxTask, withAnswers = false) {
     if (activeRun.current) return;
-    if (withAnswers) {
-      for (const question of Object.keys(answers[task.id] ?? {})) {
-        const latest = getState().tasks.find(item => item.id === task.id);
-        if (!latest || !await saveAnswer(latest, question, true)) return;
-      }
-    }
-    const requestTask = getState().tasks.find(item => item.id === task.id);
-    if (!requestTask) return;
-    const metas = taskAttachments(requestTask);
-    const registrationSummary = sessionSummary(task.id, metas);
-    if (metas.length && !registrationSummary) { setMessage("첨부 파일이 사용됨 — 재분석 시 재첨부 필요"); return; }
-    if (withAnswers && !requestTask.followUpResponses?.some(record => record.answer.trim() || record.attachments.length)) {
-      setMessage("텍스트 답변 또는 질문 자료를 저장하세요"); return;
-    }
-    activeRun.current = true; activeAi.current = true; setBusy(task.id); setMessage("");
-    const mySeq = ++requestSeq.current;
-    taskRequestSeq.current.set(task.id, mySeq);
-    const snapshot = (value: AxTaskV2) => JSON.stringify({
-      name: value.name, description: value.description, details: taskDetails(value),
-      responses: value.followUpResponses ?? [], attachmentSummary: sessionSummary(value.id, taskAttachments(value)) ?? null,
-    });
-    const requestInput = snapshot(requestTask);
+    activeRun.current = true; setBusy(task.id);
     try {
+      if (withAnswers) {
+        for (const question of Object.keys(answers[task.id] ?? {})) {
+          const latest = getState().tasks.find(item => item.id === task.id);
+          if (!latest || !await saveAnswer(latest, question, true)) return;
+        }
+      }
+      const requestTask = getState().tasks.find(item => item.id === task.id);
+      if (!requestTask) return;
+      const metas = taskAttachments(requestTask);
+      const registrationSummary = sessionSummary(task.id, metas);
+      if (metas.length && !registrationSummary) { setMessage("첨부 파일이 사용됨 — 재분석 시 재첨부 필요"); return; }
+      if (withAnswers && !requestTask.followUpResponses?.some(record => record.answer.trim() || record.attachments.length)) {
+        setMessage("텍스트 답변 또는 질문 자료를 저장하세요"); return;
+      }
+      activeAi.current = true; setMessage("");
+      const mySeq = ++requestSeq.current;
+      taskRequestSeq.current.set(task.id, mySeq);
+      const snapshot = (value: AxTaskV2) => JSON.stringify({
+        name: value.name, description: value.description, details: taskDetails(value),
+        responses: value.followUpResponses ?? [], attachmentSummary: sessionSummary(value.id, taskAttachments(value)) ?? null,
+      });
+      const requestInput = snapshot(requestTask);
       const revised = followUpDiagnosisDescription(requestTask.description, requestTask.followUpResponses);
       const questionFiles = await questionEvidence(requestTask);
       const attachmentSummary = combineAttachmentSummaries([
@@ -898,16 +899,16 @@ export function AxDiagnosisView() {
             {selected.diagnosis ? <>
               {selected.diagnosis.followUpQuestions.length || selected.followUpResponses?.length ? <section className="ax-surface ax-questions" id="ax-answer-section" aria-label="답변할 질문">
                 <h3>답변할 질문 {selected.diagnosis.followUpQuestions.length}개</h3>
-                <p className="ax-muted">파일은 선택 사항입니다. 질문 자료는 이 브라우저에 저장되며 재진단 시 추출한 내용 일부만 AI에 전송됩니다. 민감정보는 제외하고 첨부하세요. 내보내기에는 원본 파일이 포함되지 않습니다.</p>
                 {[...new Set([...selected.diagnosis.followUpQuestions, ...(selected.followUpResponses ?? []).map(record => record.question)])].map((question, index) => {
                   const record = followUpResponse(selected, question);
                   const archived = !selected.diagnosis!.followUpQuestions.includes(question);
                   const inputId = `ax-answer-${selected.id}-${index}`;
-                  return <div className="ax-question" key={question} data-archived={archived || undefined}>
+                  return <div className="ax-question ax-field" key={question} data-archived={archived || undefined}>
                     <div className="ax-question-head"><label htmlFor={inputId}>{uiText(question)}{archived ? <small className="ax-muted"> · 이전 질문 기록</small> : null}</label>
                       <AxAttachmentInput disabled={!!busy} onSelectFiles={files => void attachQuestionFiles(selected.id, question, files)} />
                     </div>
-                    <Textarea id={inputId} rows={2} maxLength={500} disabled={!!busy} value={answers[selected.id]?.[question] ?? record?.answer ?? ""}
+                    {/* Keep Chromium's ::placeholder style active without adding a visible hint. */}
+                    <Textarea id={inputId} placeholder="" rows={2} maxLength={500} disabled={!!busy} value={answers[selected.id]?.[question] ?? record?.answer ?? ""}
                       onChange={event => setAnswers(current => ({ ...current, [selected.id]: { ...current[selected.id], [question]: event.target.value } }))} />
                     {record?.attachments.map(meta => {
                       const read = selected.followUpDiagnosis?.files?.find(file => file.responseId === record.id && file.fingerprint === meta.fingerprint);
@@ -917,7 +918,6 @@ export function AxDiagnosisView() {
                         <Button type="button" variant="ghost" size="icon-xs" aria-label={`${meta.name} 첨부 해제`} disabled={!!busy} onClick={() => void detachQuestionFile(selected, record, meta.fingerprint)}><X aria-hidden="true" /></Button>
                       </div>;
                     })}
-                    <div className="ax-question-actions"><Button type="button" variant="outline" size="sm" disabled={!!busy} onClick={() => void saveAnswer(selected, question)}>저장</Button></div>
                   </div>;
                 })}
                 <Button type="button" className="ax-rediagnose" disabled={!!busy} onClick={() => void diagnose(selected, true)}>답변 반영 후 재진단</Button>
@@ -1004,18 +1004,20 @@ export function AxDiagnosisView() {
         </div>}
       </TabsPanel>
       <TabsPanel value="4">
-        {!ranked.length ? <p className="ax-empty ax-muted">완료된 진단 결과 없음</p> : <>
-          <aside className="ax-step4-overview" aria-label="전체 업무 현황">
-            <AxKpiCards tasks={state.tasks} needsCheckTasks={needsCheckTasks} onGoNeedsCheck={goToCheckTarget} needsCheckDisabled={!!busy} />
-            <div className="ax-step4-overview-grid">
-              <section className="ax-surface"><h3>업무 목록 ({ranked.length})</h3>{unifiedTaskRows()}</section>
-            </div>
+        {!ranked.length ? <p className="ax-empty ax-muted">완료된 진단 결과 없음</p> : <div className="ax-step4-grid">
+          <aside className="ax-surface ax-step4-overview ax-result-task-panel" aria-label="결과 업무 목록">
+            <h3>업무 목록 ({ranked.length})</h3>{unifiedTaskRows()}
           </aside>
+          <div className="ax-step4-content">
+          <section aria-label="전체 업무 현황">
+            <AxKpiCards tasks={state.tasks} needsCheckTasks={needsCheckTasks} onGoNeedsCheck={goToCheckTarget} needsCheckDisabled={!!busy} />
+          </section>
           {selected?.diagnosis ? <article className="ax-selected-report" aria-label={`${selected.name} 결과·로드맵`}>
             <header className="ax-report-intro"><div><span className="ax-report-eyebrow">선택한 업무 · 결과·로드맵</span><div className="ax-title-group"><h2>{selected.name}</h2><span className="ax-gate-badge" data-gate={executionGate(viewTask(selected).diagnosis!)}>{GATE_LABELS[executionGate(viewTask(selected).diagnosis!)]}</span><AxLevelBadge level={automationLevel(selected.diagnosis)} className="ax-level-badge" /><Badge className="ax-status-badge">{STATUS[taskDisplayStatus(selected).status]}</Badge>{taskDisplayStatus(selected).needsCheck ? <span className="ax-status-note">추가 질문 필요</span> : null}</div></div></header>
             <AxSelectedReport key={selected.id} task={selected} busy={busy} onGenerate={target => void generatePlan(selected, target)} onSaveReview={r => saveHitlReview(selected.id, r)} />
           </article> : <p className="ax-muted">우선순위에서 업무 선택 후 상세 결과 확인</p>}
-        </>}
+          </div>
+        </div>}
       </TabsPanel>
     </Tabs>}
     {ready ? <nav className="ax-step-nav" aria-label="단계 이동">
