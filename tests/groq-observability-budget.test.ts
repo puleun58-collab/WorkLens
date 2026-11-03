@@ -302,7 +302,7 @@ describe("research interpretation shared provider attempt budget", () => {
       attempt: calls, promptTokens: 11, completionTokens: 22, totalTokens: 33,
     }));
     for (const [, init] of fetcher.mock.calls as Array<[string, RequestInit]>) {
-      expect(JSON.parse(String(init.body))).toMatchObject({ reasoning_effort: "medium", max_completion_tokens: 1_000 });
+      expect(JSON.parse(String(init.body))).toMatchObject({ reasoning_effort: "medium", max_completion_tokens: 2_000 });
     }
     const logs = JSON.stringify(vi.mocked(console.info).mock.calls);
     for (const text of [secret, query, document, raw]) expect(logs).not.toContain(text);
