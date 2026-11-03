@@ -1,5 +1,6 @@
 "use client";
 
+import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { levelMeta } from "@/lib/learn/curriculum";
 import { findQuestion, linkedUnitForQuestion, orderedChoicesForAttempt } from "@/lib/learn/questions";
@@ -27,6 +28,9 @@ export function LearnResult({ attempt, onRetry, onNext, onDashboard, onReviewWro
 
   return (
     <div>
+      <Button type="button" variant="ghost" size="sm" className="learn-back" onClick={onDashboard}>
+        <ArrowLeft /> 학습센터로 돌아가기
+      </Button>
       <h2>LEVEL {attempt.level} 평가 결과</h2>
       <div className="learn-surface">
         <div className="learn-result-score">{attempt.score}점</div>
@@ -73,9 +77,6 @@ export function LearnResult({ attempt, onRetry, onNext, onDashboard, onReviewWro
               오답 노트 보기
             </Button>
           ) : null}
-          <Button type="button" variant="ghost" onClick={onDashboard}>
-            학습센터로
-          </Button>
         </div>
       </div>
 

@@ -185,10 +185,11 @@ test("학습센터: 오답 노트 빈 상태", async ({ page }) => {
   await learn(page);
   await page.getByRole("button", { name: /오답 노트/, exact: false }).click();
   await expect(page.getByRole("heading", { name: "오답 노트", exact: true })).toBeVisible();
-  // 빈 상태: 아이콘 + 안내 + 학습센터로 이동 버튼 하나만 강조
+  // 빈 상태: 아이콘 + 안내만 표시하고, 이동은 상단 '학습센터로 돌아가기' 하나로 한다.
   await expect(page.getByText("아직 복습할 오답이 없습니다", { exact: true })).toBeVisible();
   await expect(page.getByText(/틀린 문제가 있으면 이곳에 표시됩니다/, { exact: false })).toBeVisible();
-  await page.getByRole("button", { name: "학습센터로 이동", exact: true }).click();
+  await expect(page.getByRole("button", { name: /학습센터로/ })).toHaveCount(1);
+  await page.getByRole("button", { name: "학습센터로 돌아가기", exact: true }).click();
   await expect(page.locator(".learn-dash-card").first()).toBeVisible();
 });
 
@@ -253,7 +254,8 @@ test("학습센터: 미통과 시 다음 단계 잠금 유지", async ({ page })
   await page.getByRole("button", { name: "제출하고 채점하기", exact: true }).click();
   await expect(page.getByText(/미통과/, { exact: false })).toBeVisible();
   // 대시보드로 돌아가면 LEVEL 2는 여전히 잠김
-  await page.getByRole("button", { name: "학습센터로", exact: true }).click();
+  await expect(page.getByRole("button", { name: "학습센터로", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "학습센터로 돌아가기", exact: true }).click();
   const rows = page.locator(".learn-dash-row");
   await expect(rows.nth(1).getByText("잠김", { exact: true })).toBeVisible();
 });
@@ -370,7 +372,7 @@ test("학습센터: 퀴즈 진행 중 새로고침 후 응시 복구", async ({ 
   await page.getByRole("button", { name: "제출하고 채점하기", exact: true }).click();
   await expect(page.getByRole("heading", { name: "LEVEL 1 평가 결과" })).toBeVisible();
   // 제출 후에는 진행 중 안내가 사라진다
-  await page.getByRole("button", { name: "학습센터로", exact: true }).click();
+  await page.getByRole("button", { name: "학습센터로 돌아가기", exact: true }).click();
   await expect(page.locator('section[aria-label="진행 중인 퀴즈"]')).toHaveCount(0);
 });
 
@@ -691,7 +693,7 @@ test("학습센터: 전체 통과 시 학습 완료 확인 화면 (수료증 없
   await expect(page.getByText("2026년 10월 15일", { exact: true })).toBeVisible();
   await expect(page.getByText(/언제든 다시 학습하고 퀴즈에 응시할 수 있습니다/, { exact: false })).toBeVisible();
   // 돌아가기 후 재진입해도 같은 날짜가 유지된다 (완료 화면 본문의 주요 버튼 사용)
-  await page.locator(".learn-completion").getByRole("button", { name: "학습센터로 돌아가기", exact: true }).click();
+  await page.getByRole("button", { name: "학습센터로 돌아가기", exact: true }).click();
   await page.getByRole("button", { name: "학습 완료 보기", exact: true }).click();
   await expect(page.getByText("2026년 10월 15일", { exact: true })).toBeVisible();
 });
@@ -1123,8 +1125,7 @@ test("학습센터: LEVEL 1~10 실습 입력 방식·요약 색상·정렬·명�
       await page.getByRole("navigation", { name: "학습 단위" }).getByRole("button").nth(i).click();
       if (!unit.practice) continue;
       const practice = page.getByRole("region", { name: `실습: ${unit.practice.title}`, exact: true });
-      await expect(practice.locator("strong").filter({ hasText: /^실습 방법:$/ })).toBeVisible();
-      await expect(practice.getByRole("heading", { name: "실습 방법", exact: true })).toHaveCount(0);
+      await expect(practice.getByText("실습 방법", { exact: false })).toHaveCount(0);
       expect(await practice.locator(".learn-card-title").evaluate((element) => getComputedStyle(element).fontWeight)).toBe("400");
       if (unit.practice.commands?.length) {
         await expect(practice.getByLabel("가상 터미널 명령어 입력")).toBeVisible();
