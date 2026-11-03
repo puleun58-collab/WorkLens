@@ -113,7 +113,8 @@ describe("LEVEL 1~10 실습 입력 방식", () => {
         const html = renderToStaticMarkup(createElement(WritingPractice, { steps: unit.practice!.steps }));
         expect(html.match(/<textarea/g), unit.id).toHaveLength(unit.practice!.steps.length);
         expect(html, unit.id).toContain("자동 실행이나 정답 판정은 하지 않습니다");
-        expect(html, unit.id).toContain("<strong>실습 방법:</strong> 각 안내에 맞춰");
+        expect(html, unit.id).not.toContain("실습 방법");
+        expect(html, unit.id).toContain("비밀번호·API 키·개인정보는 입력하지 마세요");
         expect(html, unit.id).not.toContain("Windows PowerShell");
         expect(html, unit.id).not.toContain("가상 터미널");
       }

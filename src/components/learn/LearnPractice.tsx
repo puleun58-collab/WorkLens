@@ -16,7 +16,7 @@ export function WritingPractice({ steps }: { steps: string[] }) {
   const [notes, setNotes] = useState<string[]>(() => steps.map(() => ""));
   return (
     <div className="learn-writing-fields">
-      <p className="learn-muted"><strong>실습 방법:</strong> 각 안내에 맞춰 생각과 확인 내용을 적어 보세요. 자동 실행이나 정답 판정은 하지 않습니다. 작성 내용은 저장되지 않으며, 다른 단위로 이동하면 지워집니다. 비밀번호·API 키·개인정보는 입력하지 마세요.</p>
+      <p className="learn-muted">자동 실행이나 정답 판정은 하지 않습니다. 작성 내용은 저장되지 않으며, 다른 단위로 이동하면 지워집니다. 비밀번호·API 키·개인정보는 입력하지 마세요.</p>
       {steps.map((step, index) => (
         <fieldset key={index}>
           <legend>{index + 1}. <LearnSeparatedText text={step} /></legend>

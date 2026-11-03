@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, ArrowRight, FileCheck2 } from "lucide-react";
+import { ArrowLeft, FileCheck2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { levelContent } from "@/lib/learn/content";
 import { findQuestion, linkedUnitForQuestion, orderedChoicesForAttempt } from "@/lib/learn/questions";
@@ -45,9 +45,6 @@ export function LearnWrongNotes({ progress, onMarkReviewed, onBack, onOpenLesson
             퀴즈에 응시한 후 틀린 문제가 있으면 이곳에 표시됩니다.
             학습을 진행하면서 오답 노트를 채워보세요.
           </p>
-          <Button type="button" variant="default" onClick={onBack}>
-            학습센터로 이동 <ArrowRight />
-          </Button>
         </div>
       ) : (
         notes.map((w, i) => {
