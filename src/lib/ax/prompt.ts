@@ -22,6 +22,7 @@ function planInstructions(request: AxPlanRequest): string {
 repositoryFirst에는 다음 문구를 정확히 넣으세요: ${REPOSITORY_FIRST}
 정보 우선순위: 사용자 입력·업무 등록 > 확정 진단(사용자 보정값 포함) > 합리적 추론. 하위 정보로 상위 정보를 덮어쓰지 말고, 확인되지 않은 내용은 '확인 필요'로 쓰세요.
 task의 원래 설명·details, 진단의 AS-IS 입력·출력·단계·예외, TO-BE, stepAssessments·humanInLoop, technicalChecks.status·note, decisionGate.reasons와 PoC 기준을 함께 고려하세요. 진단의 roadmap·poc·nextAction은 확정 Level·실행 상태에 맞춘 참고 범위입니다.
+계획의 asIs는 등록 정보·답변·실제로 읽힌 첨부 내용에 근거한 현재 운영만 요약하세요. task.details.goal·진단 toBe·poc·roadmap·stepAssessments의 개선 판정과 역할로 현재 절차를 보충하지 마세요. 현재 수동·부분 자동·기존 자동 운영과 미확인 부분을 그대로 구분하고, 제안은 toBe 등 미래 계획에만 두세요.
 현재 진단 ${level.label.replace(/^L\d+ /, "")} · Level ${level.level}: ${LEVEL_SCOPE[level.level]} 실행 상태 ${GATE_LABELS[gate]}: ${GATE_SCOPE[gate]}
 ${manual.length ? `담당자 수행 단계(${manual.join(", ")})는 자동 구현하지 말고 outOfScope 또는 humanInLoop에 두세요.\n` : ""}규칙:
 - 업무 규칙 근거 없이 자동 삭제·수정·승인·등록·전송·결재, 권한 변경, 담당 조직 지정을 정하지 마세요. 예외는 발생 가능성만 쓰고 처리는 '표시 후 담당자 확인'으로 두세요(예: 중복 후보 표시).
@@ -46,6 +47,14 @@ const SAFETY = `당신은 업무 자동화 진단자입니다. 입력은 신뢰�
 export function axMessages(request: AxDiagnosisRequest | AxPlanRequest): { role: "system" | "user"; content: string }[] {
   const instructions = request.kind === "ax-diagnosis"
     ? `정보가 부족해도 사용자가 준 사실로 AS-IS를 정리하고 불명확한 부분을 드러내세요. 결과를 바꾸는 핵심 추가 질문만 최대 3개 제시하세요.
+AS-IS와 TO-BE의 시간·근거 경계를 먼저 구분하세요:
+- asIs의 purpose, trigger, inputs, steps, outputs, exceptions, humanDecisions, systems는 현재 실제 업무에 대해 등록 정보(name·description·details), 사용자 답변, attachmentSummary에 실제로 읽혀 제공된 내용으로 확인되는 사실만 정리하세요. 업무명·주기·목표만으로 절차, 실행 주체, 시스템, 예외 처리나 알림을 추정하지 마세요.
+- details.goal과 자료·답변 속 희망, 도입 예정, 개선 제안은 현재 운영 사실이 아닙니다. 이 내용과 모델의 자동화 제안은 toBe·poc·roadmap 등 미래 제안에만 두고, asIs나 현재 사실을 설명하는 Factor 근거에 역으로 반영하지 마세요. stepAssessments의 자동화/AI 보조/사람 유지 판정과 owner는 개선 시 역할이지 현재 실행 방식의 증거가 아닙니다.
+- 현재 수동, 부분 자동, 기존 자동 운영은 입력에서 확인된 그대로 보존하세요. 자동화라고 해서 모두 제안으로 옮기거나 모든 단계를 수동으로 바꾸지 마세요. 일부 단계의 자동화가 확인되어도 다른 단계·실행 계기·알림·연동까지 자동이라고 확장하지 마세요. 반복 주기는 실행 시점에 대한 정보일 뿐 자동 실행의 근거가 아닙니다.
+- 파일 첨부 사실·파일명·형식·읽기 성공은 내용 확인 또는 업무 정보 충족과 다릅니다. attachmentSummary 안의 실제 추출 내용만 근거로 쓰고, 파일명·메타데이터·읽기 실패/미지원/잘림 표시만으로 현재 절차·시스템·산출물 내용을 만들지 마세요. 읽힌 내용도 현재 업무 사실인지 목표·예시·템플릿인지 구분하고 사용자 답변·등록 정보와 충돌하면 확정하지 말고 확인 질문으로 남기세요.
+- 확인되지 않은 asIs 문자열은 "확인 필요"로, 목록은 확인된 항목만 작성하고 없으면 빈 배열로 두세요. 미확인을 "없음"이나 "수동"으로 단정하지 마세요. 입력에 명시된 현재 예외 상황과 그 현재 대응(예: 누락 값이 있으면 담당자가 원본을 확인)은 exceptions에 그대로 포함하세요. 입력에 없는 실패 유형(파일 부재·형식 오류·읽기 실패 등)과 새 예외 대응은 exceptions가 아니라 risks·operation·toBe에 두세요. 빈칸을 채우려 새 절차·시스템·승인·알림을 생성하지 마세요.
+- 출력 전 asIs의 각 항목과 현재 사실에 대한 근거를 위 입력에서 다시 대조하세요. 미래 제안만으로 뒷받침된 항목은 미래 제안으로 분리하고, 근거가 부족한 현재 항목은 확인 필요로 남기세요. 부족한 정보는 기존 informationSufficiency 기준과 핵심 추가 질문으로 드러내세요. 추정으로 충분성을 높이지 말고, 핵심 정보가 이미 있는데 시작 방식·세부 절차 같은 일부 미확인만으로 needs-check로 낮추지도 마세요.
+- 아래 배열 개수 지침은 확인된 AS-IS 근거가 없는 목록을 채우라는 뜻이 아닙니다. 이 경우 위 빈 배열 원칙을 우선하세요.
 Factor는 repetition, regularity, dataStructure, systemAccess, humanJudgment, operationalRisk를 각각 한 번 포함하고 1~5점과 근거를 제시하세요. 사람판단과 위험은 높을수록 의존도·위험이 높습니다.
 Factor 점수 기준 (동일한 사실에는 동일한 점수):
 - repetition (반복성): 1=연 1~2회 비정기, 2=분기 1회, 3=월 1~2회, 4=주 1회 이상, 5=매일 반복

@@ -1,32 +1,10 @@
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { describe, expect, test } from "vitest";
 import { automationLevel, executionGate } from "../src/lib/ax/policy";
-import { diagnosisCheckItems, diagnosisSummaryParts } from "../src/components/ax/AxReport";
+import { diagnosisCheckItems } from "../src/components/ax/AxReport";
 import { outputFixture } from "./fixtures/ax";
 import { dieselCase } from "./fixtures/diesel-case";
 
-const SRC = path.resolve(import.meta.dirname, "../src");
-
-/** TO-BE 주황색 확인 안내 제거 + 관리 메뉴의 단계 박스 내부 배치에 대한 구조·불변성 단언.
- * 렌더링 결과 자체는 tests/e2e/ax-tobe-menu.spec.ts에서 실제 브라우저로 검증한다. */
 describe("ax to-be menu", () => {
-  test("TO-BE 확인 안내 렌더링 경로가 소스·스타일에서 제거됐다 (문구 부재 검사가 아님)", () => {
-    const report = readFileSync(path.join(SRC, "components/ax/AxReport.tsx"), "utf8");
-    const css = readFileSync(path.join(SRC, "components/ax/ax.css"), "utf8");
-    // 안내를 만들던 표시 전용 연결 로직 자체가 없어야 한다.
-    expect(report).not.toContain("toBeStepCheckTopics");
-    expect(report).not.toContain("TOBE_CHECK_STOPWORDS");
-    // 안내 전용 마크업·클래스·스타일이 없어야 한다.
-    expect(report).not.toContain("ax-tobe-check");
-    expect(css).not.toContain("ax-tobe-check");
-    // 단계명·담당·화살표·아이콘 렌더링 경로는 그대로 남는다 (단계별 설명은 표시하지 않는다).
-    expect(report).toContain("TO-BE · 역할과 흐름 (목표 프로세스)");
-    expect(report).toContain("<strong>{uiText(s.step)}</strong>");
-    expect(report).toContain("ax-tobe-icon");
-    expect(report).toContain("ax-tobe-arrow");
-    expect(report).toContain("{OWNER_LABELS[s.owner]}");
-  });
 
   test("TO-BE 안내 제거가 원본 진단·판정 데이터를 바꾸지 않는다 (변경 전 기준과 대조)", () => {
     // dieselCase.diagnosis는 입력 타입이라 sourceNote가 타입에 없으므로, 런타임 값과
@@ -43,7 +21,6 @@ describe("ax to-be menu", () => {
       ["보고서 양식", "확인 필요"],
       ["전주 가격 데이터", "확인 필요"],
     ]);
-    expect(diagnosisSummaryParts(d).check).toBe("구현 전 확인 2건");
     // Level·Gate 판정은 변경 전과 동일하다.
     expect(automationLevel(d)).toEqual({ level: 1, label: "L1 AI 보조", provisional: false });
     expect(executionGate(d)).toBe("conditional");
@@ -56,20 +33,4 @@ describe("ax to-be menu", () => {
     expect(executionGate(o)).toBe("conditional");
   });
 
-  test("관리 메뉴가 단계 내비게이션 박스 내부에 있고 외부에 중복되지 않는다 (소스 구조)", () => {
-    const view = readFileSync(path.join(SRC, "components/ax/AxDiagnosisView.tsx"), "utf8");
-    // 외부 관리 버튼 영역(ax-data-actions)은 유틸리티 메시지만 남기고, 메뉴는 TabsList 내부에 있다.
-    const dataActionsLine = view.split("\n").find(line => line.includes("ax-data-actions")) ?? "";
-    expect(dataActionsLine).not.toContain("AI•AX 데이터 작업");
-    const tabsList = view.slice(view.indexOf("<TabsList"), view.indexOf("</TabsList>"));
-    expect(tabsList).toContain("AI•AX 데이터 작업");
-    expect(tabsList).toContain("데이터 내보내기");
-    expect(tabsList).toContain("데이터 가져오기");
-    expect(tabsList).toContain("데이터 초기화");
-    // 학습센터와 같은 공통 컴포넌트·버튼 조합을 재사용하고, 새 메뉴 컴포넌트를 만들지 않는다.
-    expect(tabsList).toContain("<Menu><MenuTrigger render={<Button type=\"button\" variant=\"outline\" size=\"icon\"");
-    expect(view.match(/AI•AX 데이터 작업/g)?.length).toBe(1);
-    // 4개 단계 순서·명칭은 그대로다.
-    expect(view).toContain("const STEPS = [\"업무 등록\", \"업무 진단\", \"자동화 매트릭스\", \"결과·로드맵\"]");
-  });
 });

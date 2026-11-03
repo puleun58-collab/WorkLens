@@ -147,7 +147,7 @@ test("Diagnosis left list rows share one divider spec and keep size on selection
   expect(styles[1].border).toBe(styles[0].border);
 });
 
-test("Result and roadmap list shows name and next action without Level or gate badges", async ({ page }) => {
+test("Result and roadmap list shows rank and name without repeated details", async ({ page }) => {
   const tasks = [make("r-a", "업무 A", {}), make("r-b", "업무 B", { systemAccess: 1 })];
   await openStep(page, tasks, 4);
   const overview = page.locator(".ax-step4-overview");
@@ -157,7 +157,7 @@ test("Result and roadmap list shows name and next action without Level or gate b
   for (const row of await rows.all()) {
     await expect(row.locator(".ax-task-name")).not.toBeEmpty();
     await expect(row).not.toContainText("Level");
-    await expect(row.locator(".ax-next-action")).not.toBeEmpty();
+    await expect(row.locator(".ax-next-action")).toHaveCount(0);
   }
 });
 

@@ -32,7 +32,7 @@ function mockPlan(page: Page) {
   });
 }
 
-test("AX roadmap simplify: KPI 2개 · 통합 목록 · 제거 영역 부재 · ①/②/④", async ({ page }) => {
+test("AX roadmap simplify: 통합 목록 · 제거 영역 부재 · 지시문 생성", async ({ page }) => {
   await mockPlan(page);
   const task = taskFixture("simplify-main", diagnosisFixture);
   const plan = await openStep4(page, [task], task.id);
@@ -63,21 +63,11 @@ test("AX roadmap simplify: KPI 2개 · 통합 목록 · 제거 영역 부재 · 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
-test("AX roadmap simplify: 필수 확인 0건이면 짧은 안내만 표시", async ({ page }) => {
-  // D1·D2·D3·D7 전부 '해당 없음'이면 예시 체계가 없어 ① 항목이 붙지 않는다.
-  const diagnosis: AxDiagnosis = {
-    ...diagnosisFixture,
-    decisionGate: { verdict: "go", reasons: [] },
-    technicalChecks: [{ topic: "시스템 접근", status: "확인됨", note: "API 확인" }],
-    decisionPoints: (["D1", "D2", "D3", "D7"] as const).map(id => ({ id, status: "해당 없음" as const })),
-  };
-  const task = taskFixture("simplify-empty", diagnosis);
+test("AX roadmap simplify: 독립 확인 영역 없이 구현 계획을 생성할 수 있다", async ({ page }) => {
+  const task = taskFixture("simplify-empty", diagnosisFixture);
   const plan = await openStep4(page, [task], task.id);
-  const pre = plan.getByRole("region", { name: "구현 전 확인", exact: true });
-  await expect(pre.locator(".ax-precheck-head")).toContainText("미해결 0건");
-  await pre.getByRole("button", { name: /구현 전 확인/ }).click();
-  await expect(pre).toContainText("필수 확인사항 없음");
-  await expect(pre.getByText("시스템 접근", { exact: true })).toHaveCount(0);
+  await expect(plan.getByRole("region", { name: "구현 전 확인", exact: true })).toHaveCount(0);
+  await expect(plan.getByRole("button", { name: "Codex용 구현 계획 생성", exact: true })).toBeEnabled();
 });
 
 test("AX roadmap simplify: 전체 Gate 차단이면 차단 사유만 표시하고 생성 불가", async ({ page }) => {
@@ -87,15 +77,13 @@ test("AX roadmap simplify: 전체 Gate 차단이면 차단 사유만 표시하�
   };
   const task = taskFixture("simplify-blocked", diagnosis);
   const plan = await openStep4(page, [task], task.id);
-  const pre = plan.getByRole("region", { name: "구현 전 확인", exact: true });
-  await expect(pre).toContainText("진행 보류");
-  // 요약 전용: 차단 사유 상세 문구는 기본 화면에 반복되지 않는다.
-  await expect(pre).not.toContainText("필수 시스템 접근 불가");
+  await expect(page.locator(".ax-report-intro .ax-gate-badge")).toHaveText("진행 보류");
+  await expect(page.locator(".ax-selected-report")).not.toContainText("필수 시스템 접근 불가");
   await expect(plan.getByRole("button", { name: "Codex용 구현 계획 생성", exact: true })).toBeDisabled();
   await expect(plan.locator(".ax-prompt")).toHaveCount(0);
 });
 
-test("AX roadmap simplify: ①은 요약 배지만 표시하고 업무 전환 시 다른 업무 상태가 섞이지 않는다", async ({ page }) => {
+test("AX roadmap simplify: 업무 전환 시 선택 업무가 섞이지 않는다", async ({ page }) => {
   const diagnosisA: AxDiagnosis = { ...diagnosisFixture, technicalChecks: [{ topic: "A 전용 확인", status: "확인 필요", note: "A 확인" }] };
   const diagnosisB: AxDiagnosis = { ...diagnosisFixture, technicalChecks: [{ topic: "B 전용 확인", status: "확인 필요", note: "B 확인" }] };
   const taskA = taskFixture("simplify-a", diagnosisA);
@@ -104,19 +92,8 @@ test("AX roadmap simplify: ①은 요약 배지만 표시하고 업무 전환 �
   const list = page.getByRole("list", { name: "업무 목록", exact: true });
   await list.getByRole("listitem").filter({ hasText: taskB.name }).getByRole("button").click();
   await expect(page.locator(".ax-report-intro h2")).toHaveText(taskB.name);
-  const pre = plan.getByRole("region", { name: "구현 전 확인", exact: true });
-  // 요약 전용: 상세 문구는 어느 업무의 것도 기본 화면에 없고, 배지만 표시된다.
-  await expect(pre).not.toContainText("B 전용 확인");
-  await expect(pre).not.toContainText("A 전용 확인");
-  await expect(pre.locator(".ax-precheck-head")).toContainText(/미해결 \d+건/);
-  await expect(pre.getByRole("button")).toHaveCount(1);
-  await expect(pre.getByRole("button", { name: /구현 전 확인/ })).toBeVisible();
-  // A→B→A 전환: 다시 A로 돌아가도 A의 요약만 표시되고 B 상태가 섞이지 않는다.
   await list.getByRole("listitem").filter({ hasText: taskA.name }).getByRole("button").click();
   await expect(page.locator(".ax-report-intro h2")).toHaveText(taskA.name);
-  await expect(pre).not.toContainText("B 전용 확인");
-  await expect(pre).not.toContainText("A 전용 확인");
-  await expect(pre.locator(".ax-precheck-head")).toContainText(/미해결 \d+건/);
   // 업무 진단 이동은 상단 단계 내비게이션으로 한다.
   await page.getByRole("tab", { name: "업무 진단", exact: true }).click();
   await expect(page.getByRole("tab", { name: "업무 진단", exact: true })).toHaveAttribute("aria-selected", "true");

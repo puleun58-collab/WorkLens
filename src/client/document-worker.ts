@@ -17,6 +17,7 @@ import { extractRequestedFields } from "@/lib/extract/fields";
 import { documentAnalysisTopics } from "@/lib/analysis-presentation";
 import { buildSupplementDraft } from "@/lib/supplement/engine";
 import { reviewFileFor } from "@/lib/law-review-source";
+import { buildAxFileEvidence } from "@/lib/ax/file-evidence";
 import { isSupplementFileKind, SUPPLEMENT_UNSUPPORTED_DETAIL, SUPPLEMENT_UNSUPPORTED_TITLE } from "@/domain/supplement";
 import {
   DocumentError,
@@ -185,6 +186,10 @@ async function handle(request: WorkerRequest): Promise<unknown> {
           truncatedFiles: files.reduce((sum, entry) => sum + Number(entry.truncated === true), 0),
         },
       };
+    }
+    case "ax-file-evidence": {
+      const [entry] = requireDocuments([request.fileId]);
+      return buildAxFileEvidence(entry.document, request.question);
     }
     case "field-evidence": {
       // One field, one file: the model only ever sees the window that the

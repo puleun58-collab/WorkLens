@@ -20,7 +20,7 @@ async function stored(page: Page): Promise<AxStateV2> {
   });
 }
 
-for (const width of [1440, 390]) test(`출력 미확정 8건의 실제 편집·저장·재진단 ${width}px`, async ({ page }) => {
+for (const width of [1440, 390]) test(`출력 조건의 편집·저장·재진단과 업무 격리 ${width}px`, async ({ page }) => {
   await page.setViewportSize({ width, height: width === 1440 ? 900 : 844 });
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
@@ -60,42 +60,12 @@ for (const width of [1440, 390]) test(`출력 미확정 8건의 실제 편집·�
     db.close();
   }, { ...emptyAxState(), tasks: [task, other], selectedTaskId: task.id, step: 4 });
   await navigateWorkspace(page, "업무 자동화 진단");
-  const precheck = page.getByRole("region", { name: "구현 전 확인", exact: true });
-  const waitForPrechecks = async () => {
-    await expect.poll(() => precheck.locator('[data-slot="accordion-panel"]').evaluate(panel =>
-      panel.getBoundingClientRect().height >= panel.scrollHeight - 1)).toBe(true);
-  };
-  await precheck.getByRole("button", { name: /구현 전 확인/ }).click();
-  await waitForPrechecks();
-  await expect(precheck.locator(".ax-precheck-head")).toContainText("미해결 8건");
-  await expect(precheck.locator(".ax-precheck-row")).toHaveCount(8);
-  await expect(precheck.getByRole("button", { name: "확인", exact: true })).toHaveCount(8);
-  for (const topic of diagnosis.technicalChecks.map(check => check.topic)) {
-    await precheck.locator(".ax-precheck-row").filter({ hasText: topic }).getByRole("button", { name: "확인", exact: true }).click();
-    if (topic === "D4 결과 상태") {
-      await expect(page.locator("#ax-decision-D4 .ax-decision-row-head")).toHaveAttribute("aria-expanded", "true");
-    } else if (topic === "HITL 검토") {
-      await expect(page.locator("#ax-step-review [data-slot='accordion-trigger']")).toHaveAttribute("aria-expanded", "true");
-    } else if (topic === "구현 계획 검토") {
-      await expect(page.locator("#ax-plan-review [data-slot='accordion-trigger']")).toHaveAttribute("aria-expanded", "true");
-    } else if (topic === "업무 정보 보완") {
-      await expect(page.getByRole("heading", { name: "등록 정보 수정", exact: true })).toBeVisible();
-      await expect(page.getByLabel("업무명", { exact: true })).toHaveValue(task.name);
-      await page.getByRole("button", { name: "수정 취소", exact: true }).click();
-    } else {
-      await expect(page.getByRole("group", { name: `${topic} 확인 결과 입력`, exact: true })).toBeVisible();
-    }
-    expect((await stored(page)).selectedTaskId).toBe(task.id);
-    await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
-    const trigger = precheck.getByRole("button", { name: /구현 전 확인/ });
-    if (await trigger.getAttribute("aria-expanded") !== "true") await trigger.click();
-    await expect(precheck.locator(".ax-precheck-head")).toContainText("미해결 8건");
-    await waitForPrechecks();
-  }
-  await precheck.locator(".ax-precheck-row").filter({ hasText: "출력 컬럼 미확정" }).getByRole("button", { name: "확인", exact: true }).click();
+  await expect(page.getByRole("region", { name: "구현 전 확인", exact: true })).toHaveCount(0);
+  await page.getByRole("tab", { name: "업무 진단", exact: true }).click();
+  await page.getByRole("button", { name: "등록 정보 수정", exact: true }).click();
   await expect(page.getByRole("heading", { name: "등록 정보 수정", exact: true })).toBeVisible();
-  await expect(page.locator("#ax-registration-outputs")).toBeFocused();
   expect((await stored(page)).selectedTaskId).toBe(task.id);
+  await page.getByRole("button", { name: "추가 정보", exact: true }).click();
   const output = "result.csv (컬럼: 거래일, 금액; 타입·형식: 거래일=날짜, 금액=숫자)";
   await page.locator("#ax-registration-outputs").fill(output);
   await page.getByRole("button", { name: "수정 등록", exact: true }).click();
@@ -103,8 +73,6 @@ for (const width of [1440, 390]) test(`출력 미확정 8건의 실제 편집·�
   const edited = await stored(page);
   expect(edited.tasks[0].diagnosis).toEqual(task.diagnosis);
   expect(edited.tasks[1]).toEqual(other);
-  await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
-  await expect(precheck.locator(".ax-precheck-head")).toContainText("미해결 8건");
   await page.reload();
   await navigateWorkspace(page, "업무 자동화 진단");
   expect((await stored(page)).tasks[0].outputs).toBe(output);
@@ -118,12 +86,9 @@ for (const width of [1440, 390]) test(`출력 미확정 8건의 실제 편집·�
   await page.getByRole("button", { name: "업무 다시 진단", exact: true }).click();
   await expect.poll(async () => (await stored(page)).tasks[0].diagnosis?.poc.outputs).toEqual([output]);
   expect((await stored(page)).tasks[0].diagnosisRegistration).toBeUndefined();
-  await page.getByRole("tab", { name: "결과·로드맵", exact: true }).click();
-  await precheck.getByRole("button", { name: /구현 전 확인/ }).click();
-  await waitForPrechecks();
-  await expect(precheck.locator(".ax-precheck-head")).toContainText("미해결 7건");
-  await expect(precheck.locator(".ax-precheck-row")).toHaveCount(7);
-  await expect(precheck.getByText("출력 컬럼 미확정", { exact: true })).toHaveCount(0);
+  const savedDiagnosis = (await stored(page)).tasks[0].diagnosis;
+  expect(savedDiagnosis?.technicalChecks).toEqual(diagnosis.technicalChecks);
+  expect((await stored(page)).tasks[1]).toEqual(other);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   expect(errors).toEqual([]);
 });

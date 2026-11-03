@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DECISION_DISPLAY, decisionPanelLabel } from "@/lib/ax/rule-questions";
-import { DECISION_POINT_DEFS, confirmedStateNames, resolveDecisionPoints } from "@/lib/ax/decision-points";
+import { confirmedStateNames, resolveDecisionPoints } from "@/lib/ax/decision-points";
 import { buildAllInOnePrompt } from "@/lib/ax/guide";
 import { diagnosisFixture, planFixture } from "./fixtures/ax";
 import type { AxDiagnosis, GenericRule } from "@/lib/ax/types";
@@ -24,28 +23,6 @@ const genericRules = (): GenericRule[] => [
   { id: "R3", name: "적용 여부 확인 필요 규칙", category: "예외·확인 기준", applicability: "적용 여부 미확정", status: "미확정" },
 ];
 
-describe("AX 표시 문구 개선 — 표시 전용 라벨", () => {
-  it("결정 지점 표시 제목은 항목명 + (D번호) 기준을 따른다", () => {
-    expect(Object.entries(DECISION_DISPLAY).map(([id, item]) => `${item.title} (${id})`)).toEqual([
-      "대조 기준 (D1)", "중복 처리 (D2)", "예외 처리 (D3)", "결과 상태 (D4)",
-      "판단 불가 처리 (D5)", "빈 입력 처리 (D6)", "계산 기준 (D7)",
-    ]);
-  });
-
-  it("패널 라벨은 D번호 없이 카드별 기준을 쓴다", () => {
-    expect(decisionPanelLabel("D1", "상태")).toBe("상태");
-    expect((["D1", "D2", "D3", "D4", "D5", "D6", "D7"] as const).map(id => decisionPanelLabel(id, "상세"))).toEqual([
-      "대조 기준", "중복 처리 기준", "예외 처리 기준", "상태 구분 기준", "판단 불가 처리 기준", "빈 입력 처리 기준", "계산 기준",
-    ]);
-  });
-
-  it("지시문 생성용 DEFS 제목은 표시 변경과 무관하게 기존 값을 유지한다", () => {
-    expect(DECISION_POINT_DEFS.map(def => `${def.id} ${def.title}`)).toEqual([
-      "D1 기준과 매칭", "D2 중복", "D3 특이값", "D4 결과 상태", "D5 판단 불가", "D6 빈 입력", "D7 계산 기준",
-    ]);
-    expect(DECISION_POINT_DEFS.find(def => def.id === "D5")?.detailHint).toContain("결과 상태 (D4) 중 하나");
-  });
-});
 
 describe("AX 범용 규칙 체계 — 01~04 지시문 의미 비교", () => {
   it("표시 라벨과 무관하게 확정·미확정·미적용 의미와 도구 간 동일성을 유지한다", () => {

@@ -9,6 +9,7 @@ import type { SupplementDraft } from "@/domain/supplement";
 import type { EvidenceItem, ModelClaim } from "@/lib/ai/prompt";
 import type { ReviewFile } from "@/lib/law-review-source";
 import type { AnalyzeResult, CheckResult, DocumentTopic, ExportFormat, ExtractResult } from "@/domain/operations";
+import type { AxFileEvidence } from "@/lib/ax/file-evidence";
 
 /** Everything the UI knows about a file. The bytes never leave the worker. */
 export interface WorkspaceFile {
@@ -59,6 +60,8 @@ export type WorkerRequest =
   | { kind: "extract-structured"; fileIds: string[]; fields?: string[] }
   /** Bounded evidence window for one requested field of one file. */
   | { kind: "field-evidence"; fileId: string; field: string }
+  /** Session-only actual content for one AX follow-up question. */
+  | { kind: "ax-file-evidence"; fileId: string; question: string }
   | { kind: "evidence"; fileIds: string[]; request: AiRequest; compare?: { baseFileId: string; targetFileId: string } }
   | { kind: "field-source"; windowId: string; handles: string[] }
   | { kind: "ground"; windowId: string; request: AiRequest; claims: ModelClaim[] }
@@ -95,6 +98,7 @@ export interface WorkerResultMap {
   "polish-candidates": PolishCandidateEntry[];
   "extract-structured": StructuredExtract;
   "field-evidence": EvidencePayload;
+  "ax-file-evidence": AxFileEvidence;
   "field-source": { sources: SourceRef[] };
   evidence: EvidencePayload;
   ground: AiAvailableResult;

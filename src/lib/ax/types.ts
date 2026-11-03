@@ -13,6 +13,7 @@ export type FactorKey = typeof FACTOR_KEYS[number];
 export type HitlReview = z.infer<typeof hitlReviewSchema>;
 export type HitlReviewCollection = z.infer<typeof hitlReviewCollectionSchema>;
 export type AxTaskV2 = z.infer<typeof axTaskV2Schema>;
+export type AxFollowUpResponse = NonNullable<AxTaskV2["followUpResponses"]>[number];
 export type AxStateV2 = z.infer<typeof axStateV2Schema>;
 export type DecisionPoint = z.infer<typeof decisionPointSchema>;
 export type DecisionPointId = typeof DECISION_POINT_IDS[number];
