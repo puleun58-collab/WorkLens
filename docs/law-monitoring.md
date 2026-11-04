@@ -34,6 +34,9 @@ Cloudflare Workers Logs (`wrangler tail` 또는 대시보드 → Workers → Log
 3. **timeout 증가** — `LAW_UPSTREAM_TIMEOUT`, `OPERATION_CAPACITY` 코드 추이
 4. **p95 응답 시간 급증** — 배포 직후 악화 시 롤백 검토
 5. **partial 증가** — 일부 근거 조회 실패, 정상 근거는 유지되는지 확인
+6. **Cloudflare 1102(HTML 503) 뒤 `OPERATION_CAPACITY` 연속** — 플랫폼이 종료한 요청은 `finally`가 실행되지 않는다.
+   동시 작업 슬롯은 `OPERATION_LEASE_MS`(180초) 임대라 그 뒤 회수된다. 1102 자체는 Worker 앱 오류 본문이 없으므로
+   GraphQL `workersInvocationsAdaptive`의 `status=exceededResources`로 발생 시각·버전을 확인한다.
 
 ## 임계치 설정 원칙
 

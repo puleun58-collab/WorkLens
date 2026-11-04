@@ -76,22 +76,34 @@ export async function readBoundedJson(request: Request, maxBytes = MAX_REQUEST_B
  */
 const MAX_RESULT_BYTES = 4 * 1024 * 1024;
 const MAX_CONCURRENT_OPERATIONS = 4;
-let activeOperations = 0;
+/**
+ * A platform-terminated invocation (Cloudflare 1102) never runs `finally`, so
+ * a plain counter keeps its slot until the isolate is recycled; four such
+ * terminations then refuse every later request. A slot is therefore a lease
+ * reclaimed after it outlives any legitimate operation (the longest client
+ * wait is the 125s AX diagnosis). Reclaiming an unusually long live operation
+ * only admits one extra operation; it never cancels it.
+ */
+export const OPERATION_LEASE_MS = 180_000;
+const operationLeases = new Set<{ readonly started: number }>();
 
 export async function runBoundedOperation<T>(
   operation: () => Promise<T> | T,
   validateResult = true,
 ): Promise<T> {
-  if (activeOperations >= MAX_CONCURRENT_OPERATIONS) {
+  const now = Date.now();
+  for (const lease of operationLeases) if (now - lease.started >= OPERATION_LEASE_MS) operationLeases.delete(lease);
+  if (operationLeases.size >= MAX_CONCURRENT_OPERATIONS) {
     throw new ApiError("OPERATION_CAPACITY", "동시 작업 한도에 도달했습니다. 잠시 후 다시 시도하세요.", 429);
   }
-  activeOperations += 1;
+  const lease = { started: now };
+  operationLeases.add(lease);
   try {
     const result = await operation();
     if (validateResult) assertResultWithinLimit(result);
     return result;
   } finally {
-    activeOperations -= 1;
+    operationLeases.delete(lease);
   }
 }
 
