@@ -1,6 +1,8 @@
 import { axMessages, AX_DIAGNOSIS_RESPONSE_SCHEMA, AX_PLAN_RESPONSE_SCHEMA, copiesAttachment } from "@/lib/ax/prompt";
 import { axDiagnosisOutputSchema, axPlanSchema } from "@/lib/ax/schema";
-import { alignInformationSufficiency } from "@/lib/ax/policy";
+import { unconfirmedPlanMetrics } from "@/lib/ax/guide";
+import { applyCurrentFacts, currentFactAssessment, currentFactMessages, CURRENT_FACT_RESPONSE_SCHEMA, resolveCurrentFacts } from "@/lib/ax/current-facts";
+import type { AxGrounding } from "@/lib/ax/grounding-schema";
 import { validateAxSemantics } from "@/lib/ax/semantic";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -25,7 +27,7 @@ const CORRECTION_MESSAGE_SUFFIX = " 특히 PoC 가설·평가·성공·실패 �
 
 export type GroqOperation = Extract<AiApiRequest, { kind: "claims" }>["request"]["operation"]
   | Exclude<AiApiRequest["kind"], "claims">
-  | "research-interpretation" | "research-adoption";
+  | "research-interpretation" | "research-adoption" | "ax-current-facts";
 
 /** Central policy; operations not explicitly promoted stay at low effort. */
 export function reasoningEffortFor(operation: string): "low" | "medium" | "high" {
@@ -33,6 +35,8 @@ export function reasoningEffortFor(operation: string): "low" | "medium" | "high"
     case "supplement-review":
     case "research-interpretation":
     case "research-adoption":
+    // Source-quote extraction decides the AS-IS and sufficiency; low effort misfiled facts between runs.
+    case "ax-current-facts":
       return "medium";
     default:
       // gpt-oss spends completion tokens on hidden reasoning first. At the default
@@ -71,7 +75,7 @@ async function observeGroq<T>(
   const started = Date.now();
   const budget: GroqAttemptBudget = {
     maxAttempts: context.operation === "research-interpretation" ? RESEARCH_INTERPRETATION_MAX_ATTEMPTS
-      : context.operation === "polish-batch" || context.operation === "research-adoption" ? 1 : 2,
+      : context.operation === "ax-diagnosis" ? 4 : context.operation === "polish-batch" || context.operation === "research-adoption" ? 1 : 2,
     attempt: 0,
     cumulativeUsage: {},
     failure: new ApiError("INVALID_PROVIDER_OUTPUT", "AI 응답 형식이 올바르지 않습니다.", 502),
@@ -378,29 +382,91 @@ export async function runGroqAi(
 ): Promise<AiApiResult> {
   const operation: GroqOperation = request.kind === "claims" ? request.request.operation : request.kind;
   return observeGroq({ ...context, operation }, request.kind, async (budget) => {
-    const specification = requestSpecification(request);
-    const raw = await complete(specification.messages, specification.schema, specification.schemaName, specification.maxTokens,
-      { ...context, operation }, budget);
-    const result = parseResult(request, raw.choices[0].message.content);
-    if (request.kind !== "ax-diagnosis" || result.kind !== "ax-diagnosis") return result;
-    let violations = validateAxSemantics(result.diagnosis, request);
-    if (!violations.length) return result;
-    budget.semantic = { categories: [...new Set(violations.map(violation => violation.category))], corrected: false };
-    if (budget.attempt < budget.maxAttempts) {
-      const correction = `${CORRECTION_MESSAGE}${CORRECTION_MESSAGE_SUFFIX} 검출된 위반 범주: ${[...new Set(violations.map(violation => violation.category))].join(", ")}. 검출 위치: ${[...new Set(violations.map(violation => violation.field.replace(/\[\d+\]/g, "")))].join(", ")}.`;
-      const messages: Message[] = [...specification.messages, { role: "user", content: correction }];
-      const correctedRaw = await complete(messages, specification.schema, specification.schemaName, specification.maxTokens,
-        { ...context, operation }, budget);
-      const corrected = parseResult(request, correctedRaw.choices[0].message.content);
-      if (corrected.kind === "ax-diagnosis") {
-        violations = validateAxSemantics(corrected.diagnosis, request);
-        if (!violations.length) {
-          budget.semantic.corrected = true;
-          return corrected;
+    let grounding: AxGrounding | undefined;
+    if (request.kind === "ax-diagnosis") {
+      // An extraction that is malformed, or that found no current procedure in a written description, is
+      // asked for once more inside the shared budget. The answer covering more source fields is kept; a
+      // missing fact is never guessed. Two malformed answers keep the stored diagnosis unchanged.
+      const coverage = (value: typeof grounding) => new Set(value?.facts.map(fact => fact.field)).size;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const extracted = await complete(currentFactMessages(request), CURRENT_FACT_RESPONSE_SCHEMA, "worklens_ax_current_facts", 4_000, { ...context, operation: "ax-current-facts" }, budget);
+        try {
+          const candidate = resolveCurrentFacts(request, JSON.parse(extracted.choices[0].message.content));
+          if (copiesAttachment(candidate, request.attachmentSummary)) throw new Error("첨부 원문 저장 제한");
+          if (coverage(candidate) > coverage(grounding)) grounding = candidate;
+        } catch {
+          if (attempt === 1 && !grounding) throw new ApiError("INVALID_PROVIDER_OUTPUT", "현재 업무 근거를 원문과 대조하지 못했습니다. 기존 진단은 유지됩니다.", 502);
         }
+        if (grounding?.facts.some(fact => fact.field === "steps")) break;
       }
     }
-    budget.semantic.categories = [...new Set(violations.map(violation => violation.category))];
+    const specification = requestSpecification(request);
+    if (grounding) {
+      // Verified facts travel inside the request data. A trailing instruction made the model treat them as the
+      // whole answer and return empty TO-BE, risks and technical checks, which then read as "ready".
+      const [system, user] = specification.messages;
+      specification.messages = [
+        { role: "system", content: `${system.content}\n입력의 currentFacts는 서버가 원문 인용으로 검증한 현재 업무(AS-IS)와 정보 충분성입니다. asIs와 informationSufficiency는 currentFacts와 같게 작성하세요. currentFacts는 AS-IS만 확정할 뿐이며 factors, stepAssessments, toBe, humanInLoop, technicalChecks, risks, poc, decisionGate, roadmap, operation, nextAction은 위 지침대로 빠짐없이 작성하세요. currentFacts에 없는 시스템·API·자동 실행·알림은 현재 사실이 아니므로 toBe의 제안이나 technicalChecks의 확인 대상으로 다루세요. conflicts는 미확정 필수 조건입니다.` },
+        { role: "user", content: JSON.stringify({ ...JSON.parse(user.content), currentFacts: currentFactAssessment(grounding), conflicts: grounding.conflicts }) },
+      ];
+    }
+    const raw = await complete(specification.messages, specification.schema, specification.schemaName, specification.maxTokens,
+      { ...context, operation }, budget);
+    const parsed = parseResult(request, raw.choices[0].message.content);
+    if (parsed.kind === "ax-diagnosis" && grounding?.conflicts.length && parsed.diagnosis.technicalChecks.length >= 10) throw new ApiError("INVALID_PROVIDER_OUTPUT", "상충 정보와 필수 기술 조건을 모두 보존할 수 없습니다.", 502);
+    const result = parsed.kind === "ax-diagnosis" && grounding ? { ...parsed, diagnosis: applyCurrentFacts(parsed.diagnosis, grounding) } : parsed;
+    if (request.kind === "ax-plan" && result.kind === "ax-plan") {
+      const contextText = [request.task.description, ...Object.values(request.task.details)].join("\n");
+      const unconfirmed = unconfirmedPlanMetrics(result.plan, contextText);
+      if (!unconfirmed.length) return result;
+      // One correction is requested. A plan that still carries an unsupported target is kept: the instruction
+      // model labels such values "사용자 확인 전 구현 완료 기준 아님" and never turns them into completion criteria.
+      if (budget.attempt < budget.maxAttempts) {
+        const messages: Message[] = [...specification.messages, { role: "user", content: `사용자 근거 없는 수치 목표가 ${unconfirmed.join(", ")}에 있습니다. 해당 수치를 확정 요구사항으로 생성하지 말고 측정 방법·원문 대조 기준으로 바꿔 전체 JSON을 다시 작성하세요. 사용자 근거가 있는 목표는 유지하세요.` }];
+        const retry = await complete(messages, specification.schema, specification.schemaName, specification.maxTokens, { ...context, operation }, budget).catch(() => undefined);
+        const corrected = retry ? (() => { try { return parseResult(request, retry.choices[0].message.content); } catch { return undefined; } })() : undefined;
+        if (corrected?.kind === "ax-plan") return corrected;
+      }
+      return result;
+    }
+    if (request.kind !== "ax-diagnosis" || result.kind !== "ax-diagnosis") return result;
+    // A grounded procedure always has step judgements, a target flow and risks. An answer that leaves them
+    // empty would read as "nothing to check"; it gets the same single correction as an unsupported metric.
+    let violations = validateAxSemantics(result.diagnosis, request);
+    const missing = grounding?.facts.some(fact => fact.field === "steps")
+      ? (["stepAssessments", "toBe", "risks"] as const).filter(key => !result.diagnosis[key].length) : [];
+    if (!violations.length && !missing.length) return result;
+    if (violations.length) budget.semantic = { categories: [...new Set(violations.map(violation => violation.category))], corrected: false };
+    if (budget.attempt < budget.maxAttempts) {
+      const correction = [
+        violations.length ? `${CORRECTION_MESSAGE}${CORRECTION_MESSAGE_SUFFIX} 검출된 위반 범주: ${[...new Set(violations.map(violation => violation.category))].join(", ")}. 검출 위치: ${[...new Set(violations.map(violation => violation.field.replace(/\[\d+\]/g, "")))].join(", ")}.` : "",
+        missing.length ? `다음 항목이 비어 있습니다: ${missing.join(", ")}. currentFacts의 각 현재 절차에 대한 단계별 판정(stepAssessments), 자동화 후 목표 흐름(toBe), 위험(risks)을 작성하고, currentFacts로 확인되지 않은 시스템 접근·입력 형식·권한은 technicalChecks의 확인 필요 항목으로 작성하세요. asIs는 currentFacts 그대로 두고 동일한 JSON 스키마로 전체 응답을 다시 작성하세요.` : "",
+      ].filter(Boolean).join(" ");
+      const messages: Message[] = [...specification.messages, { role: "user", content: correction }];
+      const corrected = await (async () => {
+        try {
+          const correctedRaw = await complete(messages, specification.schema, specification.schemaName, specification.maxTokens, { ...context, operation }, budget);
+          const parsedCorrection = parseResult(request, correctedRaw.choices[0].message.content);
+          if (parsedCorrection.kind !== "ax-diagnosis") return undefined;
+          if (grounding?.conflicts.length && parsedCorrection.diagnosis.technicalChecks.length >= 10) return undefined;
+          return grounding ? { ...parsedCorrection, diagnosis: applyCurrentFacts(parsedCorrection.diagnosis, grounding) } : parsedCorrection;
+        } catch (error) {
+          // A failed correction of a merely incomplete answer keeps the valid first answer.
+          if (violations.length) throw error;
+          return undefined;
+        }
+      })();
+      if (corrected) {
+        const correctedViolations = validateAxSemantics(corrected.diagnosis, request);
+        if (!correctedViolations.length) {
+          if (budget.semantic) budget.semantic.corrected = true;
+          return corrected;
+        }
+        if (violations.length) violations = correctedViolations;
+      }
+    }
+    if (!violations.length) return result;
+    budget.semantic!.categories = [...new Set(violations.map(violation => violation.category))];
     throw new ApiError("INVALID_PROVIDER_OUTPUT", "AI 진단 결과를 검증하지 못했습니다. 다시 시도하세요.", 502);
   });
 }
@@ -453,7 +519,7 @@ function parseResult(request: AiApiRequest, content: string): AiApiResult {
       }
       const parsed = axDiagnosisOutputSchema.safeParse(payload);
       if (!parsed.success || copiesAttachment(parsed.data, request.attachmentSummary)) throw new ApiError("INVALID_PROVIDER_OUTPUT", "AI 응답 형식이 올바르지 않습니다.", 502);
-      return { kind: "ax-diagnosis", diagnosis: alignInformationSufficiency(parsed.data, request.details) };
+      return { kind: "ax-diagnosis", diagnosis: parsed.data };
     }
     case "ax-plan": {
       const parsed = axPlanSchema.safeParse(payload);

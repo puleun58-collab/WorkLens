@@ -1,6 +1,7 @@
 import type { z } from "zod";
 import type { axDiagnosisOutputSchema } from "./schema";
 import type { AxDiagnosisRequest } from "./types";
+import { hasUnconfirmedMetric } from "./guide";
 
 type AxDiagnosisOutput = z.infer<typeof axDiagnosisOutputSchema>;
 
@@ -82,6 +83,13 @@ export function validateAxSemantics(diagnosis: AxDiagnosisOutput, request: AxDia
 
   for (const [field, text] of narrativeFields(diagnosis)) {
     const claims = new Set<string>();
+    // The shared target check covers time/cost/throughput thresholds; a restated user goal keeps the existing goal exemption.
+    const restatedGoal = text.includes("목표") && goalText.includes("목표")
+      && [...text.matchAll(NUMBER_UNIT)].every(match => inputTokens.has(token(match[1], match[2])));
+    if (!restatedGoal && hasUnconfirmedMetric(text, goalText)) {
+      const category = categoryFor(text);
+      violations.set(`${category}|${field}`, { category, field });
+    }
     for (const match of text.matchAll(/(\d+(?:\.\d+)?)\s*(%|퍼센트)/g)) claims.add(token(match[1], match[2]));
     if (/효율|생산성|처리 속도|처리량|향상|개선/.test(text)) {
       for (const match of text.matchAll(/(\d+(?:\.\d+)?)\s*배/g)) claims.add(token(match[1], "배"));

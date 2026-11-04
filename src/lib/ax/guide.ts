@@ -1,4 +1,4 @@
-import type { AxDiagnosis, AxPlan, GenericRule } from "./types";
+import type { AxDiagnosis, AxPlan, AxTaskV2, GenericRule } from "./types";
 import { automationLevel, axes, executionProfile, gateBlockReasons, prerequisiteTopicKey, type ExecutionGate, type ExecutionProfile, type StepScope } from "./policy";
 import { FACTOR_KEYS } from "./schema";
 import { applyStateDefinition, confirmedStateNames, declaredStateCount, isUndecidableStateInvalid, resolveDecisionPoints, undecidedDecisionIds, validatedUndecidableState, type ResolvedDecisionPoint } from "./decision-points";
@@ -297,8 +297,9 @@ const GATE_CONSTRAINTS = {
 } as const;
 
 const OWNER_LABELS = { 시스템: "시스템", AI: "AI", 사용자: "담당자" } as const;
-/** Quantified targets (절감률·정확도·배수) need evidence the plan cannot carry, so such items are removed. */
-const UNSUPPORTED_METRIC = /\d+(?:\.\d+)?\s*(?:%|퍼센트|배)/u;
+/** Shared measurable-target check for generated plans and diagnoses. */
+const hasMetricTarget = (text: string) => metricClaims(text, "", true).length > 0;
+const UNCONFIRMED_METRIC_REASON = "수치 목표 확인 필요: 사용자 등록·유효한 HITL 확정 근거 없음 — 사용자 확인 전 구현 완료 기준 아님";
 const ORGANIZATION = /[가-힣A-Za-z]+(?:팀|부서|본부)/gu;
 const AUTO_ACTION = /자동(?:으로)?\s*(삭제|제거|승인|등록|전송|결재|수정|보정)/u;
 const SYSTEM_INTERFACE = /\bAPI\b|SDK|엔드포인트|endpoint/iu;
@@ -311,7 +312,7 @@ type PlanListKey = Exclude<keyof AxPlan, "repositoryFirst">;
  * with a different meaning (e.g. 정산 오차율 0.5% vs 시스템 오류율 0.5%) is not confirmed.
  */
 /** Every metric occurrence in the item, each verified against its own measurement target. */
-const METRIC_GLOBAL = /(\d+(?:\.\d+)?\s*(?:%|퍼센트|배))/gu;
+const METRIC_GLOBAL = /(\d+(?:,\d{3})*(?:\.\d+)?\s*(?:퍼센트|%|배(?!차)|밀리초|ms|시간|분|초|천만원|백만원|만원|천원|원|달러|USD|건|회|점|개|MB|GB|TPS|RPS))(?:\s*\/\s*(?:시간|분|초|일|월|년|s|min|h))?/gu;
 /** The noun phrase (up to 3 words) directly before a metric: the measurement target. */
 const METRIC_SUBJECT_TAIL = /([가-힣A-Za-z]{2,}(?:\s+[가-힣A-Za-z]{2,}){0,2})\s*$/u;
 /**
@@ -320,7 +321,7 @@ const METRIC_SUBJECT_TAIL = /([가-힣A-Za-z]{2,}(?:\s+[가-힣A-Za-z]{2,}){0,2}
  */
 const NEUTRAL_SUBJECT_PREFIX = /^(?:기존|현재|해당)\s+/u;
 const normalizeSubject = (subject: string) => subject.replace(/\s+/gu, " ").trim().replace(NEUTRAL_SUBJECT_PREFIX, "");
-const normalizeMetric = (metric: string) => metric.replace(/퍼센트/u, "%").replace(/\s+/gu, "");
+const normalizeMetric = (metric: string) => metric.replace(/퍼센트/u, "%").replace(/[,\s]/gu, "").toLowerCase();
 /** Words that change what a measurement means; never ignored when only one side has them. */
 const MEANING_MODIFIER = /^(?:목표|예상|평균|최대|최소|실제|기준|표준|한도|상한|하한)$/u;
 /** The core nouns of one subject are all present in the other: same measurement target, different wording. */
@@ -332,21 +333,57 @@ const subjectMatches = (itemSubject: string, ctxSubject: string) => {
   return wc.every(word => wi.includes(word)) && extra.every(word => !MEANING_MODIFIER.test(word));
 };
 interface MetricClaim { text: string; subject: string; value: string; confirmed: boolean }
-/** One claim per metric in the item; a confirmed first metric never covers the rest. */
-function metricClaims(item: string, context: string): MetricClaim[] {
-  return [...item.matchAll(METRIC_GLOBAL)].map(match => {
-    const value = normalizeMetric(match[1]);
-    const subject = normalizeSubject(METRIC_SUBJECT_TAIL.exec(item.slice(0, match.index))?.[1] ?? "");
+const RATIO_TARGET = /절감|단축|정확|일치|오류|오차|불량|누락|성공률|재현율|정밀도|자동화율|처리율|성능|효율|생산성|개선|향상|ROI/iu;
+const TARGET_WORD = /목표|요구|허용|합격|완료\s*기준/u;
+const BASELINE_WORD = /현재|기존|현행|실측|측정값|현황/u;
+const DIRECTION = { 이상: ">=", 이하: "<=", 미만: "<", 초과: ">", 이내: "<=" } as Record<string, string>;
+/** A stated comparison (<, 이상, 이내 …) normalized; empty when none is written. */
+const metricDirection = (before: string, after: string) => /[<>]=?\s*$/u.exec(before)?.[0].trim()
+  ?? DIRECTION[/^\s*(이상|이하|미만|초과|이내)/u.exec(after)?.[1] ?? ""] ?? "";
+/**
+ * One claim per metric in the item; a confirmed first metric never covers the rest.
+ * `targetsOnly` keeps only performance/quality targets (blocking boundary): source-data rates
+ * (부가세 10%), cycles, counts and current values remain facts. Confirmation compares the same
+ * value, measurement target and, when both sides state one, comparison direction; a current
+ * value in the evidence is never approval of a target.
+ */
+function metricClaims(item: string, context: string, targetsOnly = false): MetricClaim[] {
+  const claims: MetricClaim[] = [];
+  for (const match of item.matchAll(METRIC_GLOBAL)) {
+    const value = normalizeMetric(match[0]);
+    const before = item.slice(0, match.index);
+    const after = item.slice(match.index + match[0].length);
+    const subject = normalizeSubject(METRIC_SUBJECT_TAIL.exec(before.replace(/[<>]=?\s*$/u, ""))?.[1] ?? "");
+    const clause = before.split(/[\n,;。]/u).at(-1) ?? "";
+    const direction = metricDirection(before, after);
+    const explicitTarget = TARGET_WORD.test(clause) || /^\s*(?:을|를|으로|로)?\s*(?:목표|달성|제한)/u.test(after);
+    const baseline = BASELINE_WORD.test(clause) && !TARGET_WORD.test(clause);
+    if (/%|퍼센트|배/u.test(match[0])) {
+      if (targetsOnly && !explicitTarget && !RATIO_TARGET.test(subject)
+        && !/^\s*(?:이상|이하|미만|초과|이내)?\s*(?:을|를|으로|로)?\s*(?:일치|절감|단축|개선|향상|감소)/u.test(after)) continue;
+    } else {
+      // Durations, costs and throughput are facts (cycles, prices, counts) unless written as a target/threshold.
+      const measured = /처리\s*시간|응답\s*(?:시간|속도)?|실행\s*시간|소요\s*시간|지연|비용|예산|단가|처리량|처리\s*(?:속도|건수)|초당|분당|시간당|TPS|RPS/u.test(subject)
+        || /\/\s*(?:초|분|시간|s|min|h)$/u.test(match[0]);
+      if (baseline || !measured || !(direction || explicitTarget || /^\s*(?:을|를|으로|로)?\s*(?:단축|절감)/u.test(after))) continue;
+    }
     let confirmed = false;
     if (subject) {
       for (const ctx of context.matchAll(METRIC_GLOBAL)) {
-        if (normalizeMetric(ctx[1]) !== value) continue;
-        const ctxSubject = normalizeSubject(METRIC_SUBJECT_TAIL.exec(context.slice(0, ctx.index))?.[1] ?? "");
+        if (normalizeMetric(ctx[0]) !== value) continue;
+        const ctxBefore = context.slice(0, ctx.index);
+        const ctxClause = ctxBefore.split(/[\n,;。]/u).at(-1) ?? "";
+        // A current value confirms only a restated current value, never a target.
+        if (!baseline && BASELINE_WORD.test(ctxClause) && !TARGET_WORD.test(ctxClause)) continue;
+        const ctxDirection = metricDirection(ctxBefore, context.slice(ctx.index + ctx[0].length));
+        if (direction && ctxDirection && direction !== ctxDirection) continue;
+        const ctxSubject = normalizeSubject(METRIC_SUBJECT_TAIL.exec(ctxBefore.replace(/[<>]=?\s*$/u, ""))?.[1] ?? "");
         if (ctxSubject && subjectMatches(subject, ctxSubject)) { confirmed = true; break; }
       }
     }
-    return { text: `${METRIC_SUBJECT_TAIL.exec(item.slice(0, match.index))?.[1]?.trim() ?? ""} ${match[1]}`.trim(), subject, value, confirmed };
-  });
+    claims.push({ text: `${METRIC_SUBJECT_TAIL.exec(before)?.[1]?.trim() ?? ""} ${match[0]}`.trim(), subject, value, confirmed });
+  }
+  return claims;
 }
 /**
  * A quantified target is a confirmed business fact only when every metric in the item has its
@@ -356,6 +393,25 @@ function metricClaims(item: string, context: string): MetricClaim[] {
 export function isConfirmedMetric(item: string, context: string): boolean {
   const claims = metricClaims(item, context);
   return claims.length > 0 && claims.every(claim => claim.confirmed);
+}
+
+/** Shared diagnosis/plan boundary; baseline and non-target numeric facts return false. */
+export function hasUnconfirmedMetric(item: string, context: string): boolean {
+  return metricClaims(item, context, true).some(claim => !claim.confirmed);
+}
+
+/** Fields whose items state targets or pass conditions: every ratio there is a claim needing evidence. */
+const TARGET_FIELDS: Partial<Record<keyof AxPlan, true>> = { goal: true, poc: true, tests: true, acceptance: true };
+/** Provider-output boundary: report paths only, never mutate or silently sanitize the plan. */
+export function unconfirmedPlanMetrics(plan: AxPlan, context: string): string[] {
+  const paths: string[] = [];
+  for (const field of Object.keys(plan) as (keyof AxPlan)[]) {
+    if (field === "repositoryFirst") continue;
+    for (const [index, item] of plan[field].entries()) {
+      if (metricClaims(item, context, !TARGET_FIELDS[field]).some(claim => !claim.confirmed)) paths.push(`${field}[${index}]`);
+    }
+  }
+  return paths;
 }
 /** System names before "API"; generic words are not an identifiable system. */
 const API_SYSTEM = /([가-힣A-Za-z]+(?:\s+[가-힣A-Za-z]+){0,2})\s*API/giu;
@@ -398,7 +454,7 @@ function qualifyApi(value: string, item: string, context: string): string {
 }
 /** The item carries metrics and none of them are confirmed: guardPlan drops it. */
 function hasOnlyUnconfirmedMetrics(item: string, context: string): boolean {
-  if (!UNSUPPORTED_METRIC.test(item)) return false;
+  if (!hasMetricTarget(item)) return false;
   const claims = metricClaims(item, context);
   return claims.length > 0 && claims.every(claim => !claim.confirmed);
 }
@@ -413,7 +469,7 @@ export function guardPlan(plan: AxPlan, context: string): AxPlan {
   // confirmed fact never suppresses the remaining checks.
   const guardItem = (item: string, qualify: boolean): string | null => {
     if (item.includes(UNCONFIRMED)) return item;
-    if (UNSUPPORTED_METRIC.test(item)) {
+    if (hasMetricTarget(item)) {
       const claims = metricClaims(item, context);
       const unconfirmed = claims.filter(claim => !claim.confirmed);
       // Every metric unconfirmed: drop the performance goal as before.
@@ -1568,7 +1624,22 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
   const gate = profile?.gate;
   const scopeLevel = profile ? gate === "blocked" ? 0 : profile.level : undefined;
   const steps = profile?.stepScope ?? [];
-  const guarded = rawPlan ? guardPlan(rawPlan, [options.taskName ?? "", options.context ?? ""].join("\n")) : undefined;
+  // Only current, hash-matched user decisions can ground a generated target.
+  // A risk/step keep is not approval of another item's acceptance threshold.
+  const hitlReviews = options.hitlReviews ?? [];
+  const hitlTool = options.hitlTool;
+  const currentItems = [
+    ...(d ? extractReviewableItems(d) : []),
+    ...(d?.planCodex ? extractPlanReviewableItems(d.planCodex, "codex") : []),
+    ...(d?.planClaude ? extractPlanReviewableItems(d.planClaude, "claude") : []),
+    ...(!d?.planCodex && !d?.planClaude && rawPlan && hitlTool ? extractPlanReviewableItems(rawPlan, hitlTool) : []),
+  ];
+  const validReviews = getValidConfirmedReviews({ reviews: hitlReviews } as AxTaskV2, currentItems);
+  const metricContext = [options.taskName ?? "", options.context ?? "", ...validReviews
+    .filter(review => review.target.type === "criterion" && (review.action === "keep" || review.action === "supplement")
+      && (review.target.source === "diagnosis" || review.target.source === (hitlTool === "codex" ? "planCodex" : hitlTool === "claude" ? "planClaude" : "")))
+    .map(review => review.action === "supplement" ? review.supplement ?? "" : currentItems.find(item => item.key === review.target.key)!.text)].join("\n");
+  const guarded = rawPlan ? guardPlan(rawPlan, metricContext) : undefined;
   const classified: AgentInstructionItem[] = [];
   const closed = new Set([
     ...(profile?.poc.outOfScope ?? []), ...(d?.humanInLoop ?? []), ...(rawPlan?.outOfScope ?? []), ...(rawPlan?.humanInLoop ?? []),
@@ -1670,9 +1741,11 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
       scope = "confirm";
       reason = "생성 계획의 미확인 규칙·연동·권한은 확인 전 구현 불가";
     }
-    if (["criteria", "tests"].includes(role) && UNSUPPORTED_METRIC.test(clean) && !isConfirmedMetric(clean, [options.taskName ?? "", options.context ?? ""].join("\n"))) {
+    // A pass condition or goal states a target with any ratio ("80% 이상 추출", "1% 이내 차이"); only
+    // descriptive fields need the narrower target wording to tell data rates apart from goals.
+    if (["criteria", "tests", "features", "goal"].includes(role) && metricClaims(clean, "").length && !isConfirmedMetric(clean, metricContext)) {
       scope = "confirm";
-      reason = "수치 기준 확인 필요: 측정 대상·방법·데이터 범위·비교 기준·판정 근거가 확인되지 않음";
+      reason = UNCONFIRMED_METRIC_REASON;
     }
     const step = matches.length === 1 ? matches[0].step : undefined;
     // reviewKey가 부여된 계획 항목은 동일 키끼리만 병합한다.
@@ -1692,7 +1765,7 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
   const planReviewKeyMap = rawPlan && options.hitlTool ? buildPlanReviewKeyMap(rawPlan, options.hitlTool) : new Map<string, string>();
   if (rawPlan) for (const key of Object.keys(PLAN_ROLES) as (keyof typeof PLAN_ROLES)[]) {
     let guardedIndex = 0;
-    const planContext = [options.taskName ?? "", options.context ?? ""].join("\n");
+    const planContext = metricContext;
     let fieldIndex = 0;
     for (const item of rawPlan[key] ?? []) {
       const unsupported = hasOnlyUnconfirmedMetrics(item, planContext);
@@ -1765,24 +1838,7 @@ export function buildAgentInstructionModel(rawPlan: AxPlan | undefined, options:
   let finalMethodEvidence = methodEvidence;
   let hitlActuallyApplied = false;
   let hitlDetails: AgentInstructionModel["hitlDetails"];
-  const hitlReviews = options.hitlReviews ?? [];
-  const hitlTool = options.hitlTool;
   if (hitlReviews.length > 0) {
-    // 실행 모델 생성 경계에서 현재 원본 기준으로 재검증 (임의 배열 직접 전달 시에도 우회 불가)
-    // 진단 항목 + 양쪽 도구 계획 항목을 모두 현재 원본으로 사용
-    // diagnosis가 없어도 rawPlan이 있으면 계획 항목 추출 (테스트·직접 호출 호환)
-    const currentItems = [
-      ...(d ? extractReviewableItems(d) : []),
-      ...(d?.planCodex ? extractPlanReviewableItems(d.planCodex, "codex") : []),
-      ...(d?.planClaude ? extractPlanReviewableItems(d.planClaude, "claude") : []),
-      // diagnosis에 계획이 없지만 rawPlan이 직접 전달된 경우
-      ...(!d?.planCodex && !d?.planClaude && rawPlan && hitlTool
-        ? extractPlanReviewableItems(rawPlan, hitlTool)
-        : []),
-    ];
-    const validReviews = currentItems.length > 0
-      ? getValidConfirmedReviews({ reviews: hitlReviews } as import("./types").AxTaskV2, currentItems)
-      : [];
     const applied = applyHitlToModel(classified, scoped, steps, methodEvidence, validReviews, hitlTool, d);
     finalClassified = applied.classified;
     finalScoped = applied.scoped;
@@ -2658,6 +2714,7 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
   // '검증 방법·기록 (합격 조건 아님)'에 이미 분리돼 있으므로, 단계 연결된
   // 검증 방법이 업무 전체 완료/실패 기준으로 중복 승격되지 않게 제외한다
   // (계획 요약 경로의 criteria()와 동일한 제외 기준).
+  const unconfirmedTargets = model.classified.filter(item => item.reason === UNCONFIRMED_METRIC_REASON);
   const pocCriteriaItems = model.classified.filter(item => item.role === "criteria" && isPocCriterion(item) && !model.scoped.criteria.includes(item) && !model.scoped.validationMethods.includes(item));
   // 성공 기준과 실패 판정 기준은 의미가 정반대이므로 완료 기준에 합치지 않는다.
   // 실패 항목(예: "중복 ID 허용")은 완료 조건처럼 읽히면 요구사항과 충돌해
@@ -2695,8 +2752,10 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
   const numericItems04 = numericConflictItems([...scopedCriteriaItems, ...overallSuccessItems]);
   const numericConflictCriteria = unique(numericItems04.map(item => numericConflictText(item)));
   const criteria = unique(scopedCriteriaItems.filter(item => !numericItems04.includes(item)).map(evidenceLine));
-  const overallCriteria = unique(overallSuccessItems.filter(item => !numericItems04.includes(item)).map(unlinkedCriterionText));
-  const overallFailureCriteria = unique(overallFailureItems.map(unlinkedCriterionText));
+  // Conflicting values stay in the conflict section; other unapproved targets get their own section.
+  const unconfirmedTargetItems = unconfirmedTargets.filter(item => !numericItems04.includes(item) && !textConflictKeys.has(normalizedItem(item.text)));
+  const overallCriteria = unique(overallSuccessItems.filter(item => !numericItems04.includes(item) && !unconfirmedTargets.includes(item)).map(unlinkedCriterionText));
+  const overallFailureCriteria = unique(overallFailureItems.filter(item => !unconfirmedTargets.includes(item)).map(unlinkedCriterionText));
   // 성공·실패 양쪽 출처에서 전달된 항목은 성공 기준으로 조용히 승격하지
   // 않는다 (과거 동작). 단계 연결 여부와 무관하게 확인 대상으로 분리한다.
   const conflictingCriteria = unique([
@@ -2898,7 +2957,7 @@ ${stateList ? `\n결과 상태 목록: ${stateList} — 지시문 전체에서 �
     // 담당자가 근거와 함께 확인한 기술 조건(업무 진단의 확인 결과 기록): 시스템 검증이 아니므로 구현 시 실제로 다시 검증한다.
     (() => {
       const confirmed = (d?.technicalChecks ?? []).filter(check => check.status === "확인됨" && check.note.includes("담당자 확인:"));
-      return confirmed.length ? `${protectUserBlock(`### 담당자 확인 완료 조건 (시스템 미검증)\n\n${bullets(confirmed.map(check => `${check.topic} — ${check.note}`))}`)}\n\n담당자가 확인한 내용입니다. 구현 중 실제 권한·연동·형식이 기록과 다르면 진행하지 말고 차이를 보고하세요.` : "";
+      return confirmed.length ? `${protectUserBlock(`### 담당자 확인 완료 조건 (시스템 미검증)\n\n${bullets(confirmed.map(check => `${check.topic} — ${check.note}`))}`)}\n\n담당자가 확인한 내용입니다. '확인' 같은 메모는 API 호출·Excel 파싱/저장·권한·업무 결과의 실제 실행 검증 완료를 뜻하지 않습니다. 실제 입력·권한·환경에서 동작을 검증하고 실행 근거를 남기세요. 구현 중 실제 권한·연동·형식이 기록과 다르면 진행하지 말고 차이를 보고하세요.` : "";
     })(),
     relatedCandidateLines.length ? `### 관련 후보 (필수 조건으로 확정하지 않음)\n\n${bullets(relatedCandidateLines)}\n\n위 조건은 업무 단계명을 언급하지만 명시적 단계 연결 근거가 없어 관련 가능성만 표시합니다. 해당 단계의 필수 의존 조건으로 확정하지 말고, 실제 의존 관계를 확인한 뒤에만 현재 조건으로 승격하세요. 확인 전에는 확인 필요 상태를 유지합니다.` : "",
     unassignedRestLines.length || gaps.length ? `### 적용 단계 확인 필요\n\n${bullets([...unassignedRestLines, ...gaps])}\n\n미연결 조건의 적용 대상과 의존 관계를 실제 자료로 확인하세요. 무관하다고 임의로 해제하지 말고, 영향 가능성이 있는 작업은 확인·승인 대기로 두세요. 해당 조건과 독립적이라는 근거가 확인된 허용 작업만 계속 진행할 수 있습니다.` : "",
@@ -2999,6 +3058,7 @@ ${stateList ? `\n결과 상태 목록: ${stateList} — 지시문 전체에서 �
     overallCriteria.length ? `### 업무 전체 완료 기준\n\n${bullets(overallCriteria)}\n\n위 기준은 업무 전체 산출물에 대한 완료 조건입니다. 단계별 검증과 함께 확인하세요. '기준 확인 필요'로 표시된 기준은 확인 대기 중인 완료 기준이며, 실제 업무 규칙 확인 후 확정합니다.` : "",
     overallFailureCriteria.length ? `### 업무 전체 실패 판정 기준\n\n${bullets(overallFailureCriteria)}\n\n위 항목은 완료 조건이 아니라 실패 판정 기준입니다. 어느 하나라도 해당하면 완료로 판정하지 마세요. '기준 확인 필요'로 표시된 기준은 확인될 때까지 실패 판정으로 확정하지 않습니다.` : "",
     movedExternalCriteria.length ? `### 확인 필요(외부 행위)\n\n${bullets(movedExternalCriteria)}\n\n위 항목은 알림·전송·승인 등 외부 행위를 요구하는 미확정 기준이므로 업무 전체 완료 기준으로 확정하지 않습니다. 외부 행위의 대상·채널·필수 여부를 확인 대상으로 보고하세요.` : "",
+    unconfirmedTargetItems.length ? `### 수치 목표 (사용자 확인 전 구현 완료 기준 아님)\n\n${bullets(unique(unconfirmedTargetItems.map(item => item.original ?? item.text)))}\n\n위 수치는 AI 진단·생성 계획의 제안이며 사용자 확정 요구사항이 아닙니다. 사용자 등록 또는 현재 원본 지문과 일치하는 해당 기준의 HITL 확정으로 측정 대상·목표값·비교 방향을 확인하기 전에는 실행형 요구사항·acceptance·테스트 합격 기준으로 구현하거나 완료를 판정하지 마세요. 측정 방법·평가 자료·허용 오차도 확인 대상으로 보고하세요.` : "",
     conflictingCriteria.length ? `### 판정 기준 출처 충돌 (확인 필요)\n\n${bullets(conflictingCriteria)}\n\n위 항목은 성공 기준과 실패 판정 기준으로 모두 제시되어 의미가 충돌합니다. 어느 한쪽으로 임의로 해석해 완료·실패를 판정하지 말고, 충돌 내용을 확인 대상으로 보고하세요.` : "",
     numericConflictCriteria.length ? `### 수치 기준 충돌 (확인 필요)\n\n${bullets(numericConflictCriteria)}\n\n위 항목은 동일 비교 대상에 대해 양립할 수 없는 수치·허용 기준으로 제시되어 있습니다. 우선순위를 정하지 않으며, 실제 업무 규칙이 확정될 때까지 어느 쪽도 합격 조건으로 쓰지 말고, 충돌 내용을 확인 대상으로 보고하세요.` : "",
     deferredCriteria.length ? `### 참고 판정 (필수 완료 조건 아님)\n\n${bullets(deferredCriteria)}` : "",

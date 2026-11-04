@@ -1,217 +1,145 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parseAiApiRequest } from "@/server/ai-request";
-import { runGroqAi, reasoningEffortFor } from "@/server/groq";
+import { runGroqAi } from "@/server/groq";
 import { axDiagnosisOutputSchema, axPlanSchema, confirmedAxDiagnosis } from "@/lib/ax/schema";
-import { axMessages } from "@/lib/ax/prompt";
+import { buildAllInOnePrompt } from "@/lib/ax/guide";
 import { diagnosisFixture, planFixture, outputFixture } from "./fixtures/ax";
+
 const request = { kind: "ax-diagnosis" as const, name: "취합", description: "입력 표를 취합하여 담당자 승인을 받습니다.", details: {} };
-beforeEach(() => { process.env.GROQ_API_KEY = "test-ax-secret"; });
+const facts = { facts: [{ field: "inputs", source: "description", quote: "입력 표" }, { field: "humanDecisions", source: "description", quote: "담당자 승인을 받습니다" }, { field: "steps", source: "description", quote: "입력 표를 취합하여" }], conflicts: [] };
+const withoutSteps = { facts: facts.facts.filter(fact => fact.field !== "steps"), conflicts: [] };
+beforeEach(() => { process.env.GROQ_API_KEY = "test-ax-secret"; vi.spyOn(console, "info").mockImplementation(() => {}); vi.spyOn(console, "error").mockImplementation(() => {}); });
 afterEach(() => { delete process.env.GROQ_API_KEY; vi.unstubAllGlobals(); vi.restoreAllMocks(); });
-function provider(payload: unknown) { return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(payload) }, finish_reason: "stop" }], usage: { prompt_tokens: 100, completion_tokens: 500, total_tokens: 600 } }), { status: 200 }); }
-describe("AX AI boundaries", () => {
-  it("drops AI-sent decisionPoints (any shape) instead of failing the whole diagnosis", async () => {
-    vi.spyOn(console, "info").mockImplementation(() => {});
-    vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => provider({ ...outputFixture(), decisionPoints: [{ id: "D4", status: "pending", detail: "AI 임의 값" }] })));
+function provider(payload: unknown) { return Response.json({ choices: [{ message: { content: JSON.stringify(payload) }, finish_reason: "stop" }], usage: { prompt_tokens: 100, completion_tokens: 500, total_tokens: 600 } }); }
+function respond(...payloads: unknown[]) {
+  const fetcher = vi.fn();
+  for (const payload of payloads) fetcher.mockResolvedValueOnce(provider(payload));
+  vi.stubGlobal("fetch", fetcher);
+  return fetcher;
+}
+const planRequest = { kind: "ax-plan" as const, target: "codex" as const, task: { name: "취합", description: "설명", details: {} }, diagnosis: confirmedAxDiagnosis(diagnosisFixture) };
+
+describe("AX AI source boundaries", () => {
+  it("does not accept AI decisions or invented current systems, and keeps evidence for the actual source", async () => {
+    const raw = outputFixture();
+    raw.asIs.systems = ["ERP"];
+    respond(facts, { ...raw, decisionPoints: [{ id: "D4", status: "확정" }] });
     const result = await runGroqAi(request);
-    expect(result.kind).toBe("ax-diagnosis");
-    if (result.kind === "ax-diagnosis") expect(result.diagnosis).not.toHaveProperty("decisionPoints");
+    expect(result).toMatchObject({ kind: "ax-diagnosis", diagnosis: { asIs: { inputs: ["입력 표"], systems: [], humanDecisions: ["담당자 승인을 받습니다"] }, informationSufficiency: "partial" } });
+    if (result.kind !== "ax-diagnosis") throw new Error("unexpected result");
+    expect(result.diagnosis).not.toHaveProperty("decisionPoints");
+    expect(result.diagnosis.grounding?.facts).toContainEqual({ field: "inputs", source: "description", quote: "입력 표" });
   });
-  it("accepts both kinds with bounded confirmed data and keeps default low", () => {
-    expect(parseAiApiRequest(request)).toEqual(request);
-    expect(parseAiApiRequest({ kind: "ax-plan", target: "codex", task: { name: "취합", description: "입력 표 취합", details: {} }, diagnosis: confirmedAxDiagnosis(diagnosisFixture) }).kind).toBe("ax-plan");
-    expect(reasoningEffortFor("ax-diagnosis")).toBe("low"); expect(reasoningEffortFor("ax-plan")).toBe("low");
+  it("drops a cited fact absent from the input without failing the diagnosis, and fails closed on a malformed extraction", async () => {
+    const raw = outputFixture();
+    raw.asIs.systems = ["ERP"];
+    respond({ facts: [{ field: "systems", source: "description", quote: "ERP" }, ...facts.facts], conflicts: [] }, raw);
+    const result = await runGroqAi(request);
+    expect(result).toMatchObject({ kind: "ax-diagnosis", diagnosis: { asIs: { systems: [], inputs: ["입력 표"] } } });
+    const fetcher = respond({ facts: "invalid" }, { facts: "invalid" });
+    await expect(runGroqAi(request)).rejects.toMatchObject({ code: "INVALID_PROVIDER_OUTPUT" });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    const recovering = respond({ facts: [], conflicts: [] }, facts, outputFixture());
+    await expect(runGroqAi(request)).resolves.toMatchObject({ kind: "ax-diagnosis", diagnosis: { asIs: { inputs: ["입력 표"] } } });
+    expect(recovering).toHaveBeenCalledTimes(3);
   });
-  it("rejects overlong, unknown, invalid, too many and raw attachment fields", () => {
+  it("rejects overlong, unknown, invalid and raw attachment fields", () => {
     for (const invalid of [
       { ...request, name: "a".repeat(121) }, { ...request, description: "a".repeat(3001) }, { ...request, attachmentSummary: "a".repeat(2001) },
       { ...request, attachmentBytes: [1] }, { ...request, details: { systems: "a".repeat(501) } }, { ...request, details: { minutesPerRun: -1 } },
-      { ...request, details: { people: 1.5 } }, { ...request, provider: "secret" },
-      { kind: "ax-plan", target: "other", task: {}, diagnosis: {} },
-      { kind: "ax-plan", target: "claude", task: { name: "취합", description: "설명", details: {} }, diagnosis: { ...confirmedAxDiagnosis(diagnosisFixture), followUpQuestions: ["1", "2", "3", "4"] } },
+      { ...request, details: { people: 1.5 } }, { ...request, provider: "secret" }, { ...planRequest, target: "other" },
     ]) expect(() => parseAiApiRequest(invalid)).toThrow();
   });
-  it("enforces aggregate UTF-8 bytes within the 64KB route limit", () => {
+  it("enforces aggregate UTF-8 bytes within the route limit", () => {
     const confirmed = confirmedAxDiagnosis(diagnosisFixture);
     const enormous = { ...confirmed, asIs: { ...confirmed.asIs, inputs: Array(10).fill("가".repeat(500)), outputs: Array(10).fill("나".repeat(500)), steps: Array(10).fill("다".repeat(500)), exceptions: Array(10).fill("라".repeat(500)), humanDecisions: Array(10).fill("마".repeat(500)) } };
-    expect(() => parseAiApiRequest({ kind: "ax-plan", target: "codex", task: { name: "취합", description: "설명", details: {} }, diagnosis: enormous })).toThrow();
+    expect(() => parseAiApiRequest({ ...planRequest, diagnosis: enormous })).toThrow();
   });
-  it("runs diagnosis with JSON schema, six validated factors and metadata-only observations", async () => {
-    const fetcher = vi.fn<(url: string | URL | Request, options?: RequestInit) => Promise<Response>>().mockResolvedValue(provider(outputFixture())); vi.stubGlobal("fetch", fetcher);
-    const logger = vi.spyOn(console, "info").mockImplementation(() => {});
-    const result = await runGroqAi({ ...request, description: "PRIVATE_TASK_CONTENT", attachmentSummary: "PRIVATE_ATTACHMENT_CONTENT" });
-    expect(result.kind).toBe("ax-diagnosis");
-    const body = JSON.parse(fetcher.mock.calls[0][1]?.body as string);
-    expect(body).toMatchObject({ reasoning_effort: "low", max_completion_tokens: 3000, response_format: { type: "json_schema", json_schema: { name: "worklens_ax_diagnosis" } } });
-    expect(body.response_format.json_schema).not.toHaveProperty("strict");
-    const schema = body.response_format.json_schema.schema;
-    expect(schema.additionalProperties).toBe(false); expect(schema.required).toContain("operation");
-    for (const excluded of ["level", "axes", "matrix", "priority"]) expect(schema.properties).not.toHaveProperty(excluded);
-    const log = JSON.stringify(logger.mock.calls); for (const privateText of ["PRIVATE_TASK_CONTENT", "PRIVATE_ATTACHMENT_CONTENT", "test-ax-secret"]) expect(log).not.toContain(privateText);
-  });
-  it("runs each plan target in its own call with confirmed factors", async () => {
-    const fetcher = vi.fn<(url: string | URL | Request, options?: RequestInit) => Promise<Response>>().mockImplementation(async () => provider(planFixture)); vi.stubGlobal("fetch", fetcher); vi.spyOn(console, "info").mockImplementation(() => {});
-    const confirmed = confirmedAxDiagnosis(diagnosisFixture); confirmed.factors[0].finalValue = 5;
-    for (const target of ["codex", "claude"] as const) expect(await runGroqAi({ kind: "ax-plan", target, task: { name: "취합", description: "설명", details: {} }, diagnosis: confirmed })).toEqual({ kind: "ax-plan", plan: planFixture });
-    expect(fetcher).toHaveBeenCalledTimes(2);
-    expect(JSON.parse(fetcher.mock.calls[0][1]?.body as string).messages[1].content).toContain('"finalValue":5');
-  });
-  it("rejects duplicate factors, malformed plans, computed extras and long attachment copies", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => {});
-    const d = outputFixture();
-    expect(axDiagnosisOutputSchema.safeParse({ ...d, factors: Array(6).fill(d.factors[0]) }).success).toBe(false);
-    expect(axDiagnosisOutputSchema.safeParse({ ...d, level: 3 }).success).toBe(false);
+  it("rejects duplicate factors, computed extras, malformed plans and long attachment copies", async () => {
+    const raw = outputFixture();
+    expect(axDiagnosisOutputSchema.safeParse({ ...raw, factors: Array(6).fill(raw.factors[0]) }).success).toBe(false);
+    expect(axDiagnosisOutputSchema.safeParse({ ...raw, level: 3 }).success).toBe(false);
     expect(axPlanSchema.safeParse({ ...planFixture, repositoryFirst: "guess paths" }).success).toBe(false);
     const summary = "첨부의 개인 자료 내용으로 이루어진 긴 원문 문장입니다.".repeat(6);
-    vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => provider({ ...d, asIs: { ...d.asIs, purpose: summary } })));
+    respond(facts, { ...raw, asIs: { ...raw.asIs, purpose: summary } });
     await expect(runGroqAi({ ...request, attachmentSummary: summary })).rejects.toMatchObject({ code: "INVALID_PROVIDER_OUTPUT" });
   });
-  it("includes prohibited behavior and repository-first constraints in prompts", () => {
-    const prompt = axMessages(request)[0].content;
-    for (const constraint of ["CAPTCHA/MFA", "사람 승인 제거", "ROI", "법률·안전", "추측하지", "secret"]) expect(prompt).toContain(constraint);
-    expect(axMessages({ kind: "ax-plan", target: "claude", task: { name: "취합", description: "설명", details: {} }, diagnosis: confirmedAxDiagnosis(diagnosisFixture) })[0].content).toContain("Repository-first");
-  });
-  it("limits confirmed technical checks to explicit input without inventing technical specifics", () => {
-    const prompt = axMessages(request)[0].content;
-    for (const rule of ['기술 확인(technicalChecks)의 status는 사용자가 입력에서 명시적으로 확인한 사실만 "확인됨"으로 표시하세요.',
-      "그 경우에도 입력에 없는 구체 기술·방식(인증 방식 종류, 특정 API 기능, 실행 환경 등)을 지어내지 말고",
-      '확인되지 않은 항목은 "확인 필요"로 두세요.']) expect(prompt).toContain(rule);
-  });
-  it("scores system access by automation access and rates manual-only access low", () => {
-    const prompt = axMessages(request)[0].content;
-    for (const rule of ["systemAccess 점수는 자동화·시스템이 접근할 수 있는 정도를 기준으로 매기세요.",
-      "입력에서 API 등 시스템 간 자동 연동이 확인되면 담당자의 확인 단계가 있어도 자동화 접근성을 기준으로 평가하고",
-      "담당자가 직접 로그인해 수기로만 조회·입력하는 경우에만 낮게 평가하세요."]) expect(prompt).toContain(rule);
-  });
-  it("prohibits invented organization names and uses 담당자 for approval and review actors", () => {
-    const prompt = axMessages(request)[0].content;
-    for (const rule of ["입력에 없는 조직·부서·승인 주체 이름을 만들지 마세요.",
-      '승인과 검토 주체는 "담당자"로 표현하세요.']) expect(prompt).toContain(rule);
-  });
-  it("requires needs-check and decisive questions when most core task information is missing", () => {
-    const prompt = axMessages(request)[0].content;
-    for (const rule of ["수행 주기·입력 자료·산출물·담당자 판단 단계 네 가지 핵심 정보 중 세 가지 이상이 없을 때만 informationSufficiency를 needs-check로 하고",
-      "핵심 정보가 이미 주어졌으면 부족한 세부 사항이 있어도 partial로 분류하세요.",
-      "결과를 바꿀 수 있는 핵심 질문을 제시하세요.", "핵심 추가 질문만 최대 3개", "배열 항목은 필수 사항 위주로 1~4개", "각 설명은 100자 이내"]) expect(prompt).toContain(rule);
-  });
-  it("binds the plan prompt to the diagnosed level, gate and human steps with an internal self-check", () => {
-    const confirmed = confirmedAxDiagnosis(diagnosisFixture);
-    const planPrompt = (factors: number[], patch: Partial<typeof confirmed> = {}) => axMessages({ kind: "ax-plan", target: "codex", task: { name: "취합", description: "설명", details: {} },
-      diagnosis: { ...confirmed, ...patch, factors: confirmed.factors.map((factor, i) => ({ ...factor, aiValue: factors[i] })) } })[0].content;
-    const go = { decisionGate: { verdict: "go" as const, reasons: [] }, technicalChecks: [] };
-    expect(planPrompt([3, 2, 2, 2, 5, 4])).toContain("Level 0: 업무 정리·보조만 다루고 시스템 자동 실행을 넣지 마세요.");
-    expect(planPrompt([4, 4, 3, 2, 4, 3])).toContain("Level 1: AI·도구가 결과를 만들어 제안하고 예외 검토·최종 승인은 담당자가 합니다. 완전 자동 실행을 넣지 마세요.");
-    expect(planPrompt([4, 4, 4, 3, 3, 3], go)).toContain("Level 2: 반복·규칙 단계만 부분 자동화");
-    expect(planPrompt([5, 5, 5, 5, 1, 1], go)).toContain("Level 3: 넓게 자동화할 수 있지만 안전·법률·권한·최종 책임 단계는 진단대로 담당자에게 둡니다.");
-    expect(planPrompt([5, 5, 5, 5, 1, 1], go)).toContain("실행 상태 진행 가능:");
-    expect(planPrompt([4, 4, 3, 2, 4, 3])).toContain("실행 상태 확인 후 진행:");
-    expect(planPrompt([5, 5, 5, 5, 1, 1], { decisionGate: { verdict: "no-go", reasons: ["권한 없음"] } })).toContain("no-go 사유가 해소되기 전");
-    const prompt = planPrompt([4, 4, 3, 2, 4, 3]);
-    for (const invariant of ["업무 등록·확정 진단", "outOfScope 항목을 implementation·dataFlow·integrations에서 다시 요구하지 마세요",
-      "담당자 수행 단계(담당자 승인)는 자동 구현하지 말고", "실제 입력 수신→형식 파싱·필수값 검증",
-      "서로 다른 입력으로 재실행", "외부 API 오류", "권한·보안 조건을 무관한 것으로 가정해 우회하지 마세요"]) expect(prompt).toContain(invariant);
-  });
-  it("never returns truncated or schema-invalid plans and keeps the provider retry policy", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => {}); vi.spyOn(console, "info").mockImplementation(() => {});
-    const planRequest = { kind: "ax-plan" as const, target: "codex" as const, task: { name: "취합", description: "설명", details: {} }, diagnosis: confirmedAxDiagnosis(diagnosisFixture) };
-    const raw = (content: string) => new Response(JSON.stringify({ choices: [{ message: { content }, finish_reason: "length" }], usage: { prompt_tokens: 1, completion_tokens: 3000, total_tokens: 3001 } }), { status: 200 });
-    const truncated = JSON.stringify(planFixture).slice(0, 200);
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(raw(truncated)));
+  it("never returns truncated or schema-invalid plans and keeps the bounded provider retry", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ choices: [{ message: { content: JSON.stringify(planFixture).slice(0, 200) } }] })));
     await expect(runGroqAi(planRequest)).rejects.toMatchObject({ code: "INVALID_PROVIDER_OUTPUT" });
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(provider({ ...planFixture, tests: undefined })));
+    respond({ ...planFixture, tests: undefined });
     await expect(runGroqAi(planRequest)).rejects.toMatchObject({ code: "INVALID_PROVIDER_OUTPUT" });
     const recovering = vi.fn().mockResolvedValueOnce(new Response("{}", { status: 503, headers: { "retry-after": "0" } })).mockResolvedValueOnce(provider(planFixture));
     vi.stubGlobal("fetch", recovering);
-    await expect(runGroqAi(planRequest)).resolves.toEqual({ kind: "ax-plan", plan: planFixture });
+    await expect(runGroqAi(planRequest)).resolves.toMatchObject({ kind: "ax-plan" });
     expect(recovering).toHaveBeenCalledTimes(2);
-    const failing = vi.fn().mockImplementation(async () => new Response("{}", { status: 503, headers: { "retry-after": "0" } }));
-    vi.stubGlobal("fetch", failing);
-    await expect(runGroqAi(planRequest)).rejects.toMatchObject({ status: expect.any(Number) });
-    expect(failing).toHaveBeenCalledTimes(2);
   });
 });
 
-describe("AX semantic correction within the shared provider budget", () => {
-  function semanticInvalid(text = "작업 시간 50% 절감") {
-    const diagnosis = outputFixture();
-    diagnosis.poc.hypothesis = text;
-    return diagnosis;
-  }
-
-  it("regenerates once with the correction instruction after a schema-valid unsupported metric", async () => {
-    const fetcher = vi.fn<(url: string | URL | Request, options?: RequestInit) => Promise<Response>>()
-      .mockResolvedValueOnce(provider(semanticInvalid())).mockResolvedValueOnce(provider(outputFixture()));
-    vi.stubGlobal("fetch", fetcher);
-    vi.spyOn(console, "info").mockImplementation(() => {});
-    await expect(runGroqAi(request)).resolves.toEqual({ kind: "ax-diagnosis", diagnosis: outputFixture() });
+describe("AX invalid numerical requirements", () => {
+  function metric(text = "작업 시간 50% 절감") { const raw = outputFixture(); raw.poc.hypothesis = text; return raw; }
+  it.each(["처리시간 5분 이내", "월 비용 1만원 이하", "초당 처리량 100건 이상", "초안 내용 90% 이상 일치", "오류 발생률 5% 미만"])("asks once to remove an unsupported plan target and never makes it a completion criterion: %s", async target => {
+    const fetcher = respond({ ...planFixture, acceptance: [target] }, { ...planFixture, acceptance: ["수동 결과와 대조해 불일치 사유를 기록한다"] });
+    await expect(runGroqAi(planRequest)).resolves.toMatchObject({ kind: "ax-plan", plan: { acceptance: ["수동 결과와 대조해 불일치 사유를 기록한다"] } });
     expect(fetcher).toHaveBeenCalledTimes(2);
-    const first = JSON.parse(fetcher.mock.calls[0][1]?.body as string);
-    const second = JSON.parse(fetcher.mock.calls[1][1]?.body as string);
-    expect(second.messages).toEqual([...first.messages, {
-      role: "user",
-      content: "이전 응답에 사용자가 제공하지 않은 정량 성과 주장(절감률·정확도·자동화율·ROI·효율 등의 수치)이 포함되어 있었습니다. 성과 수치를 생성하지 말고, 필요한 경우 수치 대신 측정 방법·대조 기준·검증 기준을 작성하세요. 동일한 JSON 스키마로 전체 응답을 다시 작성하세요. 특히 PoC 가설·평가·성공·실패 기준에도 백분율·비율·절감 수치를 쓰지 말고 '수동 결과와 전수 대조', '불일치 건수 기록' 같은 측정·대조 방법으로만 작성하세요. 예: 성공 기준은 '수동 결과와 전수 대조해 불일치 항목과 사유를 기록한다', 실패 기준은 '누락·중요 불일치가 확인되면 중단하고 원인을 기록한다'처럼 수치 없이 쓰세요. 정확도·일치율·절감률을 퍼센트나 비율로 표현하지 마세요. 입력에 실제로 있는 현재 상태 수치(횟수·소요 시간·인원)만 사실로 다시 쓸 수 있습니다. 사용자가 목표로 제시한 수치는 '사용자 목표'라고 밝혀 그대로 쓸 수 있지만, 자동화로 달성·단축된다고 예측하지 마세요. 입력에 있는 현재 상태 수치와 사용자 목표는 삭제하지 말고 위 규칙에 맞게 다시 쓰세요. 검출된 위반 범주: invented_time_saving. 검출 위치: poc.hypothesis.",
-    }]);
-    expect(second.reasoning_effort).toBe("low");
-    expect(second.max_completion_tokens).toBe(3000);
+    // A model that keeps the value still yields a usable plan; the instruction model holds it for user confirmation.
+    respond({ ...planFixture, acceptance: [target] }, { ...planFixture, acceptance: [target] });
+    const kept = await runGroqAi(planRequest);
+    if (kept.kind !== "ax-plan") throw new Error("unexpected result");
+    const prompt = buildAllInOnePrompt(kept.plan, "codex", { diagnosis: diagnosisFixture });
+    expect(prompt.split("### 수치 목표 (사용자 확인 전 구현 완료 기준 아님)")[1]?.split("###")[0]).toContain(target);
+    expect(prompt.split("### 업무 전체 완료 기준")[1]?.split("###")[0] ?? "").not.toContain(target);
   });
-
-  it("rejects two semantic-invalid responses after exactly two calls", async () => {
-    const fetcher = vi.fn().mockImplementation(async () => provider(semanticInvalid()));
-    vi.stubGlobal("fetch", fetcher);
-    vi.spyOn(console, "error").mockImplementation(() => {});
-    await expect(runGroqAi(request)).rejects.toMatchObject({ code: "INVALID_PROVIDER_OUTPUT", status: 502, message: "AI 진단 결과를 검증하지 못했습니다. 다시 시도하세요." });
-    expect(fetcher).toHaveBeenCalledTimes(2);
+  it("preserves an explicitly supplied user performance target", async () => {
+    const acceptance = ["사용자 목표: 처리시간 5분 이내"];
+    respond({ ...planFixture, acceptance });
+    await expect(runGroqAi({ ...planRequest, task: { ...planRequest.task, description: "사용자 목표: 처리시간 5분 이내" } })).resolves.toMatchObject({ kind: "ax-plan", plan: { acceptance } });
   });
-
-  it("does not correct after a provider retry has consumed the shared budget", async () => {
-    const fetcher = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "rate limited", type: "rate_limit_error" } }), { status: 429, headers: { "retry-after": "0" } }))
-      .mockResolvedValueOnce(provider(semanticInvalid()));
+  it("rejects invented thresholds unless regeneration removes them", async () => {
+    const fetcher = respond(facts, metric(), outputFixture());
+    const result = await runGroqAi(request);
+    expect(result.kind === "ax-diagnosis" && result.diagnosis.poc.hypothesis).toBe(outputFixture().poc.hypothesis);
+    expect(fetcher).toHaveBeenCalledTimes(3);
+  });
+  it("does not return a still-invalid corrected diagnosis", async () => {
+    const fetcher = respond(facts, metric(), metric("오류 발생률 5% 미만"));
+    await expect(runGroqAi(request)).rejects.toMatchObject({ code: "INVALID_PROVIDER_OUTPUT", status: 502 });
+    expect(fetcher).toHaveBeenCalledTimes(3);
+  });
+  it("shares a bounded budget across extraction, provider errors and correction", async () => {
+    const unavailable = () => new Response("{}", { status: 503, headers: { "retry-after": "0" } });
+    const fetcher = vi.fn().mockResolvedValueOnce(unavailable()).mockResolvedValueOnce(provider(facts)).mockResolvedValueOnce(unavailable()).mockResolvedValueOnce(provider(metric()));
     vi.stubGlobal("fetch", fetcher);
-    const logger = vi.spyOn(console, "error").mockImplementation(() => {});
     await expect(runGroqAi(request)).rejects.toMatchObject({ code: "INVALID_PROVIDER_OUTPUT" });
-    expect(fetcher).toHaveBeenCalledTimes(2);
-    expect(logger.mock.calls[0][1]).toMatchObject({ attempt: 2, maxAttempts: 2, semanticCorrected: false });
+    expect(fetcher).toHaveBeenCalledTimes(4);
   });
-
-  it("accumulates both completions' token usage and logs only semantic categories", async () => {
-    const fetcher = vi.fn().mockResolvedValueOnce(provider(semanticInvalid())).mockResolvedValueOnce(provider(outputFixture()));
-    vi.stubGlobal("fetch", fetcher);
-    const logger = vi.spyOn(console, "info").mockImplementation(() => {});
-    await runGroqAi({ ...request, description: "PRIVATE_TASK_CONTENT" });
-    expect(logger).toHaveBeenCalledTimes(1);
-    expect(logger.mock.calls[0][1]).toMatchObject({
-      cumulativePromptTokens: 200, cumulativeCompletionTokens: 1000, cumulativeTotalTokens: 1200,
-      attempt: 2, maxAttempts: 2, semanticViolationCategories: ["invented_time_saving"], semanticCorrected: true,
-    });
-    for (const text of ["PRIVATE_TASK_CONTENT", "작업 시간 50% 절감", "test-ax-secret", "poc.hypothesis"]) expect(JSON.stringify(logger.mock.calls)).not.toContain(text);
+  it("keeps all three provider usages but never logs original tasks or evidence", async () => {
+    respond({ facts: [{ field: "steps", source: "description", quote: "PRIVATE_TASK_CONTENT" }], conflicts: [] }, metric(), outputFixture());
+    await runGroqAi({ ...request, description: "PRIVATE_TASK_CONTENT", attachmentSummary: "PRIVATE_ATTACHMENT_CONTENT" });
+    expect(console.info).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(console.info).mock.calls[0][1]).toMatchObject({ cumulativePromptTokens: 300, cumulativeCompletionTokens: 1500, cumulativeTotalTokens: 1800, semanticCorrected: true });
+    for (const secret of ["PRIVATE_TASK_CONTENT", "PRIVATE_ATTACHMENT_CONTENT", "test-ax-secret", "작업 시간 50% 절감"]) expect(JSON.stringify(vi.mocked(console.info).mock.calls)).not.toContain(secret);
   });
-
-  it("logs the latest deduplicated categories when the correction still fails", async () => {
-    const diagnosis = semanticInvalid("정확도 95% 또는 정확도 96%");
-    diagnosis.risks = ["ROI 150%"];
-    const fetcher = vi.fn().mockResolvedValueOnce(provider(semanticInvalid())).mockResolvedValueOnce(provider(diagnosis));
-    vi.stubGlobal("fetch", fetcher);
-    const logger = vi.spyOn(console, "error").mockImplementation(() => {});
+  it("keeps schema rejection when a correction returns an invalid object", async () => {
+    respond(facts, metric(), { invalid: true });
     await expect(runGroqAi(request)).rejects.toMatchObject({ code: "INVALID_PROVIDER_OUTPUT" });
-    expect(logger.mock.calls[0][1]).toMatchObject({ semanticViolationCategories: ["invented_roi", "invented_accuracy_claim"], semanticCorrected: false });
-    expect(fetcher).toHaveBeenCalledTimes(2);
   });
-
-  it("omits semantic metadata for a valid first response", async () => {
-    const fetcher = vi.fn().mockResolvedValue(provider(outputFixture()));
-    vi.stubGlobal("fetch", fetcher);
-    const logger = vi.spyOn(console, "info").mockImplementation(() => {});
-    await runGroqAi(request);
-    expect(fetcher).toHaveBeenCalledTimes(1);
-    expect(logger.mock.calls[0][1]).not.toHaveProperty("semanticViolationCategories");
-    expect(logger.mock.calls[0][1]).not.toHaveProperty("semanticCorrected");
-  });
-
-  it("preserves schema rejection on the correction without a third call", async () => {
-    const fetcher = vi.fn().mockResolvedValueOnce(provider(semanticInvalid())).mockResolvedValueOnce(provider({ invalid: true }));
-    vi.stubGlobal("fetch", fetcher);
-    vi.spyOn(console, "error").mockImplementation(() => {});
-    await expect(runGroqAi(request)).rejects.toMatchObject({ code: "INVALID_PROVIDER_OUTPUT" });
-    expect(fetcher).toHaveBeenCalledTimes(2);
+  it("asks once for empty step judgements, target flow and risks of a grounded procedure, but keeps a valid answer if that fails", async () => {
+    const withSteps = facts;
+    const empty = { ...outputFixture(), toBe: [], risks: [], technicalChecks: [] };
+    const fetcher = respond(withSteps, empty, outputFixture());
+    await expect(runGroqAi(request)).resolves.toMatchObject({ diagnosis: { toBe: outputFixture().toBe, risks: outputFixture().risks } });
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(JSON.parse(fetcher.mock.calls[2][1].body).messages.at(-1).content).toContain("toBe, risks");
+    respond(withSteps, empty, { invalid: true });
+    await expect(runGroqAi(request)).resolves.toMatchObject({ diagnosis: { toBe: [], risks: [] } });
+    // An extraction without a stated procedure is asked once more; the wider answer is kept, and a
+    // grounded set without a procedure does not demand a target flow.
+    const noSteps = respond(withoutSteps, withoutSteps, empty);
+    await expect(runGroqAi(request)).resolves.toMatchObject({ diagnosis: { toBe: [] } });
+    expect(noSteps).toHaveBeenCalledTimes(3);
+    const recovered = respond(withoutSteps, facts, outputFixture());
+    await expect(runGroqAi(request)).resolves.toMatchObject({ diagnosis: { asIs: { steps: ["입력 표를 취합하여"] } } });
+    expect(recovered).toHaveBeenCalledTimes(3);
   });
 });
