@@ -278,16 +278,16 @@ export function LearnLesson({ level, initialUnitId, progress, onPersistUnit, pra
           <TriangleAlert /> 자주 발생하는 실수
         </h4>
         <div className="learn-card-body">
-          <div className="learn-mistake-grid">
+          <ul className="learn-mistake-list">
             {unit.mistakes.map((m, i) => (
-              <div className="learn-mistake-card" key={i}>
+              <li className="learn-mistake-item" key={i}>
                 <p><strong>{m.mistake}:</strong> {m.why}</p>
                 <p>
-                  <strong>이렇게 이해하세요:</strong> {m.fix}
+                  <strong>해결 방법:</strong> {m.fix}
                 </p>
-              </div>
+              </li>
             ))}
-          </div>
+          </ul>
         </div>
       </section>
 

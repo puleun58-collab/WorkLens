@@ -161,3 +161,4 @@ export const QUESTIONS_L01: LearnQuestion[] = [
 - `LearnQuestion`, `LearnContent` 타입은 `src/lib/learn/types.ts`에 정의됨. 반드시 import하여 사용.
 - TypeScript가 컴파일되어야 함 (`bun x tsc --noEmit` 수준).
 - 한국어 문장, 초보자 눈높이.
+- `mistakes`는 항목 수와 무관하게 앰버 헤더 아래 흰색 본문의 1열 목록으로 표시한다. `fix` 앞의 화면 라벨은 `해결 방법`이며 콘텐츠에는 라벨을 넣지 않는다.
