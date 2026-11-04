@@ -6,7 +6,7 @@ import { callLawTool } from "@/server/law-mcp";
 import { enrichResearch, type EnrichmentSources } from "@/server/research-enrichment";
 import type * as EnrichmentModule from "@/server/research-enrichment";
 
-vi.mock("@/server/groq", () => ({ interpretResearchQuery: vi.fn(), verifyResearchAdoption: vi.fn() }));
+vi.mock("@/server/groq", () => ({ interpretResearchQuery: vi.fn(), planResearchSearches: vi.fn().mockResolvedValue([]), verifyResearchAdoption: vi.fn() }));
 vi.mock("@/server/law-mcp", () => ({ callLawTool: vi.fn(), searchLaw: vi.fn() }));
 vi.mock("@/server/research-enrichment", async (importOriginal) => {
   const actual = await importOriginal<typeof EnrichmentModule>();

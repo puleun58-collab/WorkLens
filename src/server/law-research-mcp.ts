@@ -14,7 +14,7 @@ import { assessProcedureEvidence } from "@/lib/procedure-evidence";
 import { classifyLawToolResult } from "@/server/law-analysis-mcp";
 import { callLawTool, searchLaw } from "@/server/law-mcp";
 import { mcpReviewSources, reviewContract } from "@/server/contract-review";
-import { interpretResearchQuery, verifyResearchAdoption } from "@/server/groq";
+import { interpretResearchQuery, planResearchSearches, verifyResearchAdoption } from "@/server/groq";
 import { ApiError } from "@/server/http";
 import {
   articleExcerpt, enrichResearch, explicitArticlePairs, lookupIssue, mcpEnrichmentSources, rereadShownArticles, sharedSources,
@@ -192,6 +192,10 @@ async function fullResearch(
   }
   // Each issue carries its own short search phrase; the question is searched as written only when it could not be read.
   const issues: Array<ResearchIssue | { label?: undefined; query: string }> = interpretation?.issues.length ? interpretation.issues : [{ query }];
+  const directions = interpretation ? await planResearchSearches(query, issues, context).catch(() => []) : [];
+  const searchAudit: NonNullable<ResearchEnrichment["searches"]> = directions.map(direction => ({ ...direction, status: "skipped" }));
+  const searchQueryFor = (issueIndex: number) => directions.find(direction => direction.issueIndex === issueIndex && direction.direction === "obligation")
+    ?? directions.find(direction => direction.issueIndex === issueIndex);
   const sources = sharedSources(mcpEnrichmentSources(context));
 
   const searchedQueries = new Set<string>();
@@ -222,6 +226,7 @@ async function fullResearch(
     try {
       const { text, isError } = await callLawTool("legal_research", { task: "full_research", query: searchQuery }, context);
       const classification = classifyLawToolResult(text, isError, { failureMessage: RESEARCH_FAILURE });
+      for (const entry of searchAudit) if (inheritSearchQuery(entry.query) === searchQuery) entry.status = classification.kind === "absent" ? "absent" : "found";
       if (classification.kind === "absent") return { kind: "absent", text };
       const enrichment = await enrichResearch("full_research", searchQuery, text, sources, undefined,
         { ...(light ? { skipPrecedentSummaries: true, skipInterpretationRetry: true } : {}),
@@ -229,10 +234,11 @@ async function fullResearch(
       return { kind: "found", text, markers: classification.markers, ...(enrichment ? { enrichment } : {}) };
     } catch (error) {
       if (context.signal?.aborted) throw error;
+      for (const entry of searchAudit) if (inheritSearchQuery(entry.query) === searchQuery) entry.status = error instanceof ApiError && /TIMEOUT/u.test(error.code) ? "timeout" : "failed";
       return { kind: "failed", error };
     }
   };
-  let chain = await search(issues[0].query);
+  let chain = await search(searchQueryFor(0)?.query ?? issues[0].query);
   if (chain.kind === "absent") {
     // One retry for a genuine absence: the next issue's phrase, or the question itself when it is keyword-short.
     // When the question could not be read it was searched as written; the retry then uses its own
@@ -298,7 +304,7 @@ async function fullResearch(
   // Search terms are still available to lexical matching, but only the
   // original question establishes facts, parties and named-law constraints.
   const requestTerms = questionTerms(query);
-  const judged = await Promise.all(issues.map(async (issue) => {
+  const judged = await Promise.all(issues.map(async (issue, issueIndex) => {
     // An issue without a label is the unread question itself: it is judged by
     // the fallback rule (F), not by the interpreted-issue majority rule.
     const fallback = issue.label === undefined;
@@ -311,6 +317,7 @@ async function fullResearch(
     // An unread question has no short phrase of its own, so its lookup query is
     // its subject words only — the whole everyday sentence is never sent.
     if (!adopted.articles.length) {
+      const direction = searchQueryFor(issueIndex);
       const lookupQuery = fallback ? questionSubjectTerms(query).join(" ") : issue.query;
       if (lookupQuery) {
         // A lookup failure degrades to "no lookup", never to a failed request:
@@ -319,8 +326,8 @@ async function fullResearch(
         const questionIdentities = parseExplicitIdentities(query);
         lookup = await lookupIssue(lookupQuery, shownArticles, sources, expired,
           [...new Set([...lawNamesInQuery(query), ...questionTerms(query).filter(isLawName)])], questionTerms(query),
-          questionIdentities.length ? questionIdentities : undefined)
-          .catch(() => undefined);
+          questionIdentities.length ? questionIdentities : undefined, direction)
+          .catch(() => ({ status: "failed" as const, articles: [], precedents: [] }));
         if (lookup?.status === "found") adopted = await issueSources(issue.query, known, lookup, sources, summaries, requestTerms, fallback, query);
       }
     }
@@ -333,7 +340,17 @@ async function fullResearch(
     if ((!adopted.articles.length || unreadAdopted) && !expired()) {
       const candidateTerms = [...new Set([...questionTerms(issue.query), ...questionTerms(query)])];
       // A re-read failure degrades to "no candidate", never to a failed request.
-      const reread = await rereadShownArticles(shownArticles, candidateTerms, sources, expired).catch(() => []);
+      const reread = await rereadShownArticles(shownArticles.map(article => ({ ...article, effectiveDate: article.effective })), candidateTerms, sources, expired, 2, {
+        includeUnmatched: true,
+        // An outage is not an absence. A version/identity mismatch is not an outage: that
+        // preview simply stays partial and the review records it as unconfirmed.
+        onIncomplete: reason => {
+          if (reason === "identity_mismatch") return;
+          lookup ??= { status: "none", articles: [], precedents: [] };
+          if (lookup.status === "found") lookup.partialFailure = true;
+          else lookup.status = reason;
+        },
+      }).catch(() => { lookup = { status: "failed", articles: [], precedents: [] }; return []; });
       const fresh = reread.filter((article) => !(lookup?.articles ?? [])
         .some((shown) => shown.law === article.law && shown.jo === article.jo));
       retrievedArticles.push(...reread);
@@ -387,10 +404,11 @@ async function fullResearch(
   // same relevance rules; nothing is adopted on the search alone.
   const retryArticles = new Map<string, SupplementArticle>();
   const retryPlan = judged
-    .filter((item) => !item.adopted.articles.length && item.issue.label !== undefined)
+    .filter((item, index) => (!item.adopted.articles.length || !!searchQueryFor(index)) && item.issue.label !== undefined)
     .map((item) => {
       const qualified = [...questionSubjectTerms(query), item.issue.query].join(" ").trim();
-      const phrase = questionTermsSubjectLess(item.issue.query) && qualified !== item.issue.query ? qualified : item.issue.query;
+      const direction = searchQueryFor(judged.indexOf(item));
+      const phrase = direction?.query ?? (questionTermsSubjectLess(item.issue.query) && qualified !== item.issue.query ? qualified : item.issue.query);
       return { item, phrase };
     })
     .filter(({ phrase }) => !searchedQueries.has(inheritSearchQuery(phrase)))
@@ -514,8 +532,9 @@ async function fullResearch(
   const candidates = [...candidateMap.values()].sort((a, b) => Number(Boolean(a.partial)) - Number(Boolean(b.partial)));
   let selections: ResearchAdoptionVerdict[] = [];
   let verification: "verified" | "unavailable" = "verified";
+  let evaluated: ReadonlySet<string> | undefined;
   if (candidates.length) {
-    try { selections = await verifyResearchAdoption(query, issues, candidates, context); }
+    try { selections = await verifyResearchAdoption(query, issues, candidates, { ...context, onAdoptionCoverage: ids => { evaluated = new Set(ids); } }); }
     catch (error) {
       if (context.signal?.aborted) throw error;
       verification = "unavailable";
@@ -554,7 +573,7 @@ async function fullResearch(
       // a quote may omit the corporate-member role or a numbered condition.
       const fullScope = `${candidate.law ?? ""} ${candidate.text}`;
       const mismatch = proposed && (!relationshipSupported(fullScope, query)
-        || proposed.role === "direct" && !directConditionsSupported(fullScope, query)
+        || proposed.role === "direct" && !directConditionsSupported(fullScope, query, item.issue.query)
         || candidate.kind === "article" && candidate.title?.replace(/\s+/gu, "") === "목적" && !query.includes("목적"));
       const selection = mismatch ? undefined : proposed;
       const identity = requestedCandidateIds.has(candidate.id)
@@ -566,6 +585,7 @@ async function fullResearch(
         : mismatch ? "원질문의 당사자·법률관계 또는 질문 범위와 맞지 않아 근거로 채택하지 않았습니다."
         : selection?.reason ?? (candidate.partial ? "일부 원문만 확보되어 직접·보충 관련성을 확정하지 않았습니다."
         : verification === "unavailable" ? "원문은 확보했으나 관련성 검증을 완료하지 못해 추가 확인이 필요합니다."
+        : evaluated && !evaluated.has(candidate.id) ? "관련성 검증의 원문 예산에 포함되지 않아 확인하지 못했습니다."
         : "원질문과 이 쟁점을 뒷받침하는 직접·보충 관련성이 확인되지 않았습니다.");
       if (candidate.kind === "article" && candidate.law && candidate.jo) {
         review.articles.push({ law: candidate.law, jo: candidate.jo, title: candidate.title,
@@ -643,6 +663,7 @@ async function fullResearch(
   const supplementIncomplete = baseSupplement?.partialFailure === true || baseSupplement?.status === "failed";
   const enrichment: ResearchEnrichment | undefined = found?.enrichment || supplementArticles.length || known.reviews.size ? {
     ...found?.enrichment,
+    ...(searchAudit.length ? { searches: searchAudit } : {}),
     ...(known.reviews.size ? { adoptionReviews: [...known.reviews.values()] } : {}),
     ...(supplementArticles.length ? { supplement: { status: "found" as const, articles: supplementArticles,
       ...(supplementIncomplete ? { partialFailure: true as const } : {}) } } : {}),

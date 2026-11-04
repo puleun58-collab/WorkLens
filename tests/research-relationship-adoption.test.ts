@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { directConditionsSupported, relationshipSupported, researchEvidenceSources, type ResearchEnrichment } from "@/lib/research-relevance";
+import { integratedEvidenceStatus } from "@/lib/research-status";
 
 import scopeCapture from "./fixtures/research-live-scope-adoption.json";
+import eightCapture from "./fixtures/research-live-eight-adoption.json";
 // Official text captured on 2026-11-02, not an invented law/title blacklist.
 const procurement = {
   law: "조달사업에 관한 법률 시행령", jo: "제12조", title: "제3자를 위한 단가계약",
@@ -124,5 +126,60 @@ describe("source relationship versus the original question", () => {
       { originalQuery: labor, review: (review) => reviews.push(review) });
     expect(reviews[0].articles).toContainEqual({ law: "민법", jo: "제617조", title: loan.title,
       excerpt: loan.excerpt, stage: "issue", adopted: false, reason: "party-or-relationship-mismatch" });
+  });
+
+  it("does not let an employee-status phrase bypass an unrelated contract relationship", () => {
+    const source = `${procurement.excerpt} 근로자에 해당하는지 여부를 검토한다.`;
+    expect(relationshipSupported(source, "직원의 근로자성 확인")).toBe(false);
+    expect(relationshipSupported("대표이사가 근로자에 해당하는지 여부를 판단한다.", "직원의 근로자성 확인")).toBe(true);
+  });
+
+  it("keeps national and local contracting systems distinct without rejecting general civil rules", () => {
+    const national = "국가를 당사자로 하는 계약에 관한 법률에 따른 계약의 해제";
+    const local = "지방자치단체를 당사자로 하는 계약에 관한 법률에 따른 계약의 해제";
+    expect(relationshipSupported(national, "지자체 계약 해제 요건")).toBe(false);
+    expect(relationshipSupported(local, "국가계약 해제 요건")).toBe(false);
+    expect(relationshipSupported(national, "국가계약 해제 요건")).toBe(true);
+    expect(relationshipSupported(national, "국가기관과 체결한 공사계약의 금액 조정")).toBe(true);
+    expect(relationshipSupported(national, "조달 계약 변경 가능 여부")).toBe(false);
+    expect(relationshipSupported(local, "지자체 계약 해제 요건")).toBe(true);
+    expect(relationshipSupported("당사자 일방이 채무를 이행하지 아니한 때에는 계약을 해제할 수 있다.", "지자체 계약 해제 요건")).toBe(true);
+  });
+
+  it("uses the captured replacement provision as a candidate, never as the direct suspension power", () => {
+    const capture = eightCapture.results.find((entry) => entry.category === "식품위생")!;
+    const replacement = capture.candidates.find((entry) => entry.kind === "article" && entry.jo === "제82조")!;
+    const suspension = capture.candidates.find((entry) => entry.kind === "article" && entry.jo === "제75조")!;
+    expect(directConditionsSupported(replacement.text, capture.query, "영업정지 요건")).toBe(false);
+    expect(directConditionsSupported(replacement.text, "영업정지 갈음 과징금 요건", "과징금 요건")).toBe(true);
+    // General sanctions state conditions; the user need not admit a violation.
+    expect(directConditionsSupported(suspension.text, capture.query, "영업정지 요건")).toBe(true);
+    expect(directConditionsSupported(`${suspension.text}\n${replacement.text}`, capture.query, "영업정지 요건")).toBe(true);
+  });
+
+  it("does not use an invented retirement issue to upgrade settlement into ordinary wage evidence", () => {
+    const settlement = "사용자는 근로자가 사망 또는 퇴직한 경우에는 그 지급 사유가 발생한 때부터 14일 이내에 임금, 보상금, 그 밖의 모든 금품을 지급하여야 한다.";
+    expect(directConditionsSupported(settlement, "월급 미지급", "임금 지급")).toBe(false);
+    expect(directConditionsSupported(settlement, "월급 미지급", "퇴직 후 임금 지급")).toBe(false);
+    expect(directConditionsSupported(settlement, "퇴사자 임금 미지급", "임금 지급")).toBe(true);
+    expect(directConditionsSupported("임금은 매월 1회 이상 일정한 기일을 정하여 지급하여야 한다.", "월급 미지급", "임금 지급")).toBe(true);
+  });
+
+  it("separates definitions and exercise methods from substantive duties and termination grounds", () => {
+    const definition = '이 법에서 사용하는 용어의 뜻은 다음과 같다. "사용자"란 사업주를 말한다.';
+    expect(directConditionsSupported(definition, "사용자 의무", "사용자 의무")).toBe(false);
+    expect(directConditionsSupported(definition, "사용자의 뜻", "사용자 정의")).toBe(true);
+    expect(directConditionsSupported(`${definition} 사용자는 임금을 지급하여야 한다.`, "사용자 의무", "임금 지급 의무")).toBe(true);
+    const exercise = "계약 또는 법률의 규정에 의하여 당사자의 일방이나 쌍방이 해지 또는 해제의 권리가 있는 때에는 그 해지 또는 해제는 상대방에 대한 의사표시로 한다.";
+    expect(directConditionsSupported(exercise, "거래처 계약 불이행", "계약 해제 요건")).toBe(false);
+    expect(directConditionsSupported(exercise, "해제권 행사 방법", "계약 해제 방법")).toBe(true);
+    expect(directConditionsSupported("당사자 일방이 채무를 이행하지 아니한 때에는 상대방은 상당한 기간을 정하여 그 이행을 최고하고 계약을 해제할 수 있다.", "계약 해제 요건")).toBe(true);
+  });
+
+  it("does not turn supporting-only or an empty issue set into matched status", () => {
+    expect(integratedEvidenceStatus(0, 1, true)).toBe("unverified");
+    expect(integratedEvidenceStatus(0, 0, true)).toBe("unverified");
+    expect(integratedEvidenceStatus(1, 2, true)).toBe("partial");
+    expect(integratedEvidenceStatus(1, 1, true)).toBe("matched");
   });
 });

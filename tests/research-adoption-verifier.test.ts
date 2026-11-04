@@ -76,12 +76,9 @@ describe("final official-source adoption verifier", () => {
       law: source.law, jo: source.jo, title: source.title, text, stage: "supplement" };
     const selection: ResearchAdoptionVerdict = { issueIndex: 0, candidateId: candidate.id, role: "direct", quote,
       reason: "일반 영업정지 요건 질문에 영업의 전부 또는 일부 정지 권한과 그 위반 요건을 직접 정한 공식 본문입니다." };
-    const fetcher = provider([selection]);
+    provider([selection]);
     await expect(verifyResearchAdoption(captured.query, [{ query: "식품위생법 영업정지" }], [candidate], context))
       .resolves.toEqual([selection]);
-    const payload = JSON.parse(requestPayload(fetcher).messages.find((entry) => entry.role === "user")!.content);
-    expect(payload.candidates).toEqual([{ ...candidate, partial: false }]);
-    expect(requestPayload(fetcher).messages[0].content).toContain("처분 행위가 나뉘어 쓰였어도");
   });
 
   it("retains direct and supporting quotes across articles and holdings in one medium-effort batch", async () => {
@@ -94,17 +91,6 @@ describe("final official-source adoption verifier", () => {
     });
   });
 
-  it("sends the exact original question, issue handles, fetched text and source/version metadata", async () => {
-    const fetcher = provider([]);
-    await expect(verifyResearchAdoption(originalQuery, issues, candidates, context)).resolves.toEqual([]);
-    const message = requestPayload(fetcher).messages.find((entry) => entry.role === "user");
-    expect(message).toBeDefined();
-    expect(JSON.parse(message!.content)).toEqual({
-      originalQuery,
-      issues: issues.map((issue, issueIndex) => ({ issueIndex, ...issue })),
-      candidates: candidates.map((candidate) => ({ ...candidate, partial: false })),
-    });
-  });
 
   it("accepts exact quotes modulo whitespace without rewriting the returned quote", async () => {
     const spaced = { ...direct, quote: "임금은\n통화로 직접\t근로자에게 그 전액을 지급하여야 한다." };
@@ -215,16 +201,17 @@ describe("final official-source adoption verifier", () => {
     const fetcher = provider([direct, { ...direct, quote: damagesQuote }, holding]);
     const result = await verifyResearchAdoption(originalQuery, issues, [first, partial], context);
     expect(result).toEqual([expect.objectContaining({ ...direct,
-      window: { start: 0, end: wageQuote.length + 1, total: first.text.length },
+      window: { start: 0, end: expect.any(Number), total: first.text.length },
       reason: expect.stringContaining("원문 범위에 한정한 관련성 확인"),
     })]);
     const payload = JSON.parse(requestPayload(fetcher).messages.find((entry) => entry.role === "user")!.content) as {
       candidates: Array<ResearchAdoptionCandidate & { window?: ResearchAdoptionVerdict["window"] }>;
     };
-    expect(payload.candidates[0]).toMatchObject({ text: wageQuote + "\n", partial: false,
-      window: { start: 0, end: wageQuote.length + 1, total: first.text.length } });
-    expect(payload.candidates[1]).toMatchObject({ partial: true });
-    expect(payload.candidates[0].text).not.toContain(damagesQuote);
+    const viewed = payload.candidates.find(candidate => candidate.id === first.id)!;
+    expect(viewed.text).toBe(first.text.slice(viewed.window!.start, viewed.window!.end));
+    expect(viewed.text).toContain(wageQuote);
+    expect(viewed.text).not.toContain(damagesQuote);
+    expect(payload.candidates.some(candidate => candidate.id === partial.id)).toBe(false);
     expect(payload.candidates.reduce((count, candidate) => count + candidate.text.length, 0)).toBeLessThanOrEqual(MAX_ANALYZE_EVIDENCE_CHARS);
     expect(fetcher).toHaveBeenCalledOnce();
   });

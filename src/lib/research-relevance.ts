@@ -102,6 +102,9 @@ export interface ResearchAdoptionVerdict {
 }
 
 export interface ResearchEnrichment {
+  /** Per-issue bounded search audit; never an operational-log payload. */
+  searches?: Array<{ issueIndex: number; direction: "conduct" | "obligation" | "procedure";
+    query: string; reason: string; status: "found" | "absent" | "failed" | "timeout" | "skipped" }>;
   /** Keyed by precedent id as printed by the MCP (`[619479]`). */
   precedents?: Record<string, PrecedentRelevance>;
   /** Bounded official holding/opening text used to verify each precedent's topical match. */
@@ -508,43 +511,72 @@ function titleVetoed(title: string, stripTerms: readonly string[]): boolean {
  * that relationship; an AI search phrase is never a fact about the parties.
  * General civil rules (채무자·채권자·타인) deliberately carry no restriction.
  */
-const RESTRICTED_RELATIONSHIPS: ReadonlyArray<{ source: RegExp; request: RegExp; contextual?: true }> = [
+const RESTRICTED_RELATIONSHIPS: ReadonlyArray<{ source: RegExp; request: RegExp; contextual?: true; employeeStatus?: true }> = [
   { source: /근로자|근로계약|고용기간|임금|퇴직급여/u, request: /직원|직장|근로|고용|사용자|사업주|퇴사|퇴직|해고|임금|월급|급여|연차/u, contextual: true },
   { source: /차주(?:가|는|의|에게)|대주(?:가|는|의|에게)|사용대차|소비대차/u, request: /차주|대주|대차|빌[려린릴]|빌리|대여|차용/u },
   { source: /조달청|수요기관|경쟁입찰|단가계약|다수공급자/u, request: /조달|수요기관|입찰|단가계약|다수공급자|공공계약|국가계약/u },
-  { source: /대표이사|임원|법인세|손금산입|손금불산입/u, request: /대표이사|임원|이사|법인세|손금|과세|세금|세무/u },
+  { source: /대표이사|임원|법인세|손금산입|손금불산입/u, request: /대표이사|임원|이사|법인세|손금|과세|세금|세무/u, employeeStatus: true },
   { source: /위탁매매인/u, request: /위탁|매매인|중개|대리상/u },
   { source: /계약담당(?:자|공무원)|지출관|출납공무원/u, request: /조달|공공|국가|지방자치|지자체|관공서|공무원|공기업|입찰|교도/u },
   // 상법상 사원은 회사의 구성원(출자자)이지 근로자가 아니다.
   { source: /사원(?:은|이|의)\s*(?:영업년도|퇴사|지분|출자)|회사를\s*대표하는\s*사원|사원이\s*부득이한|총사원의\s*동의/u, request: /합명|합자|유한책임회사|출자|지분|사원권/u },
   { source: /위원회소속직원|(?<!담당)공무원(?:은|이)/u, request: /공무원|공공기관|국가기관|위원회|공직|국가배상/u },
   { source: /지방자치단체를\s*당사자로/u, request: /지방|지자체|자치단체|시청|도청|구청|군청/u },
+  { source: /국가를\s*당사자로\s*하는\s*계약/u, request: /국가계약|국가를당사자로|국가기관|중앙정부|중앙행정|조달청/u },
   // 민사집행 절차의 취소·정지 규정은 강제집행 관계를 묻지 않은 행정처분 취소 사유가 아니다.
   { source: /민사집행법/u, request: /집행|경매|압류|가처분|가압류|강제|배당/u },
 ];
 
 export function relationshipSupported(content: string, originalQuery: string): boolean {
   const source = compact(content), request = compact(originalQuery);
-  return RESTRICTED_RELATIONSHIPS.every(({ source: cue, request: context, contextual }) =>
+  return RESTRICTED_RELATIONSHIPS.every(({ source: cue, request: context, contextual, employeeStatus }) =>
     contextual || !cue.test(source) || context.test(request)
     // A holding actually deciding employee status is relevant even when
     // its other party is an officer; the role must be part of its legal test.
-    || (/직원|근로|고용/u.test(request) && /근로자(?:에|로|의)?\s*(?:해당|인정|볼|여부|성)|근로자성/u.test(content)));
+    || (employeeStatus && /직원|근로|고용/u.test(request)
+      && /근로자(?:에|로|의)?\s*(?:해당|인정|볼|여부|성)|근로자성/u.test(content)));
 }
 
 /**
- * An aggravated wage remedy is not the ordinary wage-payment obligation.
- * Check its full conditions, not a quote ending just before the numbered list.
- * This veto only limits direct adoption; conditional supporting evidence still
- * needs the verifier's explanation and never becomes an automatic fallback.
+ * A direct rule must regulate the requested obligation, not merely define its
+ * actors or describe a later remedy. This is a scope check, not a finding that
+ * the user's facts satisfy general liability or sanction conditions.
+ * `issueQuery` supplies the requested direction only; special relationships
+ * and aggravated-remedy facts must still come from the original question.
  */
-export function directConditionsSupported(content: string, originalQuery: string): boolean {
-  const source = compact(content), request = compact(originalQuery);
+export function directConditionsSupported(content: string, originalQuery: string, issueQuery = originalQuery): boolean {
+  const source = compact(content), request = compact(originalQuery), issue = compact(issueQuery);
   const aggravatedWageRemedy = /임금/u.test(source)
     && /(?:[2-9]|[이삼사오육칠팔구])배/u.test(source)
     && /명백한고의|개월수가총|개월이상의통상임금|상습체불/u.test(source);
-  return !aggravatedWageRemedy
-    || /고의|상습|반복|장기|대규모|(?:[2-9]|[이삼사오육칠팔구])배|[0-9일이삼사오육칠팔구십]+개월|손해배상/u.test(request);
+  if (aggravatedWageRemedy
+    && !/고의|상습|반복|장기|대규모|(?:[2-9]|[이삼사오육칠팔구])배|[0-9일이삼사오육칠팔구십]+개월|손해배상/u.test(request)) return false;
+
+  // Definitions can be direct for a meaning/scope question, but cannot supply
+  // a missing duty just because the definition repeats its actor and object.
+  const definition = /(?:이법|이영|이규칙)에서사용하는용어의뜻|이란[^。\n]{0,120}(?:말한다|뜻한다)/u.test(source);
+  const operativeDuty = /(?:하여야|해야|해서는아니|하여서는아니|할수있다|하여야할|지급한다)/u.test(source);
+  if (definition && !operativeDuty && /의무|책임|조치|지급|금지|요건/u.test(issue)
+    && !/정의|뜻|의미|해당|범위/u.test(issue)) return false;
+
+  // Retirement settlement is not the ordinary periodic wage rule. The
+  // original request, not a model-generated issue, establishes retirement.
+  if (/(?:사망|퇴직)한경우/u.test(source) && /금품|퇴직금|퇴직급여/u.test(source)
+    && /임금|월급|급여/u.test(issue) && !/퇴사|퇴직|사망|퇴직금|퇴직급여/u.test(request)
+    && !/매월|일정한기일|정기적/u.test(source)) return false;
+
+  // Exercising an existing right does not establish a right to terminate.
+  if (/해제|해지/u.test(issue) && !/행사|방법|절차|통지|의사표시/u.test(issue)
+    && /(?:해제|해지)는상대방에대한의사표시|(?:해제권|해지권)의행사/u.test(source)
+    && !/이행하지아니|이행하지아니한|이행할수없|최고|부득이한사유/u.test(source)) return false;
+
+  // A replacement fine can support the question but is not itself the
+  // independent power to suspend. Keep mixed provisions with an actual
+  // suspension power; a cross-reference to that power is not enough.
+  if (/영업정지|영업의.*정지/u.test(issue) && !/과징금|갈음|대체/u.test(issue)
+    && /정지[^。\n]{0,60}갈음(?:하여|하는|한)[^。\n]{0,40}과징금/u.test(source)
+    && !/영업(?:의전부또는일부)?(?:를)?정지[^。\n]{0,80}명할수/u.test(source)) return false;
+  return true;
 }
 
 /**

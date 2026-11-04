@@ -197,7 +197,7 @@ describe("residual §2/§3: one structured law identity", () => {
     expect(lookup.articles).toEqual([]);
   });
 
-  it("skips an empty or deleted explicit body and degrades a fetch failure to no article, never to matched", async () => {
+  it("skips an empty or deleted explicit body and reports a fetch failure without adopting it", async () => {
     const deleted = baseSources({
       async laws(query) { return query === "개인정보보호법" ? [{ name: "개인정보보호법", mst: "P" }] : []; },
       async article() { return { text: "제38조(권리행사의 방법 및 절차)\n삭제" }; },
@@ -210,7 +210,7 @@ describe("residual §2/§3: one structured law identity", () => {
     });
     const lookupFailed = await lookupIssue("개인정보보호법 제38조", [], failing, () => false, [], []);
     expect(lookupFailed.articles).toEqual([]);
-    expect(lookupFailed.status).toBe("none");
+    expect(lookupFailed.status).toBe("failed");
   });
 
   it("reports a lookup timeout distinctly", async () => {
