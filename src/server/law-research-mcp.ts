@@ -313,14 +313,14 @@ async function fullResearch(
     if (!adopted.articles.length) {
       const lookupQuery = fallback ? questionSubjectTerms(query).join(" ") : issue.query;
       if (lookupQuery) {
-        // A lookup failure degrades to "no lookup", never to a failed request:
+        // A thrown lookup is an incomplete lookup, never a confirmed absence:
         // the chain's own adoption still stands, and the issue status below
-        // falls back to the chain outcome.
+        // reports the failure instead of "none".
         const questionIdentities = parseExplicitIdentities(query);
         lookup = await lookupIssue(lookupQuery, shownArticles, sources, expired,
           [...new Set([...lawNamesInQuery(query), ...questionTerms(query).filter(isLawName)])], questionTerms(query),
           questionIdentities.length ? questionIdentities : undefined)
-          .catch(() => undefined);
+          .catch(() => ({ status: "failed" as const, articles: [], precedents: [] }));
         if (lookup?.status === "found") adopted = await issueSources(issue.query, known, lookup, sources, summaries, requestTerms, fallback, query);
       }
     }
@@ -514,8 +514,9 @@ async function fullResearch(
   const candidates = [...candidateMap.values()].sort((a, b) => Number(Boolean(a.partial)) - Number(Boolean(b.partial)));
   let selections: ResearchAdoptionVerdict[] = [];
   let verification: "verified" | "unavailable" = "verified";
+  let evaluated: ReadonlySet<string> | undefined;
   if (candidates.length) {
-    try { selections = await verifyResearchAdoption(query, issues, candidates, context); }
+    try { selections = await verifyResearchAdoption(query, issues, candidates, { ...context, onAdoptionCoverage: ids => { evaluated = new Set(ids); } }); }
     catch (error) {
       if (context.signal?.aborted) throw error;
       verification = "unavailable";
@@ -554,7 +555,7 @@ async function fullResearch(
       // a quote may omit the corporate-member role or a numbered condition.
       const fullScope = `${candidate.law ?? ""} ${candidate.text}`;
       const mismatch = proposed && (!relationshipSupported(fullScope, query)
-        || proposed.role === "direct" && !directConditionsSupported(fullScope, query)
+        || proposed.role === "direct" && !directConditionsSupported(fullScope, query, item.issue.query)
         || candidate.kind === "article" && candidate.title?.replace(/\s+/gu, "") === "목적" && !query.includes("목적"));
       const selection = mismatch ? undefined : proposed;
       const identity = requestedCandidateIds.has(candidate.id)
@@ -566,6 +567,7 @@ async function fullResearch(
         : mismatch ? "원질문의 당사자·법률관계 또는 질문 범위와 맞지 않아 근거로 채택하지 않았습니다."
         : selection?.reason ?? (candidate.partial ? "일부 원문만 확보되어 직접·보충 관련성을 확정하지 않았습니다."
         : verification === "unavailable" ? "원문은 확보했으나 관련성 검증을 완료하지 못해 추가 확인이 필요합니다."
+        : evaluated && !evaluated.has(candidate.id) ? "관련성 검증의 원문 예산에 포함되지 않아 확인하지 못했습니다."
         : "원질문과 이 쟁점을 뒷받침하는 직접·보충 관련성이 확인되지 않았습니다.");
       if (candidate.kind === "article" && candidate.law && candidate.jo) {
         review.articles.push({ law: candidate.law, jo: candidate.jo, title: candidate.title,

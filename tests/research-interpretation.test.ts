@@ -71,6 +71,36 @@ describe("research query interpretation", () => {
     expect(answer.issues.map((issue) => issue.label)).toEqual(["부당해고 여부", "퇴직금"]);
   });
 
+  it("drops a money claim the user never raised while a grounded issue remains", async () => {
+    process.env.GROQ_API_KEY = "test-provider-key";
+    const issues = [
+      { label: "무단퇴사 효력", query: "무단퇴사" },
+      { label: "근로계약 해지", query: "근로계약 해지" },
+      { label: "퇴직금 정산", query: "퇴직금 지급" },
+      { label: "손해배상 청구", query: "근로자 손해배상" },
+    ];
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(completion({ ...proposal, issues })));
+    const answer = await interpretResearchQuery("직원이 갑자기 무단퇴사해서 연락이 안 됨", context);
+    expect(answer.issues.map((issue) => issue.label)).toEqual(["무단퇴사 효력", "근로계약 해지"]);
+  });
+
+  it("keeps a wage claim the user named without inventing a retirement-benefit claim from it", async () => {
+    process.env.GROQ_API_KEY = "test-provider-key";
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(completion({ ...proposal, issues: [
+      { label: "퇴직 후 임금 지급", query: "퇴직 금품 지급기한" },
+      { label: "퇴직금", query: "퇴직금 지급" },
+    ] })));
+    const answer = await interpretResearchQuery("퇴사한 지 한 달인데 마지막 달 임금을 못 받았어", context);
+    expect(answer.issues.map((issue) => issue.label)).toEqual(["퇴직 후 임금 지급"]);
+  });
+
+  it("keeps an all-ungrounded reading rather than leaving nothing to search", async () => {
+    process.env.GROQ_API_KEY = "test-provider-key";
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(completion({ ...proposal, issues: [{ label: "퇴직금", query: "퇴직금 지급" }] })));
+    const answer = await interpretResearchQuery("회사를 그만뒀어", context);
+    expect(answer.issues).toEqual([{ label: "퇴직금", query: "퇴직금 지급" }]);
+  });
+
   it("surfaces a daily quota 429 as a rate-limit error instead of an empty reading", async () => {
     process.env.GROQ_API_KEY = "test-provider-key";
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: {
