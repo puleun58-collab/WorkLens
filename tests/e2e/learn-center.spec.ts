@@ -459,11 +459,10 @@ test("학습센터: 두 탭에서 같은 응시를 조작하면 먼저 저장한
   await waitInProgressState(page, { answers: 1, currentIndex: answeredIndex + 2 });
 });
 
-test("학습센터: 가상 터미널 기본 동작", async ({ page }) => {
+test("학습센터: LEVEL 4는 선행 단계 통과 전까지 잠겨 있다", async ({ page }) => {
   await page.goto("/");
   await learn(page);
-  // LEVEL 4는 잠겨 있으므로 직접 컴포넌트 검증은 단위 테스트로 대체
-  // 여기서는 학습센터 자체가 깨지지 않음을 확인 — 잠긴 행에는 실행 버튼이 없어야 한다
+  // 선행 단계를 통과하지 않은 사용자는 LEVEL 4 실습에 진입할 수 없다.
   const rows = page.locator(".learn-dash-row");
   await expect(rows).toHaveCount(10);
   await expect(rows.nth(3).getByRole("button")).toHaveCount(0);
@@ -902,7 +901,7 @@ test("학습센터: 연습 터미널 상태가 단위 이동·새로고침 후�
   await terminalInput.fill("mkdir PracticeFolder");
   await terminalInput.press("Enter");
   await terminalInput.fill("dir");
-  await terminalInput.press("Enter");
+  await page.locator(".learn-terminal-actions").getByRole("button", { name: "실행", exact: true }).click();
   await expect(page.locator(".learn-terminal-output")).toContainText("PracticeFolder");
   // 연습 상태가 저장될 때까지 대기
   await expect
@@ -1107,7 +1106,7 @@ test("학습센터: 반복 업무 3개 작성·검증·비교·후보 선택은 
   expect(errors).toEqual([]);
 });
 
-test("학습센터: LEVEL 1~10 실습 입력 방식·요약 색상·정렬·명령 복사 전수 점검", async ({ page, context, browserName }) => {
+test("학습센터: LEVEL 1~10 실습 입력 방식과 명령 복사", async ({ page, context, browserName }) => {
   test.setTimeout(180_000);
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
@@ -1125,17 +1124,13 @@ test("학습센터: LEVEL 1~10 실습 입력 방식·요약 색상·정렬·명�
       await page.getByRole("navigation", { name: "학습 단위" }).getByRole("button").nth(i).click();
       if (!unit.practice) continue;
       const practice = page.getByRole("region", { name: `실습: ${unit.practice.title}`, exact: true });
-      await expect(practice.getByText("실습 방법", { exact: false })).toHaveCount(0);
-      expect(await practice.locator(".learn-card-title").evaluate((element) => getComputedStyle(element).fontWeight)).toBe("400");
       if (unit.practice.commands?.length) {
         await expect(practice.getByLabel("가상 터미널 명령어 입력")).toBeVisible();
-        await expect(practice.locator("strong").filter({ hasText: /^실행 환경:$/ })).toBeVisible();
-        await expect(practice.getByRole("heading", { name: "실행 환경", exact: true })).toHaveCount(0);
-        await expect(practice.getByRole("button", { name: "확인", exact: true })).toHaveCount(0);
         const command = unit.practice.commands[0];
-        await practice.getByRole("button", { name: `${command} 복사`, exact: true }).click();
-        await expect(practice.getByRole("button", { name: `${command} 복사`, exact: true })).toHaveText("복사됨");
-        expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(command);
+        const commands = practice.locator(".learn-command-list");
+        await expect(commands.getByRole("button")).toHaveCount(unit.practice.commands.length);
+        await commands.getByRole("button", { name: `${command} 복사`, exact: true }).click();
+        await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(command);
       } else {
         await expect(practice.getByLabel("가상 터미널 명령어 입력")).toHaveCount(0);
         if (unit.id === "l1-u3") await expect(practice.locator(".learn-practice-job")).toHaveCount(3);

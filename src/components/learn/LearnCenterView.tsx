@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "@/components/ui/menu";
 import { ALL_LEVELS, DIAGNOSTIC_AREAS, DIAGNOSTIC_AREA_TARGETS, levelMeta, type DiagnosticAreaId } from "@/lib/learn/curriculum";
 import { levelContent } from "@/lib/learn/content";
-import { diagnosticQuestions, findQuestion, questionBank, restoreQuizQuestions } from "@/lib/learn/questions";
+import { diagnosticQuestions, questionBank, restoreQuizQuestions } from "@/lib/learn/questions";
 import {
   clearInProgressQuiz,
   loadInProgressQuiz,
@@ -31,7 +31,6 @@ import {
   questionFingerprint,
   selectQuizQuestions,
   shuffleQuestionChoices,
-  weakCategories,
 } from "@/lib/learn/scoring";
 import {
   buildLearnBackup,
@@ -1063,7 +1062,6 @@ function LearnDashboard(props: {
   const { progress } = props;
   const inProgressRestorable = props.inProgress ? restoreQuizQuestions(props.inProgress) !== null : false;
   const overall = overallProgress(progress);
-  const weak = weakCategories(progress, (id) => findQuestion(id)?.category).slice(0, 3);
   const complete = isLearningComplete(progress);
   // 이어서 학습하기: 통과하지 못한 첫 번째 해제 단계
   const nextLevel = ALL_LEVELS.find((l) => canUnlockLevel(l, progress) && !progress.levels[l]?.passed);
@@ -1151,11 +1149,6 @@ function LearnDashboard(props: {
               })}
             </div>
           </div>
-        ) : null}
-        {weak.length > 0 ? (
-          <p className="learn-dash-note">
-            <small>자주 틀리는 개념: {weak.map((w) => `${w.category}(${w.count})`).join(", ")}</small>
-          </p>
         ) : null}
         <p className="learn-dash-note">
           <small>{LEARN_STORAGE_NOTICE}</small>

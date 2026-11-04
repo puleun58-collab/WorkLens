@@ -19,7 +19,7 @@ interface VirtualTerminalProps {
   successChecks: TerminalSuccessCheck[];
   hint?: string;
   onResult?: (passed: boolean) => void;
-  /** 연습 모드: 점수에 반영되지 않음을 명시하고 완료 확인 버튼을 숨긴다 */
+  /** 연습 모드에서는 평가용 안내와 완료 확인 버튼을 숨긴다 */
   practiceMode?: boolean;
   /** 복원할 실습 중간 상태 — 없으면 시나리오 초기 상태로 시작한다 */
   initialSnapshot?: TerminalStateSnapshot | null;
@@ -78,22 +78,15 @@ export function VirtualTerminal({ scenario, instructions, successChecks, hint, o
 
   return (
     <div className="learn-terminal-block">
-      {practiceMode ? (
-        <p className="learn-practice-guidance learn-muted">
-          <strong>연습 모드:</strong> 여기서 연습한 결과는 점수에 반영되지 않습니다.
-        </p>
-      ) : null}
-      <div className="learn-practice-guidance">
-        {practiceMode ? (
-          <p><strong>학습 안내:</strong> {instructions.join(" ")}</p>
-        ) : (
+      {!practiceMode ? (
+        <div className="learn-practice-guidance">
           <ol className="learn-terminal-steps">
             {instructions.map((step, i) => (
               <li key={i}><LearnSeparatedText text={step} /></li>
             ))}
           </ol>
-        )}
-      </div>
+        </div>
+      ) : null}
       <div className="learn-terminal" role="region" aria-label="가상 터미널">
         <div className="learn-terminal-output" ref={outputRef} aria-live="polite">
           {transcript.map((entry, i) => (
