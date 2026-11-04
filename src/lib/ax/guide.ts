@@ -605,13 +605,13 @@ export function parseOutputColumns(text: string): string[] | null {
   }
   return null;
 }
-/** 컬럼·열 목록이 파싱되지 않는 파일형 산출물의 파일명 목록. 컬럼을 만들지 않고
- * 미확정으로만 표시하기 위한 판정이다. */
+/** 표형 산출물에서만 컬럼·열 목록 미확정을 판정한다.
+ * 보고서·메일·체크리스트 등은 파일이라는 이유만으로 컬럼을 요구하지 않는다. */
 export function detectUndeterminedOutputs(outputs: string[]): string[] {
   const out: string[] = [];
   for (const text of outputs) {
-    const file = /([\w가-힣][\w가-힣.-]*\.(?:csv|xlsx|xls|json|txt))/u.exec(text)?.[1]
-      ?? (/(?:CSV|파일)/u.test(text) ? "파일형 산출물" : null);
+    const file = /([\w가-힣][\w가-힣.-]*\.(?:csv|xlsx|xls))\b/iu.exec(text)?.[1]
+      ?? (/\bCSV\b/iu.test(text) ? "파일형 산출물" : null);
     if (!file) continue;
     if (!parseOutputColumns(text)) out.push(file);
   }
