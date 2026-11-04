@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { axGroundingSchema } from "./grounding-schema";
 
 // Shared limits apply at AI, browser storage and transfer boundaries.
 z.config({ jitless: true });
@@ -79,7 +80,7 @@ export const axDiagnosisShape = {
 };
 export const axDiagnosisJsonSchema = z.object(axDiagnosisShape).strict();
 const uniqueFactors = (value: { factors: { key: string }[] }) => new Set(value.factors.map(f => f.key)).size === 6;
-export const axDiagnosisOutputSchema = axDiagnosisJsonSchema.refine(uniqueFactors, "6종 Factor가 각각 필요합니다.");
+export const axDiagnosisOutputSchema = axDiagnosisJsonSchema.extend({ grounding: axGroundingSchema.optional() }).refine(uniqueFactors, "6종 Factor가 각각 필요합니다.");
 export const REPOSITORY_FIRST = "Repository-first: 실제 저장소의 지침·구조·구현·테스트를 먼저 확인하고, 확인되지 않은 파일명·함수명·API를 추측하지 않는다.";
 export const axPlanJsonSchema = z.object({
   repositoryFirst: text.min(1), goal: list, asIs: list, toBe: list, inScope: list, outOfScope: list, prerequisites: list,
@@ -92,6 +93,7 @@ export const axPlanSchema = axPlanJsonSchema.extend({ repositoryFirst: z.literal
 const userDiagnosisShape = { decisionPoints: z.array(decisionPointSchema).max(7).optional() };
 export const axConfirmedDiagnosisSchema = z.object({
   ...axDiagnosisShape, ...userDiagnosisShape, factors: z.array(factorSchema.extend({ finalValue: rating.optional() }).strict()).length(6),
+  grounding: axGroundingSchema.optional(),
 }).strict().refine(uniqueFactors, "6종 Factor가 각각 필요합니다.");
 export const axDiagnosisSchema = z.object({
   ...axConfirmedDiagnosisSchema.shape,

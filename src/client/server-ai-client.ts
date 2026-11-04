@@ -208,7 +208,7 @@ async function send(request: AiApiRequest): Promise<AiApiResult> {
   if (activeController) throw failure("BUSY", request.kind);
   const controller = new AbortController();
   activeController = controller;
-  const timer = setTimeout(() => controller.abort("timeout"), CLIENT_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort("timeout"), request.kind === "ax-diagnosis" ? 125_000 : CLIENT_TIMEOUT_MS);
   try {
     const response = await fetch("/api/ai", {
       method: "POST",

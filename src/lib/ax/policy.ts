@@ -1,4 +1,4 @@
-import type { AxDetails, AxDiagnosis, AxTask, FactorKey } from "./types";
+import type { AxDiagnosis, AxTask, FactorKey } from "./types";
 import { FACTOR_LABELS } from "./schema";
 // All coefficients and thresholds are public policy; no additional weights.
 export const AX_POLICY = { priority: { value: 2, feasibility: 1.5, judgment: -1, risk: -1.5, needsCheck: -1, partial: -0.5 }, matrixThreshold: 3.5, holdRisk: 4, holdJudgment: 4.5 } as const;
@@ -97,13 +97,6 @@ export function nextAction(d: AxDiagnosis): AxDiagnosis["nextAction"] {
     return { label: "AI 보조 사전 검증", detail: `${steps.length ? `${steps.join("·")} 단계의 ` : ""}AI 보조 결과를 담당자가 검토하는 흐름으로 검증하세요.` };
   }
   return d.nextAction;
-}
-/** Public sufficiency rule: needs-check only when at least three of the four core
- * registration facts are missing. The model applies it inconsistently between runs;
- * entered core facts may only lift needs-check to partial, never claim sufficiency. */
-export function alignInformationSufficiency<T extends Pick<AxDiagnosis, "informationSufficiency">>(diagnosis: T, details: AxDetails): T {
-  const present = [details.cycle, details.inputs, details.outputs, details.humanSteps].filter(value => value?.trim()).length;
-  return diagnosis.informationSufficiency === "needs-check" && present >= 2 ? { ...diagnosis, informationSufficiency: "partial" } : diagnosis;
 }
 export function taskStatus(d?: AxDiagnosis): AxTask["status"] {
   return !d ? "registered" : diagnosisHasAdjustment(d) ? "adjusted" : d.informationSufficiency === "needs-check" ? "needs-info" : "diagnosed";
