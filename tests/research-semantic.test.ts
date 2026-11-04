@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ResearchInterpretation } from "@/lib/law-research";
 import { runLegalResearch } from "@/server/law-research-mcp";
-import { interpretResearchQuery, verifyResearchAdoption } from "@/server/groq";
+import { interpretResearchQuery, planResearchSearches, verifyResearchAdoption } from "@/server/groq";
 import { adoptionResponse } from "./research-adoption-fixtures";
 import { ApiError } from "@/server/http";
 import type * as GroqModule from "@/server/groq";
 import scopeCapture from "./fixtures/research-live-scope-adoption.json";
 
-vi.mock("@/server/groq", () => ({ interpretResearchQuery: vi.fn(), verifyResearchAdoption: vi.fn() }));
+vi.mock("@/server/groq", () => ({ interpretResearchQuery: vi.fn(), planResearchSearches: vi.fn().mockResolvedValue([]), verifyResearchAdoption: vi.fn() }));
 
 const longQuery = "5년 일했는데 어제 팀장이 문자로 내일부터 나오지 말라고 했어. 두 달치 월급도 못 받았고 퇴직금도 아직 안 줬어. 이게 부당해고인지, 밀린 돈은 어떻게 받는지 알고 싶어.";
 const interpretation: ResearchInterpretation = {
@@ -63,6 +63,24 @@ afterEach(() => {
 });
 
 describe("full_research issue-by-issue retrieval", () => {
+  it("finds an operative obligation through a planned direction when the violation-label search has no source", async () => {
+    const query = "월급이 지급되지 않음";
+    const body = "임금은 통화로 직접 근로자에게 그 전액을 지급하여야 하며 매월 정기적으로 지급한다.";
+    vi.mocked(interpretResearchQuery).mockResolvedValueOnce({ original: query, situation: query, facts: [], issues: [{ label: "임금 미지급", query: "임금 체불" }], confidence: "high" });
+    vi.mocked(planResearchSearches).mockResolvedValueOnce([{ issueIndex: 0, direction: "obligation", query: "임금 지급 의무", reason: "위반에 대응하는 지급 의무 탐색" }]);
+    upstream({ legal_research: args => args.query === "임금 지급 의무" ? `═══ 종합 리서치 ═══\n▶ AI 법령검색 결과\n${article("0043조", "임금 지급", body)}` : "[NOT_FOUND] 없음" });
+    vi.mocked(verifyResearchAdoption).mockImplementationOnce(adoptionResponse([{ issueIndex: 0, source: { law: "근로기준법", jo: "제43조" }, quote: body, reason: "근로자에게 임금을 직접 지급할 사용자의 의무가 미지급 쟁점의 직접 근거입니다." }]));
+    const result = await runLegalResearch({ task: "full_research", query }, ctx);
+    expect(result).toMatchObject({ evidence: { articles: [{ law: "근로기준법", jo: "제43조" }] }, enrichment: { searches: [{ issueIndex: 0, direction: "obligation", status: "found" }] } });
+  });
+
+  it("does not mistake failed direction discovery or source verification for absence of law", async () => {
+    const query = "월급이 지급되지 않음";
+    vi.mocked(interpretResearchQuery).mockResolvedValueOnce({ original: query, situation: query, facts: [], issues: [{ label: "임금 지급", query: "임금 체불" }], confidence: "high" });
+    vi.mocked(planResearchSearches).mockRejectedValueOnce(new Error("planner unavailable"));
+    upstream({ legal_research: () => new Error("official unavailable") });
+    await expect(runLegalResearch({ task: "full_research", query }, ctx)).rejects.toMatchObject({ code: "LAW_UPSTREAM_UNAVAILABLE" });
+  });
   it.each([
     { partial: false, chain: false }, { partial: true, chain: false },
     { partial: false, chain: true }, { partial: true, chain: true },

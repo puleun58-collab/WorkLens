@@ -5,7 +5,7 @@ import { interpretResearchQuery, verifyResearchAdoption } from "@/server/groq";
 import { adoptionResponse } from "./research-adoption-fixtures";
 import { lookupIssue, type EnrichmentSources } from "@/server/research-enrichment";
 
-vi.mock("@/server/groq", () => ({ interpretResearchQuery: vi.fn(), verifyResearchAdoption: vi.fn() }));
+vi.mock("@/server/groq", () => ({ interpretResearchQuery: vi.fn(), planResearchSearches: vi.fn().mockResolvedValue([]), verifyResearchAdoption: vi.fn() }));
 
 /**
  * V4 regression tests.

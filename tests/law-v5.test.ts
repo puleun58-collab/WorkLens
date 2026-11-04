@@ -6,7 +6,7 @@ import { interpretResearchQuery, verifyResearchAdoption } from "@/server/groq";
 import { adoptionResponse } from "./research-adoption-fixtures";
 import { lookupIssue, type EnrichmentSources } from "@/server/research-enrichment";
 
-vi.mock("@/server/groq", () => ({ interpretResearchQuery: vi.fn(), verifyResearchAdoption: vi.fn() }));
+vi.mock("@/server/groq", () => ({ interpretResearchQuery: vi.fn(), planResearchSearches: vi.fn().mockResolvedValue([]), verifyResearchAdoption: vi.fn() }));
 
 /** Chain text shaped like the live answers: law line, numbered article lines, body, 시행 line. */
 function chain(articles: Array<{ law: string; jo: string; title: string; body: string }>): string {
