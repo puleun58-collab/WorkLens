@@ -270,7 +270,9 @@ export function deriveUnifiedRules(diagnosis: AxDiagnosis, storedGeneric?: reado
       if (row.step && evidence.step && normalize(row.step) !== normalize(evidence.step)) return false;
       if (row.candidateKey === JSON.stringify([key, normalize(row.step)])) return true;
       const generatedSource = /^(?:AS-IS 사람 판단|사람 개입\(HITL\)|기술적 확인 항목 "[^"]*"|AS-IS 업무 단계|단계별 판단(?: 근거)?|TO-BE (?:업무 단계|처리 조건)|AS-IS 예외): (.+)$/u.exec(row.source);
-      return genericRuleConditionKey(row.detail || generatedSource?.[1] || row.name) === key;
+      // 도출 근거는 저장 후에도 유지된다. 사용자 추가 기준이 원래 후보의 식별을 가리지 않게 한다.
+      // 도출 근거가 없는 기존 규칙은 상세·이름 순서로 비교한다.
+      return genericRuleConditionKey(generatedSource?.[1] || row.detail || row.name) === key;
     });
     const provenance = `${evidence.source}${evidence.step ? ` · 단계 "${evidence.step}"` : ""}: ${evidence.text}`;
     if (existing) {

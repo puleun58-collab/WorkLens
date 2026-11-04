@@ -60,9 +60,9 @@ const RULE_NAME_MAX_LENGTH = 120;
 const RULE_DETAIL_MAX_LENGTH = 2000;
 
 /** 기본 입력 문구. */
-const APPLICABILITY_LABEL = "업무 적용 여부";
-const DETAIL_LABEL = "처리 기준";
-const DETAIL_HINT = "적용 조건, 처리 방법, 예외 및 결과 처리 기준을 작성하세요";
+const APPLICABILITY_LABEL = "적용 여부";
+const DETAIL_LABEL = "추가 기준 (선택)";
+const DETAIL_HINT = "추가로 명확히 할 조건이 있을 때만 입력하세요";
 
 const NEW_RULE_KEY = "new-rule";
 
@@ -187,7 +187,7 @@ function GenericRuleFields({ value, onChange, disabled, errors, derived = false 
           onChange={event => onChange({ detail: event.target.value, status: "미확정" })} />
       </label>
       <div className="ax-rule-confirm">
-        <Button type="button" disabled={disabled || (value.status !== "확정" && !value.detail.trim())}
+        <Button type="button" disabled={disabled}
           onClick={() => onChange({ status: value.status === "확정" ? "미확정" : "확정" })}>
           {value.status === "확정" ? "확정 취소" : "확정"}
         </Button>
@@ -361,9 +361,11 @@ export function UnifiedRulesSection({ diagnosis, genericRules, disabled: externa
           return <div className={`ax-decision-row${isOpen ? " is-open" : ""}`} id={`ax-decision-${item.id}`} key={item.id} data-status={item.status}>
             <button type="button" className="ax-decision-row-head" aria-expanded={isOpen} disabled={disabled}
               onClick={() => setOpenKey(isOpen ? null : item.id)}>
-              <span className="ax-decision-no">{item.id}</span>
-              <span className="ax-decision-title"><strong>{item.displayTitle ?? display.title}</strong><small>{uiText(item.displayQuestion ?? display.question)}</small></span>
-              <span className="ax-decision-badge" data-status={item.status}>{STATUS_BADGE[item.status]}</span>
+              <span className="ax-decision-row-summary">
+                <span className="ax-decision-no">{item.id}</span>
+                <span className="ax-decision-title"><strong>{item.displayTitle ?? display.title}</strong><small>{uiText(item.displayQuestion ?? display.question)}</small></span>
+                <span className="ax-decision-badge" data-status={item.status}>{STATUS_BADGE[item.status]}</span>
+              </span>
               <ChevronDown size={18} aria-hidden="true" className={isOpen ? "is-open" : ""} />
             </button>
             {isOpen ? <div className="ax-decision-panel">
@@ -391,11 +393,13 @@ export function UnifiedRulesSection({ diagnosis, genericRules, disabled: externa
         return <div className={`ax-decision-row${isOpen ? " is-open" : ""}`} id={item.id ? `ax-rule-${item.id}` : undefined} key={key} data-status={item.status}>
           <button type="button" className="ax-decision-row-head" aria-expanded={isOpen} disabled={disabled}
             onClick={() => setOpenKey(isOpen ? null : key)}>
-            {item.id
-              ? <span className="ax-decision-no">{item.id}</span>
-              : <span className="ax-decision-no ax-decision-no-new">{item.origin === "candidate" ? "제안" : "신규"}</span>}
-            <span className="ax-decision-title"><strong>{item.origin === "candidate" ? uiText(item.name.trim()) || "새 규칙" : item.name.trim() || "새 규칙"}</strong><small>{item.category}</small></span>
-            <span className="ax-decision-badge" data-status={genericBadgeStatus(item)}>{STATUS_BADGE[genericBadgeStatus(item)]}</span>
+            <span className="ax-decision-row-summary">
+              {item.id
+                ? <span className="ax-decision-no">{item.id}</span>
+                : <span className="ax-decision-no ax-decision-no-new">{item.origin === "candidate" ? "제안" : "신규"}</span>}
+              <span className="ax-decision-title"><strong>{item.origin === "candidate" ? uiText(item.name.trim()) || "새 규칙" : item.name.trim() || "새 규칙"}</strong><small>{item.category}</small></span>
+              <span className="ax-decision-badge" data-status={genericBadgeStatus(item)}>{STATUS_BADGE[genericBadgeStatus(item)]}</span>
+            </span>
             <ChevronDown size={18} aria-hidden="true" className={isOpen ? "is-open" : ""} />
           </button>
           {isOpen ? <div className="ax-generic-panel">
@@ -412,8 +416,10 @@ export function UnifiedRulesSection({ diagnosis, genericRules, disabled: externa
       {newRule ? <div className={`ax-decision-row ax-rule-new${newRuleOpen ? " is-open" : ""}`} id="ax-rule-new" data-status="신규">
         <button type="button" className="ax-decision-row-head" aria-expanded={newRuleOpen} disabled={disabled}
           onClick={() => setOpenKey(newRuleOpen ? null : NEW_RULE_KEY)}>
-          <span className="ax-decision-no ax-decision-no-new">신규</span>
-          <span className="ax-decision-title"><strong>{newRule.name.trim() || "새 규칙"}</strong>{newRule.category ? <small>{newRule.category}</small> : null}</span>
+          <span className="ax-decision-row-summary">
+            <span className="ax-decision-no ax-decision-no-new">신규</span>
+            <span className="ax-decision-title"><strong>{newRule.name.trim() || "새 규칙"}</strong>{newRule.category ? <small>{newRule.category}</small> : null}</span>
+          </span>
           <ChevronDown size={18} aria-hidden="true" className={newRuleOpen ? "is-open" : ""} />
         </button>
         {newRuleOpen ? <div className="ax-generic-panel">

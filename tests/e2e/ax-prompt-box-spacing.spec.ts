@@ -2,6 +2,8 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { navigateWorkspace } from "./navigation";
 import { diagnosisFixture, planFixture, taskFixture } from "../fixtures/ax";
 import { emptyAxState, type AxStateV2, type AxTask } from "../../src/lib/ax/types";
+import { setupGuide } from "../../src/lib/ax/guide";
+import { uiText } from "../../src/lib/ax/display-text";
 
 async function seed(page: Page, value: AxStateV2) {
   await page.evaluate(async state => {
@@ -170,15 +172,38 @@ test("STEP 07 PR·CI box displays sentences continuously without forced line bre
   for (const boundary of STEP07_SENTENCE_BOUNDARIES) expect(metrics.text).toContain(boundary);
 });
 
-test("STEP 07 PR·CI box is shorter than its #329 forced-line-break height", async ({ page }) => {
-  // The 229px baseline is a 1440px-viewport figure (8 forced lines); pin the
-  // viewport so this assertion is identical across Playwright projects.
+test("STEP 07 PR·CI box is shorter than its forced-line-break version at the same column width", async ({ page }) => {
+  // 결과·로드맵 상단 2열·하단 전체 폭 복원으로 가이드도 전체 폭을 사용한다.
+  // Keep #409's same-width hidden clone reference at the restored detail width:
+  // joining the sentences must still save height, not merely meet a looser cap.
   await page.setViewportSize({ width: 1440, height: 900 });
   const panel = await openGuide(page);
   const box = sectionCode(panel, 7, "PR·CI 및 배포 확인");
   await expect(box).toBeVisible();
-  const metrics = await measure(box);
-  expect(metrics.height).toBeLessThan(229);
+  const request = setupGuide("codex").flatMap(step => step.sections)
+    .find(section => section.title === "PR·CI 및 배포 확인")?.blocks.find(block => block.kind === "code");
+  expect(request).toBeDefined();
+  const sentences = request!.lines.map(line => line.trim()).filter(Boolean);
+  expect(sentences).toHaveLength(8);
+  expect(await box.locator("code").textContent()).toBe(uiText(sentences.join(" ")));
+  await box.scrollIntoViewIfNeeded();
+  const metrics = await box.evaluate((el, forcedBreakText) => {
+    const reference = el.cloneNode(true) as HTMLElement;
+    reference.setAttribute("aria-hidden", "true");
+    reference.style.visibility = "hidden";
+    reference.querySelector("code")!.textContent = forcedBreakText;
+    el.after(reference);
+    try {
+      const actual = el.getBoundingClientRect();
+      const forced = reference.getBoundingClientRect();
+      return { height: actual.height, width: actual.width, forcedHeight: forced.height, forcedWidth: forced.width };
+    } finally {
+      reference.remove();
+    }
+  }, uiText(sentences.join("\n")));
+  expect(metrics.width).toBeGreaterThan(0);
+  expect(metrics.forcedWidth).toBeCloseTo(metrics.width, 1);
+  expect(metrics.height).toBeLessThan(metrics.forcedHeight);
 });
 
 test("STEP 07 and STEP 08 boxes share font size, line-height and padding", async ({ page }) => {

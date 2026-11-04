@@ -119,11 +119,14 @@
 .ax-view [data-region=strategic] { --ax-region-color: #1d4ed8; }
 .ax-view [data-region=maybe] { --ax-region-color: #b45309; }
 .ax-view [data-region=hold] { --ax-region-color: #64748b; }
-/* Step 4 only: the nav-to-summary gap is the steps box bottom margin (24px)
-   plus the Tabs flex gap (8px) plus this top margin, so 0 here makes 32px.
-   The 32px bottom margin (summary -> selected report) is unchanged. */
-.ax-step4-overview { display: grid; gap: 20px; margin: 0 0 32px; }
-.ax-step4-overview-grid { display: grid; grid-template-columns: minmax(0,1fr); gap: 20px; align-items: start; }
+/* 결과·로드맵: 상단만 1:2로 배치하고, 하단 상세는 전체 폭으로 유지한다. */
+.ax-step4-grid { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,2fr); gap: 24px; align-items: start; }
+.ax-step4-content { display: grid; gap: 20px; min-width: 0; }
+.ax-step4-content .ax-kpi-cards { grid-template-columns: minmax(0,1fr); grid-auto-rows: 1fr; }
+.ax-result-task-panel .ax-priority-list { display: grid; grid-auto-rows: 1fr; }
+.ax-result-task-panel .ax-priority-list > li { display: flex; margin: 0; padding-block: 4px; }
+.ax-result-task-panel .ax-priority-list > li + li { border-top: 1px solid var(--border); }
+.ax-result-task-panel .ax-priority-row { justify-content: flex-start; min-height: 48px; }
 .ax-selected-report { display: grid; gap: 20px; min-width: 0; }
 .ax-selected-report > .ax-panel, .ax-selected-report > .ax-surface { box-shadow: none; }
 .ax-report-intro { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; min-width: 0; padding: 4px 0 0; }
@@ -315,7 +318,8 @@
   .ax-phase-icon { width: 44px; height: 44px; }
   .ax-phases-note { align-items: flex-start; }
 }
-.ax-questions { display: flex; flex-direction: column; gap: 10px; }
+.ax-questions { display: flex; flex-direction: column; gap: 20px; }
+.ax-questions > h3 { margin-bottom: 0; }
 /* 추가 질문 입력창은 초기 약 2줄 높이로 시작하고, 내용이 길어지면 field-sizing으로 자동 확장된다. */
 .ax-questions [data-slot="textarea"] { min-height: 52px; }
 /* 답변 영역으로 포커스·스크롤 이동 시 고정 헤더에 가려지지 않도록 상단 여백 확보 */
@@ -727,7 +731,7 @@
   .ax-result-band { grid-template-columns: minmax(0,1fr); }
 }
 @media (max-width: 700px) {
-  .ax-step4-overview-grid, .ax-step4-overview .ax-kpi-cards { grid-template-columns: minmax(0,1fr); }
+  .ax-step4-grid { grid-template-columns: minmax(0,1fr); }
   .ax-selected-report { gap: 14px; }
   .ax-selected-report > .ax-panel, .ax-selected-report > .ax-surface { padding: 16px; }
   .ax-process-core, .ax-process-extras { grid-template-columns: minmax(0,1fr); }
@@ -1057,10 +1061,11 @@
 .ax-decision-progress strong { font-size: var(--font-size-sm); font-variant-numeric: tabular-nums; }
 .ax-decision-bar { display: block; height: 6px; border-radius: 999px; background: color-mix(in srgb, var(--primary) 12%, var(--card)); overflow: hidden; }
 .ax-decision-bar > span { display: block; height: 100%; background: var(--primary); border-radius: 999px; }
-.ax-decision-row { border: 1px solid var(--border); border-radius: 10px; margin-top: 8px; overflow: hidden; background: var(--card); }
+.ax-decision-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; border: 1px solid var(--border); border-radius: 10px; margin-top: 8px; overflow: hidden; background: var(--card); }
 .ax-decision-row[data-status="확정"] { background: color-mix(in srgb, #16a34a 4%, var(--card)); }
 .ax-decision-row.is-open { background: var(--card); border-color: var(--border); }
-.ax-decision-row-head { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 56px; padding: 10px 14px; background: transparent; border: 0; cursor: pointer; text-align: left; color: var(--foreground); }
+.ax-decision-row-head { display: grid; grid-template-columns: subgrid; grid-column: 1 / -1; align-items: center; gap: 12px; width: 100%; min-height: 56px; padding: 10px 14px; background: transparent; border: 0; cursor: pointer; text-align: left; color: var(--foreground); }
+.ax-decision-row-summary { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .ax-decision-row-head:disabled { cursor: default; }
 .ax-decision-row-head:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
 .ax-decision-no { flex: none; display: inline-grid; place-items: center; width: 36px; height: 36px; border-radius: 8px; background: color-mix(in srgb, var(--primary) 12%, var(--card)); color: var(--primary); font-size: var(--font-size-sm); font-weight: 700; }
@@ -1084,6 +1089,11 @@
 /* 범용 업무 규칙 — 업무 적용 여부·처리 기준과 명시적 초안 확정 */
 .ax-generic-panel { display: flex; flex-direction: column; gap: 12px; padding: 12px 62px 16px; border-top: 1px solid var(--border); }
 .ax-generic-panel textarea { min-height: 96px; padding: 10px 12px; }
+/* Share the header's content/chevron tracks so fields end at the badge, at every width. */
+.ax-decision-panel, .ax-generic-panel { display: grid; grid-template-columns: subgrid; grid-column: 1 / -1; padding-inline-end: 14px; }
+.ax-decision-panel > *, .ax-generic-panel > * { grid-column: 1; min-width: 0; }
+/* Select keeps its existing full panel width on mobile and 360px cap on desktop. */
+.ax-decision-panel > .ax-rule-field:has(.ax-rule-select), .ax-generic-panel > .ax-rule-field:has(.ax-rule-select) { grid-column: 1 / -1; }
 /* D규칙·범용 규칙 공통 선택창: COSS Select 흰색 배경·같은 높이·테두리·라운드·패딩·화살표. */
 .ax-rule-field .ax-rule-select { max-width: 360px; min-height: 36px; background: var(--card); font-weight: 400; }
 .ax-rule-confirm { display: flex; justify-content: flex-end; margin-top: -2px; }
@@ -1139,14 +1149,16 @@
 .ax-fix-rounds li { font-size: 14px; line-height: 1.6; }
 .ax-fix-preview { margin-top: 16px; }
 
-.ax-question { display: grid; gap: 8px; margin-top: 16px; min-width: 0; }
+.ax-question.ax-field { display: grid; gap: 8px; min-width: 0; }
 .ax-question-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .ax-question-head > label { min-width: 0; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
 .ax-question-head .ax-file-input { flex: none; margin: 0; }
-.ax-question-actions { display: flex; justify-content: flex-end; }
 .ax-priority-row { align-items: center; padding-block: 10px; }
 .ax-priority-row > .ax-task-name { min-width: 0; white-space: normal; }
 @media (max-width: 480px) {
   .ax-question-head { gap: 8px; align-items: flex-start; }
   .ax-question-head .ax-file-input button { padding-inline: 10px; }
+  .ax-question .ax-file-row { display: grid; grid-template-columns: auto minmax(0,1fr) auto; }
+  .ax-question .ax-file-status { grid-column: 2; grid-row: 2; white-space: normal; }
+  .ax-question .ax-file-row > button { grid-column: 3; grid-row: 1 / span 2; }
 }

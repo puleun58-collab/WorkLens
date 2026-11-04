@@ -282,6 +282,27 @@ describe("G–J: 근거 부족·빈 목록·동일 업무명·기술 확인 분�
 });
 
 describe("후보 개명·저장 후 식별 보존", () => {
+  it.each(["AS-IS 사람 판단", "사람 개입(HITL)", '기술적 확인 항목 "담당자 검토"'])("%s 근거는 편집 상세보다 우선하고 다른 조건은 별도 후보로 남긴다", source => {
+    const stored: GenericRule[] = [{ id: "R2", name: "담당자 검토", detail: nightApproval, source: `${source}: ${riskApproval}`, category: "권한·검토 기준", applicability: "적용", status: "확정" }];
+    const context = approvalChecks([{ topic: "담당자 검토", note: riskApproval }, { topic: "담당자 검토", note: nightApproval }]);
+    const rows = deriveUnifiedRules(context, JSON.parse(JSON.stringify(stored)));
+    expect(genericRows(rows)).toHaveLength(2);
+    expect(candidates(rows)).toEqual([expect.objectContaining({ name: nightApproval })]);
+    expect(genericRows(rows).find(row => row.id === "R2"))
+      .toMatchObject({ origin: "stored", detail: nightApproval, source: stored[0].source, status: "확정" });
+    expect(unifiedSavePayloads(rows, stored).rules).toEqual(stored);
+  });
+
+  it("도출 근거가 같아도 저장 행과 후보의 업무 단계가 다르면 별도로 남긴다", () => {
+    const context = approvalChecks([]);
+    context.asIs.steps = [riskApproval];
+    const stored: GenericRule[] = [{ id: "R2", name: riskApproval, detail: "사용자 검토 조건", source: `AS-IS 업무 단계: ${riskApproval}`, step: "별도 승인 단계", category: "권한·검토 기준", applicability: "적용", status: "확정" }];
+    const rows = deriveUnifiedRules(context, stored);
+    expect(genericRows(rows)).toHaveLength(2);
+    expect(candidates(rows)).toEqual([expect.objectContaining({ name: riskApproval, step: riskApproval })]);
+    expect(unifiedSavePayloads(rows, stored).rules).toEqual(stored);
+  });
+
   it("규칙명을 바꿔 저장해도 원래 처리 조건이 같은 후보를 다시 노출하지 않는다", () => {
     const diagnosis = approvalChecks([{ topic: "담당자 검토", note: riskApproval }]);
     const rows = deriveUnifiedRules(diagnosis);
