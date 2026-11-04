@@ -114,3 +114,48 @@ test("scenario E: long task names keep badge alignment without overflow", async 
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(0);
 });
+
+test("업무 진단 상태 배지는 데스크톱과 모바일에서 동일 규격과 세로 중앙 정렬을 유지한다", async ({ page }) => {
+  const diagnosis = makeDiagnosis(2, "conditional", "needs-check");
+  diagnosis.factors = diagnosis.factors.map(factor => factor.key === "humanJudgment" ? { ...factor, aiValue: 4 } : factor);
+  for (const viewport of [{ width: 1440, height: 900, adjusted: false }, { width: 390, height: 844, adjusted: false }, { width: 390, height: 844, adjusted: true }]) {
+    await page.setViewportSize(viewport);
+    const taskDiagnosis = structuredClone(diagnosis);
+    if (viewport.adjusted) taskDiagnosis.factors[0].finalValue = 4;
+    await seedAndOpen(page, [makeTask("badge-alignment", "월간 정산 자료 검토", taskDiagnosis)], 2);
+    const badges = page.locator(".ax-diag-card .ax-diag-badges > span");
+    await expect(badges).toHaveCount(viewport.adjusted ? 4 : 3);
+    await expect(badges.nth(0)).toHaveText("확인 후 진행");
+    await expect(badges.nth(1)).toContainText("AI 보조 (Level 1)");
+    await expect(badges.nth(2)).toHaveText("정보 확인 필요");
+    await page.evaluate(() => document.fonts.ready);
+    const measurements = await badges.evaluateAll(elements => elements.map(element => {
+      const box = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      const text = document.createRange();
+      text.selectNodeContents(element);
+      const textBox = text.getBoundingClientRect();
+      return {
+        text: element.textContent, height: box.height, x: box.x, y: box.y,
+        centerOffset: Math.abs(textBox.y + textBox.height / 2 - box.y - box.height / 2),
+        radius: style.borderRadius, border: style.borderWidth,
+        fontSize: style.fontSize, fontWeight: style.fontWeight,
+        padding: style.padding, lineHeight: style.lineHeight,
+      };
+    }));
+    expect(new Set(measurements.map(badge => badge.height)).size).toBe(1);
+    for (const badge of measurements) {
+      expect(badge.centerOffset).toBeLessThanOrEqual(1);
+      for (const property of ["radius", "border", "fontSize", "fontWeight", "padding", "lineHeight"] as const) {
+        expect(badge[property]).toBe(measurements[0][property]);
+      }
+    }
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(0);
+    if (viewport.adjusted) expect(measurements.at(-1)!.y).toBeGreaterThan(measurements[0].y);
+    console.log(JSON.stringify({ viewport, measurements, overflow }));
+    if (process.env.AX_BADGE_SHOTS) {
+      await page.screenshot({ path: `${process.env.AX_BADGE_SHOTS}/ax-diag-badges-${viewport.width}x${viewport.height}${viewport.adjusted ? "-wrapped" : ""}.png`, fullPage: true });
+    }
+  }
+});
