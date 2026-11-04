@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { assertResultWithinLimit, readBoundedJson, runBoundedOperation } from "@/server/http";
+import { describe, expect, it, vi } from "vitest";
+import { assertResultWithinLimit, OPERATION_LEASE_MS, readBoundedJson, runBoundedOperation } from "@/server/http";
 
 const jsonRequest = (body: string, headers: Record<string, string> = {}): Request =>
   new Request("https://worklens.internal/api/check", {
@@ -73,5 +73,27 @@ describe("operation result ceiling", () => {
     });
     for (const release of releases) release();
     await expect(Promise.all(held)).resolves.toEqual(["done", "done", "done", "done"]);
+  });
+
+  it("returns the slot of a failed operation immediately", async () => {
+    for (let index = 0; index < 6; index += 1) {
+      await expect(runBoundedOperation(async () => { throw new Error("upstream down"); })).rejects.toThrow("upstream down");
+    }
+    await expect(runBoundedOperation(async () => "after failures")).resolves.toBe("after failures");
+  });
+
+  it("reclaims slots whose invocation was terminated without settling, but only after the lease", async () => {
+    const started = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(started);
+    try {
+      // A platform-terminated invocation never resolves, rejects or runs `finally`.
+      for (let index = 0; index < 4; index += 1) void runBoundedOperation(() => new Promise<never>(() => undefined));
+      clock.mockReturnValue(started + OPERATION_LEASE_MS - 1);
+      await expect(runBoundedOperation(async () => "too early")).rejects.toMatchObject({ code: "OPERATION_CAPACITY", status: 429 });
+      clock.mockReturnValue(started + OPERATION_LEASE_MS);
+      await expect(runBoundedOperation(async () => "recovered")).resolves.toBe("recovered");
+    } finally {
+      clock.mockRestore();
+    }
   });
 });

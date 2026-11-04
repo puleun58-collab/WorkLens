@@ -605,17 +605,64 @@ export function parseOutputColumns(text: string): string[] | null {
   }
   return null;
 }
-/** 컬럼·열 목록이 파싱되지 않는 파일형 산출물의 파일명 목록. 컬럼을 만들지 않고
- * 미확정으로만 표시하기 위한 판정이다. */
-export function detectUndeterminedOutputs(outputs: string[]): string[] {
-  const out: string[] = [];
-  for (const text of outputs) {
-    const file = /([\w가-힣][\w가-힣.-]*\.(?:csv|xlsx|xls|json|txt))/u.exec(text)?.[1]
-      ?? (/(?:CSV|파일)/u.test(text) ? "파일형 산출물" : null);
-    if (!file) continue;
-    if (!parseOutputColumns(text)) out.push(file);
+const OUTPUT_FILE = /[\w가-힣][\w가-힣.-]*\.(?:csv|xlsx|xls)\b/giu;
+
+function declaredOutputColumns(text: string): string[] | null {
+  const labeled = parseOutputColumns(text);
+  if (labeled) return labeled;
+  const declaration = /(?:컬럼|열)(?:명)?(?:은|는)\s+([^.\n;；]+)/u.exec(text)?.[1];
+  if (!declaration) return null;
+  const list = declaration.replace(/(?:입니다|이다|로 정한다|로 지정한다)\s*$/u, "").trim();
+  return parseOutputColumns(`컬럼: ${list}`);
+}
+
+/** Join explicit same-file specifications, not unrelated answers or files.
+ * This resolves specification gaps only: execution, permissions and HITL remain independent. */
+export function detectUndeterminedOutputs(outputs: string[], context = ""): string[] {
+  const files = new Map<string, { name: string; entries: string[] }>();
+  const collect = (text: string, register: boolean) => {
+    const matches = [...text.matchAll(OUTPUT_FILE)];
+    for (let index = 0; index < matches.length; index++) {
+      const match = matches[index], key = match[0].toLowerCase();
+      if (!files.has(key) && register) files.set(key, { name: match[0], entries: [] });
+      files.get(key)?.entries.push(text.slice(match.index, matches[index + 1]?.index ?? text.length));
+    }
+  };
+  for (const output of outputs) collect(output, true);
+  for (const section of context.split(/\n\s*\n|\n(?=질문:|사용자 답변:)|\n추가 확인:\s*\n/u)) collect(section, false);
+  const unresolved: string[] = [];
+  for (const { name, entries } of files.values()) {
+    const declarations = entries.map(declaredOutputColumns).filter((value): value is string[] => !!value);
+    const signatures = new Set(declarations.map(columns => JSON.stringify(columns)));
+    let conflictingTypes = false;
+    for (const column of declarations.flat()) {
+      const escaped = column.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+      const types = new Set(entries.flatMap(entry => [...entry.matchAll(new RegExp(`${escaped}(?:은|는|=|:|：)\\s*([^.,;；\\n]{0,40}?(?:날짜|문자열|숫자|정수|실수|불리언|boolean|string|number|date))`, "giu"))]
+        .map(match => match[1].trim())));
+      if (types.size > 1) conflictingTypes = true;
+    }
+    const complete = entries.some(entry => {
+      const columns = declaredOutputColumns(entry);
+      if (!columns) return false;
+      // Already-structured diagnosis outputs retain their ordered-schema contract.
+      // A new answer alone must additionally state order, types and mapping.
+      if (parseOutputColumns(entry) && outputs.some(output => output.includes(entry))) return true;
+      const types = columns.every(column => {
+        const escaped = column.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+        return new RegExp(`${escaped}(?:은|는|이|가)?\\s*(?:=|:|：)?\\s*[^.\\n,;；]{0,50}(?:날짜|문자열|숫자|정수|실수|불리언|boolean|string|number|date)`, "iu").test(entry);
+      });
+      const order = /순서(?:는|:|：)?\s*([^.\n]+)/u.exec(entry)?.[1] ?? "";
+      const positions = columns.map(column => order.indexOf(column));
+      const ordered = positions.every((position, index) => position >= 0 && (!index || position > positions[index - 1]));
+      return ordered && types
+        && entry.split(/[.\n]/u).some(sentence => columns.some(column => sentence.includes(column))
+          && /(?:합산|집계|변환|복사|매핑|계산|그대로|넣)/u.test(sentence))
+        && !/(?:순서|타입|형식|매핑)[^.;\n]{0,20}(?:미정|미확정|모름|확인 필요)/u.test(entry);
+    });
+    if (!complete || signatures.size > 1 || conflictingTypes) unresolved.push(name);
   }
-  return [...new Set(out)];
+  if (!files.size && outputs.some(text => /\bCSV\b/iu.test(text) && !parseOutputColumns(text))) unresolved.push("파일형 산출물");
+  return unresolved;
 }
 /** 조사(은/는/이/가/을/를/에/의/로/과/와/도/만 등)를 떼어 핵심어를 만든다. */
 const stripParticle = (word: string): string => {
@@ -1048,7 +1095,7 @@ export function planSummary(diagnosis: AxDiagnosis, rawPlan?: AxPlan, context = 
   const summaryOutputs = model.scoped.outputs.length
     ? model.scoped.outputs.map(item => item.text)
     : (diagnosis.asIs?.outputs ?? []);
-  const summaryUndeterminedOutputs = detectUndeterminedOutputs(summaryOutputs);
+  const summaryUndeterminedOutputs = detectUndeterminedOutputs(summaryOutputs, context);
   if (summaryUndeterminedOutputs.length) {
     checks.push({ topic: "출력 컬럼 미확정", status: "확인 필요", note: `출력 컬럼이 확정되지 않은 산출물: ${summaryUndeterminedOutputs.join(", ")}. 컬럼명·순서·타입을 확정하기 전에는 해당 출력의 형식을 단정하지 않는다.`, tone: "required" });
   }
@@ -2675,7 +2722,7 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
   const finalOutputs = (currentOutputs.length ? currentOutputs : unique(d?.asIs?.outputs ?? []))
     .filter(out => !outputRelatesOnlyToRemovedSteps(out));
   // P0-4: 파일형 산출물의 컬럼·열 목록이 파싱되지 않으면 컬럼을 만들지 않고 미확정으로 표시한다.
-  const undeterminedOutputs = detectUndeterminedOutputs(finalOutputs);
+  const undeterminedOutputs = detectUndeterminedOutputs(finalOutputs, options.context);
   const asIsReferenceOutputs = currentOutputs.length
     ? unique((d?.asIs?.outputs ?? []).filter(out => !currentOutputs.some(cur => normalizedItem(cur) === normalizedItem(out) || normalizedItem(cur).includes(normalizedItem(out)))))
         .filter(out => !outputRelatesOnlyToRemovedSteps(out))
