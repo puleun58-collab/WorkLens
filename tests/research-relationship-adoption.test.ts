@@ -201,6 +201,14 @@ describe("source relationship versus the original question", () => {
     expect(directConditionsSupported(confirmation, "체불 임금 사업주 확인서 발급 절차", "확인서 발급")).toBe(true);
   });
 
+  it("does not treat an administrative-investigation objection as the pre-disposition opinion procedure", () => {
+    // Official body retained in paced-final2/procurement-sanction-3.
+    const investigation = "① 조사대상자는 제17조에 따른 사전통지의 내용에 대하여 행정기관의 장에게 의견을 제출할 수 있다.\n② 행정기관의 장은 제1항에 따라 조사대상자가 제출한 의견이 상당한 이유가 있다고 인정하는 경우에는 이를 행정조사에 반영하여야 한다.";
+    const sanction = "국가기관과 체결한 물품계약을 제때 이행하지 못했습니다. 입찰참가자격 제한을 받을 수 있는 요건과 처분 전 의견을 낼 수 있는 절차를 알고 싶습니다.";
+    expect(relationshipSupported(investigation, sanction)).toBe(false);
+    expect(relationshipSupported(investigation, "현장 조사 사전통지에 의견을 낼 수 있나요?")).toBe(true);
+  });
+
   it("separates definitions and exercise methods from substantive duties and termination grounds", () => {
     const definition = '이 법에서 사용하는 용어의 뜻은 다음과 같다. "사용자"란 사업주를 말한다.';
     expect(directConditionsSupported(definition, "사용자 의무", "사용자 의무")).toBe(false);

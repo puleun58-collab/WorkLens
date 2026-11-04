@@ -522,6 +522,8 @@ const RESTRICTED_RELATIONSHIPS: ReadonlyArray<{ source: RegExp; request: RegExp;
   { source: /국가를\s*당사자로\s*하는\s*계약/u, request: /국가계약|국가를당사자로|국가기관|중앙정부|중앙행정|조달청/u },
   // 민사집행 절차의 취소·정지 규정은 강제집행 관계를 묻지 않은 행정처분 취소 사유가 아니다.
   { source: /민사집행법/u, request: /집행|경매|압류|가처분|가압류|강제|배당/u },
+  // 행정조사 대상자의 의견제출은 조사·점검을 묻지 않은 처분 전 의견제출 절차가 아니다.
+  { source: /조사대상자|행정조사/u, request: /조사|점검|검사|출입/u },
 ];
 
 export function relationshipSupported(content: string, originalQuery: string): boolean {
