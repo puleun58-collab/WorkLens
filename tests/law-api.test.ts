@@ -234,6 +234,23 @@ describe("law MCP retry behavior", () => {
     expect(fetcher).toHaveBeenCalledTimes(3);
   });
 
+  it("releases each failed upstream body, and repeated failures never exhaust the operation slots", async () => {
+    const cancelled: number[] = [];
+    let served = 0;
+    const busy = () => {
+      const id = ++served;
+      return new Response(new ReadableStream({ cancel: () => { cancelled.push(id); } }), { status: 503 });
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => busy()));
+    // Six failed requests (three upstream attempts each) exceed the four slots twice over.
+    for (let index = 0; index < 6; index += 1) {
+      expect((await call({ query: "근로기준법" })).json.error.code).toBe("LAW_UPSTREAM_UNAVAILABLE");
+    }
+    expect(cancelled.sort((a, b) => a - b)).toEqual(Array.from({ length: 18 }, (_, index) => index + 1));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(toolText(SEARCH_TEXT)));
+    expect((await call({ query: "근로기준법" })).status).toBe(200);
+  });
+
   it("records the actual retry count in the request log, on success and on failure", async () => {
     vi.spyOn(console, "log").mockImplementation(() => undefined);
     const recovering = vi.fn()

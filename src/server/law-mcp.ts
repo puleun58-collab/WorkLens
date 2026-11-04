@@ -231,6 +231,8 @@ async function callLawToolAttempt(
               console.info("[LAW][MCP][RETRY]", { requestId: context.requestId, operation: tool, attempt: retryCount, status: response.status, delayMs });
               clearTimeout(timer);
               context.signal?.removeEventListener("abort", onClientAbort);
+              // An unread retried body keeps its connection open until collected.
+              await response.body?.cancel().catch(() => undefined);
               await sleep(delayMs, context.signal);
               continue;
             }
@@ -294,15 +296,18 @@ async function callLawToolAttempt(
 
   try {
     upstreamStatus = response.status;
-    if (response.status === 401 || response.status === 403) throw new ApiError("LAW_AUTH_FAILED", "법령 검색 인증에 실패했습니다.", 502);
-    if (response.status === 429) throw new ApiError("LAW_RATE_LIMITED", "법령 검색 요청이 많습니다. 잠시 후 다시 시도하세요.", 429);
-    if (response.status === 408 || response.status === 504) throw new ApiError("LAW_UPSTREAM_TIMEOUT", "법령 검색 응답 시간이 초과되었습니다. 다시 시도하세요.", 504);
-    if (!response.ok) throw new ApiError("LAW_UPSTREAM_UNAVAILABLE", "법령 검색 서비스가 일시적으로 응답하지 않습니다.", 503);
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => undefined);
+      if (response.status === 401 || response.status === 403) throw new ApiError("LAW_AUTH_FAILED", "법령 검색 인증에 실패했습니다.", 502);
+      if (response.status === 429) throw new ApiError("LAW_RATE_LIMITED", "법령 검색 요청이 많습니다. 잠시 후 다시 시도하세요.", 429);
+      if (response.status === 408 || response.status === 504) throw new ApiError("LAW_UPSTREAM_TIMEOUT", "법령 검색 응답 시간이 초과되었습니다. 다시 시도하세요.", 504);
+      throw new ApiError("LAW_UPSTREAM_UNAVAILABLE", "법령 검색 서비스가 일시적으로 응답하지 않습니다.", 503);
+    }
 
     let body: string;
     try {
       // 읽기 타임아웃 시 스트림 취소
-      const readPromise = readLimited(response);
+      const readPromise = readLimited(response, readController.signal);
       const timeoutPromise = new Promise<never>((_, reject) => {
         readController.signal.addEventListener("abort", () => {
           if (readController.signal.reason instanceof DOMException && readController.signal.reason.name === "TimeoutError") {
@@ -430,22 +435,33 @@ function isNetworkError(error: unknown): boolean {
   return false;
 }
 
-async function readLimited(response: Response): Promise<string> {
+/** A timed-out or cancelled read stops the stream; the race alone would leave it buffering. */
+async function readLimited(response: Response, signal: AbortSignal): Promise<string> {
   const declared = Number(response.headers.get("content-length"));
-  if (Number.isFinite(declared) && declared > MAX_RESPONSE_BYTES) throw new ApiError("LAW_MCP_ERROR", "법령 검색 응답이 너무 큽니다.", 502);
+  if (Number.isFinite(declared) && declared > MAX_RESPONSE_BYTES) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new ApiError("LAW_MCP_ERROR", "법령 검색 응답이 너무 큽니다.", 502);
+  }
   const reader = response.body?.getReader();
   if (!reader) return "";
+  const stop = () => { reader.cancel(signal.reason).catch(() => undefined); };
+  if (signal.aborted) stop();
+  else signal.addEventListener("abort", stop, { once: true });
   const chunks: Uint8Array[] = [];
   let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > MAX_RESPONSE_BYTES) {
-      await reader.cancel();
-      throw new ApiError("LAW_MCP_ERROR", "법령 검색 응답이 너무 큽니다.", 502);
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > MAX_RESPONSE_BYTES) {
+        await reader.cancel();
+        throw new ApiError("LAW_MCP_ERROR", "법령 검색 응답이 너무 큽니다.", 502);
+      }
+      chunks.push(value);
     }
-    chunks.push(value);
+  } finally {
+    signal.removeEventListener("abort", stop);
   }
   const merged = new Uint8Array(size);
   let offset = 0;
