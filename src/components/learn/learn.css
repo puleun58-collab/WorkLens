@@ -139,9 +139,6 @@
 .learn-diagnostic-area-label { font-weight: 600; font-size: 14px; }
 
 .learn-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0; }
-.learn-command-row { display: flex; align-items: center; gap: 8px; margin: 0; min-width: 0; }
-.learn-command-row code { flex: 1; min-width: 0; background: color-mix(in srgb, var(--muted) 25%, var(--card)); border-radius: 6px; padding: 4px 8px; font-family: ui-monospace, Consolas, monospace; font-size: 13px; overflow-x: auto; white-space: nowrap; }
-.learn-command-row button { flex: none; height: 30px; min-width: 52px; padding: 0 8px; }
 .learn-kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 16px 0; }
 .learn-kv-item { padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; }
 .learn-kv-item strong { display: block; font-size: 20px; }
@@ -217,8 +214,7 @@
 .learn-case-block { padding: 2px 0; margin: 12px 0; }
 .learn-case-block:first-child { margin-top: 0; }
 .learn-case-block:last-child { margin-bottom: 0; }
-.learn-command-box { display: grid; gap: 6px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; margin: 10px 0; min-width: 0; }
-.learn-command-box > p { margin: 0 0 2px; }
+.learn-command-list { display: grid; gap: 10px; margin: 12px 0; min-width: 0; }
 
 /* 학습 상세 하단 이동 버튼 — 레퍼런스처럼 카드 아래 여백만 (구분선 없음) */
 .learn-lesson .learn-quiz-nav { border-top: 0; margin-top: 18px; padding-top: 0; }
