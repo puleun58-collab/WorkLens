@@ -50,7 +50,7 @@ const SUFFICIENCY = { sufficient: "정보 충분", partial: "정보 일부 부�
 const DETAILS: { key: keyof AxDetails; label: string; placeholder: string; numeric?: boolean }[] = [
   { key: "cycle", label: "수행 주기", placeholder: "예: 매주 월요일, 매월 말일, 필요 시" }, { key: "minutesPerRun", label: "1회 소요 시간(분)", placeholder: "예: 30", numeric: true },
   { key: "runsPerMonth", label: "월 수행 횟수", placeholder: "예: 8", numeric: true },
-  { key: "systems", label: "사용 시스템", placeholder: "예: Excel, ERP, 사내 시스템" }, { key: "inputs", label: "입력 자료", placeholder: "예: 정산 Excel, 청구서, 시스템 조회 데이터" }, { key: "outputs", label: "산출물·출력 컬럼", placeholder: "예: 정산.csv\n컬럼: 거래일, 금액, 검토결과\n타입·형식: 거래일=날짜(YYYY-MM-DD), 금액=숫자, 검토결과=문자열\n템플릿: 담당자가 확정한 정산 양식" },
+  { key: "systems", label: "사용 시스템", placeholder: "예: Excel, ERP, 사내 시스템" }, { key: "inputs", label: "입력 자료", placeholder: "예: 정산 Excel, 청구서, 시스템 조회 데이터" }, { key: "outputs", label: "산출물", placeholder: "예: 월간 정산표, 검토 결과, 보고서" },
   { key: "humanSteps", label: "담당자 판단·승인 단계", placeholder: "예: 예외 건 검토, 금액 확인, 최종 승인" },
 ];
 type SessionAttachment = { meta: AxAttachmentMeta; summary: string };
@@ -875,15 +875,16 @@ export function AxDiagnosisView() {
             <div className="ax-field"><label className="ax-field">업무명<Input type="text" value={name} maxLength={AX_LIMITS.name} onChange={e => setName(e.target.value)} disabled={!!busy} aria-describedby={nameHelpId} /></label><small id={nameHelpId}>비워두면 업무 설명을 기준으로 자동 생성</small></div>
             <label className="ax-field"><span className="ax-required-label">업무 설명</span><Textarea value={description} required maxLength={AX_LIMITS.description} onChange={e => setDescription(e.target.value)} disabled={!!busy} placeholder="반복 업무·입력 자료·결과물 설명" rows={5} /></label>
             <div className="ax-register-files">
-              <AxAttachmentInput disabled={!!busy} onSelectFiles={files => void attachFiles(files)} />
+              {/* 파일 추가와 등록 버튼은 추가 정보 펼침과 무관하게 같은 줄에 고정한다. */}
+              <div className="ax-register-actions"><AxAttachmentInput disabled={!!busy} onSelectFiles={files => void attachFiles(files)} /><div className="ax-register-submit">{editingId ? <Button type="button" variant="ghost" onClick={clearDraft}>수정 취소</Button> : null}<Button type="submit" disabled={!!busy || !description.trim()}>{editingId ? "수정 등록" : "업무 등록"}</Button></div></div>
               {draftAttachments.map(entry => <div className="ax-file-row" key={entry.meta.fingerprint}><FileText className="size-4" aria-hidden="true" /><span className="ax-file-name">{entry.meta.name}</span>{entry.summary === null ? <span className="ax-file-status">재첨부 필요</span> : null}<Button type="button" variant="ghost" size="icon-xs" aria-label="첨부 취소" onClick={() => removeDraftAttachment(entry.meta.fingerprint)} disabled={!!busy}><X aria-hidden="true" /></Button></div>)}
             </div>
             <Accordion value={registrationDetails} onValueChange={setRegistrationDetails}><AccordionItem value="details">
-              <div className="ax-register-actions"><AccordionTrigger type="button" className="ax-details-trigger" disabled={!!busy}>추가 정보</AccordionTrigger><div className="ax-register-submit">{editingId ? <Button type="button" variant="ghost" onClick={clearDraft}>수정 취소</Button> : null}<Button type="submit" disabled={!!busy || !description.trim()}>{editingId ? "수정 등록" : "업무 등록"}</Button></div></div>
-              <AccordionPanel><div className="ax-form-grid">{DETAILS.map(({ key, label, placeholder, numeric }) => <label className="ax-field" key={key}>{label}{key === "outputs" ? <>
-                <Textarea id="ax-registration-outputs" aria-describedby="ax-registration-outputs-help" rows={5} maxLength={AX_LIMITS.detail} placeholder={placeholder} value={details[key] ?? ""} onChange={e => setDetails(current => ({ ...current, [key]: e.target.value }))} disabled={!!busy} />
-                <small id="ax-registration-outputs-help">파일명과 컬럼명을 출력 순서대로 적고, 필요한 타입·형식·템플릿을 함께 입력하세요. 모르는 항목은 미확정으로 남기세요. 저장만으로 확인 완료되지 않으며 업무 진단에서 다시 진단해야 반영됩니다.</small>
-              </> : <Input type={numeric ? "number" : "text"} min={numeric ? 0 : undefined} max={numeric ? 100000 : undefined} step="any" maxLength={numeric ? undefined : AX_LIMITS.detail} placeholder={placeholder} value={details[key] ?? ""} onChange={e => setDetails(current => ({ ...current, [key]: e.target.value }))} disabled={!!busy} />}</label>)}</div></AccordionPanel>
+              <AccordionTrigger type="button" className="ax-details-trigger" disabled={!!busy}>추가 정보</AccordionTrigger>
+              {/* 과거에 여러 줄로 저장된 산출물은 한 줄 입력창이 줄바꿈을 지우므로 그 값에 한해 여러 줄로 보여 원문을 보존한다. */}
+              <AccordionPanel><div className="ax-form-grid">{DETAILS.map(({ key, label, placeholder, numeric }) => <label className="ax-field" key={key}>{label}{key === "outputs" && details.outputs?.includes("\n")
+                ? <Textarea id="ax-registration-outputs" rows={details.outputs.split("\n").length} maxLength={AX_LIMITS.detail} value={details.outputs} onChange={e => setDetails(current => ({ ...current, outputs: e.target.value }))} disabled={!!busy} />
+                : <Input id={key === "outputs" ? "ax-registration-outputs" : undefined} type={numeric ? "number" : "text"} min={numeric ? 0 : undefined} max={numeric ? 100000 : undefined} step="any" maxLength={numeric ? undefined : AX_LIMITS.detail} placeholder={placeholder} value={details[key] ?? ""} onChange={e => setDetails(current => ({ ...current, [key]: e.target.value }))} disabled={!!busy} />}</label>)}</div></AccordionPanel>
             </AccordionItem></Accordion>
           </form>
           {state.tasks.length ? <section className="ax-surface ax-area-list" aria-label="등록 업무 목록"><h3>업무 목록</h3>{taskRows(true)}</section> : null}

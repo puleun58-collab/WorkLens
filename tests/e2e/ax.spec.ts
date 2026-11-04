@@ -109,23 +109,36 @@ test("AX registration accepts additional information and keeps undiagnosed steps
   await expect(page.getByRole("button", { name: "여러 업무 일괄 추가" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "다음 단계", exact: true })).toBeDisabled();
   const details = page.getByRole("button", { name: "추가 정보", exact: true });
+  // 파일 추가(좌)·업무 등록(우)은 추가 정보 펼침과 무관하게 같은 줄, 같은 세로 중앙에 있다.
+  const actionRow = async () => {
+    const file = (await page.getByRole("button", { name: "파일 추가", exact: true }).boundingBox())!;
+    const submit = (await page.getByRole("button", { name: "업무 등록", exact: true }).boundingBox())!;
+    const trigger = (await details.boundingBox())!;
+    expect(Math.abs((file.y + file.height / 2) - (submit.y + submit.height / 2))).toBeLessThanOrEqual(1);
+    expect(submit.x).toBeGreaterThan(file.x + file.width);
+    expect(trigger.y).toBeGreaterThan(file.y + file.height);
+    return { file, submit };
+  };
+  const collapsed = await actionRow();
   const closedBackground = await details.evaluate(element => getComputedStyle(element).backgroundColor);
   await details.click(); await expect(details).toHaveAttribute("aria-expanded", "true");
+  expect(await actionRow()).toEqual(collapsed);
   await page.mouse.move(0, 0);
   await expect.poll(() => details.evaluate(element => getComputedStyle(element).backgroundColor)).toBe(closedBackground);
   const additionalInfo = [
     ["수행 주기", "매월 말일"], ["1회 소요 시간(분)", "30"], ["월 수행 횟수", "8"],
     ["사용 시스템", "Excel"], ["입력 자료", "정산 Excel"],
-    ["산출물·출력 컬럼", "정산.csv\n컬럼: 거래일, 금액, 검토결과\n타입: 금액=숫자"],
+    ["산출물", "월간 정산표, 오류·누락 목록"],
     ["담당자 판단·승인 단계", "금액 확인 후 담당자 최종 승인"],
   ];
   for (const [label, value] of additionalInfo) {
-    const input = label === "산출물·출력 컬럼"
-      ? page.getByRole("textbox", { name: /^산출물·출력 컬럼/u })
-      : page.getByLabel(label, { exact: true });
+    const input = page.getByLabel(label, { exact: true });
     await input.fill(value);
     await expect(input).toHaveValue(value);
   }
+  await expect(page.getByLabel("산출물", { exact: true })).toHaveJSProperty("tagName", "INPUT");
+  await expect(page.getByText("산출물·출력 컬럼", { exact: false })).toHaveCount(0);
+  await expect(page.getByText("파일명과 컬럼명을 출력 순서대로", { exact: false })).toHaveCount(0);
   await expect(page.getByLabel("1회 소요 시간(분)", { exact: true })).toHaveAttribute("type", "number");
   await expect(page.getByLabel("월 수행 횟수", { exact: true })).toHaveAttribute("type", "number");
   await expect(page.getByText("담당자가 처리·판단하는 단계", { exact: true })).toHaveCount(0);
@@ -894,7 +907,10 @@ test("AX registration edits preserve diagnosis, HITL and rules until successful 
   await expect(page.getByRole("button", { name: "수정 저장", exact: true })).toHaveCount(0);
   await page.getByLabel("업무명", { exact: true }).fill("수정된 업무");
   await page.getByRole("button", { name: "추가 정보", exact: true }).click();
-  await page.getByRole("textbox", { name: /^산출물·출력 컬럼/u }).fill(editedOutputs);
+  // 과거 여러 줄 산출물은 줄바꿈을 잃지 않고 그대로 보인다.
+  const outputsField = page.getByRole("textbox", { name: "산출물", exact: true });
+  await expect(outputsField).toHaveValue(task.outputs!);
+  await outputsField.fill(editedOutputs);
   await page.getByRole("button", { name: "수정 등록", exact: true }).click();
   const expectPreservedEvidence = async () => {
     await expect.poll(async () => (await record(page))?.tasks[0]).toMatchObject({
