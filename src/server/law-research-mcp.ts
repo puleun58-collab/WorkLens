@@ -514,9 +514,9 @@ async function fullResearch(
   const candidates = [...candidateMap.values()].sort((a, b) => Number(Boolean(a.partial)) - Number(Boolean(b.partial)));
   let selections: ResearchAdoptionVerdict[] = [];
   let verification: "verified" | "unavailable" = "verified";
-  let evaluated: ReadonlySet<string> | undefined;
+  let evaluated: ReadonlyMap<string, ResearchAdoptionVerdict["window"]> | undefined;
   if (candidates.length) {
-    try { selections = await verifyResearchAdoption(query, issues, candidates, { ...context, onAdoptionCoverage: ids => { evaluated = new Set(ids); } }); }
+    try { selections = await verifyResearchAdoption(query, issues, candidates, { ...context, onAdoptionCoverage: visible => { evaluated = new Map(visible.map(({ id, window }) => [id, window])); } }); }
     catch (error) {
       if (context.signal?.aborted) throw error;
       verification = "unavailable";
@@ -558,7 +558,7 @@ async function fullResearch(
         || proposed.role === "direct" && !directConditionsSupported(fullScope, query, item.issue.query)
         || candidate.kind === "article" && candidate.title?.replace(/\s+/gu, "") === "목적" && !query.includes("목적"));
       const selection = mismatch ? undefined : proposed;
-      const identity = requestedCandidateIds.has(candidate.id)
+      const identity = !candidate.partial && requestedCandidateIds.has(candidate.id)
         && (issues.length === 1 || questionTermsRelationLess(item.issue.query) || item.issue.query.includes(candidate.jo!))
         && !identityKeys.has(`${candidate.law}\0${candidate.jo}`);
       const accepted = Boolean(selection) || identity;
@@ -572,7 +572,7 @@ async function fullResearch(
       if (candidate.kind === "article" && candidate.law && candidate.jo) {
         review.articles.push({ law: candidate.law, jo: candidate.jo, title: candidate.title,
           excerpt: candidate.text, effectiveDate: candidate.effectiveDate, stage: candidate.stage,
-          adopted: accepted, role, quote: selection?.quote ?? (identity ? candidate.text : undefined), reason, window: selection?.window });
+          adopted: accepted, role, quote: selection?.quote ?? (identity ? candidate.text : undefined), reason, window: evaluated?.get(candidate.id) });
         if (accepted) {
           if (!adopted.articles.some((article) => article.law === candidate.law && article.jo === candidate.jo)) {
             adopted.articles.push({ law: candidate.law, jo: candidate.jo });
@@ -589,13 +589,13 @@ async function fullResearch(
       } else if (candidate.precedentId) {
         review.precedents.push({ id: candidate.precedentId, key: candidate.decisionKey, domain: "precedent", title: candidate.title, body: candidate.body,
           date: candidate.date, caseNumber: candidate.caseNumber, excerpt: candidate.text, partial: candidate.partial,
-          adopted: accepted, role: selection?.role, quote: selection?.quote, reason, window: selection?.window });
+          adopted: accepted, role: selection?.role, quote: selection?.quote, reason, window: evaluated?.get(candidate.id) });
         if (accepted && !adopted.precedents.includes(candidate.precedentId)) adopted.precedents.push(candidate.precedentId);
       } else if (candidate.decisionId && candidate.decisionKey && candidate.domain) {
         (review.decisions ??= []).push({ key: candidate.decisionKey, domain: candidate.domain, id: candidate.decisionId,
           title: candidate.title, body: candidate.body, date: candidate.date, caseNumber: candidate.caseNumber,
           excerpt: candidate.text, partial: candidate.partial, source: candidate.source,
-          adopted: accepted, role: selection?.role, quote: selection?.quote, reason, window: selection?.window });
+          adopted: accepted, role: selection?.role, quote: selection?.quote, reason, window: evaluated?.get(candidate.id) });
         if (accepted) {
           const refs = adopted.decisions ??= [];
           if (!refs.includes(candidate.decisionKey)) refs.push(candidate.decisionKey);

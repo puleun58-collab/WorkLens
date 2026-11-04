@@ -572,13 +572,32 @@ export function directConditionsSupported(content: string, originalQuery: string
   // State substitute payment, living-cost loans and arrears confirmations are
   // remedy programmes with their own eligibility, not the employer's duty or
   // the user's claim procedure, unless the question asks about the programme.
-  if (/대지급금|체당금|생계비|융자|체불임금등의확인|체불임금등확인/u.test(source)
+  if (/대지급금|체당금|생계비|융자|체불임금등의확인|체불임금등확인|체불임금등.{0,2}사업주확인서/u.test(source)
     && !/대지급금|체당금|생계비|융자|도산|확인서/u.test(request)) return false;
+
+  // Rescission of a contract is a distinct remedy, not a synonym for a
+  // worker's absence or termination of employment. A generated "계약 위반"
+  // issue cannot turn it into the user's requested legal effect.
+  if (/계약[^。\n]{0,100}해제|계약을해제/u.test(source)
+    && !/해제|해약|계약.{0,12}(?:취소|파기|종료|끝내)|원상회복/u.test(request)
+    && /무단결근|무단퇴사|퇴사|퇴직|근로관계종료|고용관계종료/u.test(request)
+    && !/근로계약|고용/u.test(source)) return false;
 
   // Exercising an existing right does not establish a right to terminate.
   if (/해제|해지/u.test(issue) && !/행사|방법|절차|통지|의사표시/u.test(issue)
     && /(?:해제|해지)는상대방에대한의사표시|(?:해제권|해지권)의행사/u.test(source)
     && !/이행하지아니|이행하지아니한|이행할수없|최고|부득이한사유/u.test(source)) return false;
+
+  // The counterparty's demand that the holder say whether it will rescind (and
+  // the right lapsing) presupposes an existing right; it is not the ground or
+  // prior-notice requirement for acquiring one.
+  if (/해제|해지/u.test(issue) && /행사여부의확답|확답을[^。\n]{0,20}최고/u.test(source)
+    && !/확답|소멸|행사기간|행사여부/u.test(`${request}${issue}`)) return false;
+
+  // A ban on adding unlawful bidding qualifications governs how an authority
+  // writes tender conditions, not the sanction of a contractor's default.
+  if (/입찰참가|참가자격/u.test(issue) && /입찰참가를제한하여서는아니|부당한제한금지|부당하게제한/u.test(source)
+    && !/부당|입찰조건|참가자격요건|공고/u.test(request)) return false;
 
   // A replacement fine can support the question but is not itself the
   // independent power to suspend. Keep mixed provisions with an actual

@@ -220,14 +220,34 @@ describe("final official-source adoption verifier", () => {
     const long = (index: number, quote: string) => ({ ...candidates[0], id: `article-long-${index}`, jo: `제${index}조`,
       text: `${"나".repeat(MAX_EVIDENCE_CHARS)}\n${quote}\n${"다".repeat(MAX_EVIDENCE_CHARS)}` });
     const sources = [long(1, "앞 조문 본문이다."), long(2, "가운데 조문 본문이다."), long(3, wageQuote)];
-    const reviewed: string[] = [];
+    const reviewed: Array<{ id: string; window?: ResearchAdoptionVerdict["window"] }> = [];
     const fetcher = provider([]);
-    await verifyResearchAdoption(originalQuery, issues, sources, { ...context, onAdoptionCoverage: ids => reviewed.push(...ids) });
-    const payload = JSON.parse(requestPayload(fetcher).messages.find((entry) => entry.role === "user")!.content) as { candidates: ResearchAdoptionCandidate[] };
-    expect(reviewed).toEqual(sources.map(source => source.id));
+    await verifyResearchAdoption(originalQuery, issues, sources, { ...context, onAdoptionCoverage: visible => reviewed.push(...visible) });
+    const payload = JSON.parse(requestPayload(fetcher).messages.find((entry) => entry.role === "user")!.content) as {
+      candidates: Array<ResearchAdoptionCandidate & { window?: ResearchAdoptionVerdict["window"] }>;
+    };
+    expect(reviewed).toEqual(sources.map(source => {
+      const shown = payload.candidates.find(candidate => candidate.id === source.id)!;
+      expect(shown.window).toBeDefined();
+      expect(shown.text).toBe(source.text.slice(shown.window!.start, shown.window!.end));
+      return { id: source.id, window: shown.window };
+    }));
     // The last original is centred on the line carrying the question's terms.
     expect(payload.candidates.find(candidate => candidate.id === "article-long-3")!.text).toContain(wageQuote);
     expect(payload.candidates.reduce((count, candidate) => count + candidate.text.length, 0)).toBeLessThanOrEqual(MAX_ANALYZE_EVIDENCE_CHARS);
+  });
+
+  it("can adopt the operative quote before or after a long irrelevant original", async () => {
+    const irrelevant = { ...candidates[1], text: "관련 없는 내용\n".repeat(MAX_EVIDENCE_CHARS) };
+    const operative = { ...candidates[0], text: `${"배경 설명\n".repeat(MAX_EVIDENCE_CHARS)}${wageQuote}\n시행일 확인` };
+    for (const ordered of [[irrelevant, operative], [operative, irrelevant]]) {
+      provider([direct]);
+      const result = await verifyResearchAdoption(originalQuery, issues, ordered, context);
+      expect(result).toEqual([expect.objectContaining({
+        candidateId: operative.id, role: "direct", quote: wageQuote,
+        window: { start: expect.any(Number), end: expect.any(Number), total: operative.text.length },
+      })]);
+    }
   });
 
   it("treats quoted prompt instructions as data and cannot mint a candidate handle or a new version", async () => {

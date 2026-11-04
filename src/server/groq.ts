@@ -55,8 +55,8 @@ type JsonSchema = Record<string, unknown>;
 export interface GroqRequestContext {
   requestId: string;
   signal?: AbortSignal;
-  /** Candidate ids whose original text was actually shown to the adoption verifier. */
-  onAdoptionCoverage?: (ids: readonly string[]) => void;
+  /** Model-visible originals; absent window means the complete fetched text was shown. */
+  onAdoptionCoverage?: (candidates: ReadonlyArray<{ id: string; window?: ResearchAdoptionVerdict["window"] }>) => void;
 }
 
 interface GroqAttemptBudget {
@@ -238,6 +238,8 @@ export async function interpretResearchQuery(query: string, context: GroqRequest
       "사용자가 행위나 상태를 가리키는 표현을 직접 썼으면 그 표현이 가리키는 개념을 쟁점과 query에 유지하세요. 사용자가 쓰지 않은 개념은 질문에 그 개념의 양태가 실제로 묘사된 경우에만 별도 쟁점으로 추가하세요. 양태가 여럿 묘사됐으면 개념마다 쟁점을 나누어 어느 하나가 다른 하나를 지우지 않게 하세요. 양태가 분명하지 않으면 개념을 단정하지 말고, 사용자가 쓴 표현 그대로의 쟁점이나 followUp으로 양태 확인을 요청하세요.",
       "각 쟁점의 label은 화면에 보일 2~15자의 짧은 명사구(예: '부당해고 여부', '임금 체불'), query는 그 쟁점을 법령·판례에서 찾을 2~4어절의 한국 법률 용어입니다. query에는 사용자가 말한 사정만 반영하고 말하지 않은 사정(통보 방식, 서면 여부 등)을 넣지 마세요. 사용자 문장, 조사, '여부·기준·방법' 같은 말도 넣지 말고, 추측한 법령명을 확정된 적용법처럼 쓰지 마세요. 다만 사용자가 말한 법령명은 쟁점 query에 그대로 유지하세요 (법령명을 떨어뜨리면 이후 조회가 다른 법령을 가져옵니다).",
       "계약·위반·지급·취소 같은 범용 단어만으로 query를 만들지 말고, 원문에서 확인된 법률관계·규율 대상과 핵심 행위를 유지하세요. 다만 사용자가 밝히지 않은 구체 계약 종류나 적용 법률을 추측해서 넣지는 마세요.",
+      "적용 요건을 달리하는 원문의 사실은 query에서도 생략하지 마세요. 퇴직 후 지급과 재직 중 정기 지급, 국가기관 계약과 지방자치단체 계약은 같은 검색어로 축약하지 마세요. 반대로 원문에 없는 퇴직·계약 당사자를 추가하지 마세요.",
+      "지급 의무·이행 의무·법적 성립요건을 물으면 핵심 쟁점 query는 위반 명칭만이 아니라 그 실체적 권리·의무를 가리키는 용어로 만드세요. 미지급·위반이라는 결과명만 검색하고 의무 규정을 빠뜨리지 마세요. 구제 절차는 사용자가 물은 경우 별도 쟁점으로 두고 핵심 의무를 대신하지 않게 하세요. 쟁점 label에 있는 법률관계를 query에서 일반적인 계약·지급으로 지우지 마세요.",
       "개념을 유지한다는 것은 일상어를 그대로 검색하라는 뜻이 아닙니다. 같은 단어가 다른 법률관계에서 쓰이면 사용자가 밝힌 관계에 맞는 법령상 용어를 query에 넣으세요. 예를 들어 직원의 퇴사는 사원 지분의 탈퇴가 아니라 근로계약·고용관계 종료의 문제입니다. 해고 통보나 임금·퇴직금 미지급이 진술되지 않았다면 이를 발생 사실이나 독립된 미지급 쟁점으로 만들지 마세요.",
       "결과를 실제로 바꾸는 사실이 빠졌을 때만 followUp에 그 사실만 짧게 한 문장으로 요청하세요(예: '해고 통보를 받은 날짜와 방식, 회사가 밝힌 해고 사유를 알려주면 더 정확하게 확인할 수 있습니다.'). 이미 적힌 사실은 다시 묻지 말고, '자세히 입력하세요' 같은 포괄적 요구는 금지입니다. issues가 비어 있으면 followUp에 어떤 일이 있었는지 구체적으로 묻는 문장을 적으세요(예: '해고, 임금, 근무 조건 등 회사와 어떤 문제가 생겼는지 알려주면 관련 법령을 찾을 수 있습니다.'). 진술이 서로 모순되면 followUp에서 무엇이 명확하지 않은지 밝히고 확인을 요청하세요(예: '해고 통보를 받았는지 명확하지 않습니다. 통보 여부와 시점을 알려주세요.'). 충분하면 followUp과 uncertainty는 null이고, followUp이 있으면 uncertainty는 null입니다.",
       "판단, 법령 현행성, 판례 내용, 결과나 인용을 주장하지 마세요. JSON 객체만 반환하세요.",
@@ -270,7 +272,9 @@ export async function interpretResearchQuery(query: string, context: GroqRequest
         continue;
       }
       const validated = researchInterpretationSchema.safeParse(payload);
-      if (validated.success) {
+      if (validated.success && (!validated.data.issues.length || validated.data.issues.some(
+        (issue) => claimIssueGrounded(`${issue.label} ${issue.query}`, query),
+      ))) {
         value = validated.data;
       } else {
         budget.failure = new ApiError("INVALID_PROVIDER_OUTPUT", "AI 응답 형식이 올바르지 않습니다.", 502);
@@ -288,12 +292,10 @@ export async function interpretResearchQuery(query: string, context: GroqRequest
       const kept = { label: issue.label.slice(0, MAX_ISSUE_LABEL), query: issue.query.slice(0, MAX_ISSUE_QUERY) };
       if (!issues.some((other) => key(other.label) === key(kept.label) || key(other.query) === key(kept.query))) issues.push(kept);
     }
-    // A money claim the user never raised (퇴직금 정산 for "무단퇴사해서 연락이 안 됨")
-    // is the model's general knowledge, not the user's question. Such an issue is
-    // dropped while a grounded issue remains; an all-ungrounded reading is kept
-    // so the request still has something to search.
+    // Unsupported money claims are neither facts nor safe fallback search issues.
+    // An entirely unsupported interpretation has already failed the bounded validation above.
     const grounded = issues.filter((issue) => claimIssueGrounded(`${issue.label} ${issue.query}`, query));
-    if (grounded.length) issues.splice(0, issues.length, ...grounded);
+    issues.splice(0, issues.length, ...grounded);
     const note = (text: string | null) => text && !invents(text) ? text.slice(0, MAX_NOTE) : undefined;
     const followUp = note(value.followUp);
     const uncertainty = followUp ? undefined : note(value.uncertainty);
@@ -323,7 +325,7 @@ export async function verifyResearchAdoption(
 ): Promise<ResearchAdoptionVerdict[]> {
   const operation: GroqOperation = "research-adoption";
   const visible = researchCandidateWindows(originalQuery, issues, candidates, MAX_ANALYZE_EVIDENCE_CHARS, MAX_EVIDENCE_CHARS);
-  context.onAdoptionCoverage?.(visible.map((candidate) => candidate.id));
+  context.onAdoptionCoverage?.(visible.map(({ id, window }) => ({ id, ...(window ? { window } : {}) })));
   if (!visible.length || !issues.length) return [];
   const messages: Message[] = [
     { role: "system", content: [

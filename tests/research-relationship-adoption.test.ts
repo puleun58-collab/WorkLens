@@ -177,6 +177,30 @@ describe("source relationship versus the original question", () => {
     expect(directConditionsSupported("임금은 매월 1회 이상 일정한 기일을 정하여 지급하여야 한다.", "월급 미지급", "임금 지급")).toBe(true);
   });
 
+  it("does not replace employment termination with an unasked contract rescission remedy", () => {
+    // Official body retained in law-direct-after-2/labor-absence-4.private.json.
+    const rescission = "계약의 성질 또는 당사자의 의사표시에 의하여 일정한 시일 또는 일정한 기간내에 이행하지 아니하면 계약의 목적을 달성할 수 없을 경우에 당사자 일방이 그 시기에 이행하지 아니한 때에는 상대방은 전조의 최고를 하지 아니하고 계약을 해제할 수 있다.";
+    expect(directConditionsSupported(rescission, labor, "계약 위반")).toBe(false);
+    expect(directConditionsSupported(rescission, "근로자가 무단결근하다 퇴사했다", "근로계약 위반")).toBe(false);
+    expect(directConditionsSupported(rescission, "납품 기한이 지나면 계약 목적 달성이 불가능한데 계약 해제 조건은?", "계약 해제")).toBe(true);
+    expect(directConditionsSupported("고용기간의 약정이 없는 때에는 당사자는 언제든지 계약해지의 통고를 할 수 있다.", labor, "근로계약 해지")).toBe(true);
+  });
+
+  it("keeps captured counterparty demand, tender-condition and confirmation rules out of direct requirement evidence", () => {
+    // Official bodies retained in paced-after/contract-rescission-1 and procurement-sanction-2 and law-direct-after-3.
+    const demand = "①해제권의 행사의 기간을 정하지 아니한 때에는 상대방은 상당한 기간을 정하여 해제권행사여부의 확답을 해제권자에게 최고할 수 있다.\n②전항의 기간내에 해제의 통지를 받지 못한 때에는 해제권은 소멸한다.";
+    const rescission = "물품 공급계약의 납품기한이 지났습니다. 계약을 해제하려면 먼저 상당한 기간을 정해 이행을 요구해야 하나요?";
+    expect(directConditionsSupported(demand, rescission, "계약 해제 요건")).toBe(false);
+    expect(directConditionsSupported(demand, "상대방이 해제권을 행사할지 확답을 요구할 수 있나요?", "해제권 행사여부 확답")).toBe(true);
+    const tender = "각 중앙관서의 장 또는 계약담당공무원은 영, 이 규칙 및 다른 법령에 특별한 규정이 있는 경우외에는 영 제12조의 규정에 의한 경쟁입찰참가자격외의 요건을 정하여 입찰참가를 제한하여서는 아니된다.";
+    const sanction = "국가기관과 체결한 물품계약을 제때 이행하지 못했습니다. 입찰참가자격 제한을 받을 수 있는 요건과 처분 전 의견을 낼 수 있는 절차를 알고 싶습니다.";
+    expect(directConditionsSupported(tender, sanction, "입찰참가자격 제한 요건")).toBe(false);
+    expect(directConditionsSupported(tender, "공고에 법령에 없는 참가자격 요건을 붙여도 되나요?", "입찰참가자격 제한")).toBe(true);
+    const confirmation = "체불 임금등ㆍ사업주 확인서를 발급받으려는 사람은 신청서를 제출해야 한다.";
+    expect(directConditionsSupported(confirmation, "퇴사 후 마지막 달 임금을 받기 위한 절차", "임금 청구 절차")).toBe(false);
+    expect(directConditionsSupported(confirmation, "체불 임금 사업주 확인서 발급 절차", "확인서 발급")).toBe(true);
+  });
+
   it("separates definitions and exercise methods from substantive duties and termination grounds", () => {
     const definition = '이 법에서 사용하는 용어의 뜻은 다음과 같다. "사용자"란 사업주를 말한다.';
     expect(directConditionsSupported(definition, "사용자 의무", "사용자 의무")).toBe(false);

@@ -393,6 +393,21 @@ describe("original-party adoption and issue status", () => {
       ]) })] } });
   });
 
+  it("does not treat a named article's truncated preview as its verified official identity", async () => {
+    const query = "민법 제617조 손해배상 기간";
+    vi.mocked(interpretResearchQuery).mockResolvedValueOnce({ original: query, situation: query, facts: [],
+      issues: [{ label: "손해배상 기간", query: "손해배상 기간" }], confidence: "high" });
+    const text = "═══ 종합 리서치 ═══\n▶ AI 법령검색 결과\n지능형 법령검색 결과 (법령조문, 1건):\n\n민법\n   제0617조 (손해배상, 비용상환청구의 기간)\n손해배상의 청구와 비용의 상환청구는 …\n   시행: 2026.03.17 | 법무부";
+    upstream({ legal_research: () => text });
+    const result = await runLegalResearch({ task: "full_research", query }, ctx);
+    expect(result).toMatchObject({
+      evidence: { status: "unverified", articles: [], issues: [{ status: "none", articles: [] }] },
+      enrichment: { adoptionReviews: [expect.objectContaining({ articles: expect.arrayContaining([
+        expect.objectContaining({ law: "민법", jo: "제617조", adopted: false }),
+      ]) })] },
+    });
+  });
+
   it.each([
     "민법 제390조와 근로기준법 제617조",
     "민법 제617조의2 손해배상 기간",

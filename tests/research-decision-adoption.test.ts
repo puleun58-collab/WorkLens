@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ResearchEnrichment } from "@/lib/research-relevance";
 import { runLegalResearch } from "@/server/law-research-mcp";
 import { interpretResearchQuery, verifyResearchAdoption } from "@/server/groq";
-import { callLawTool } from "@/server/law-mcp";
+import { callLawTool, searchLaw } from "@/server/law-mcp";
 import { enrichResearch, type EnrichmentSources } from "@/server/research-enrichment";
 import type * as EnrichmentModule from "@/server/research-enrichment";
 
@@ -95,6 +95,42 @@ describe("domain-scoped decision evidence and status", () => {
     expect(await runLegalResearch({ task: "full_research", query: original }, context)).toMatchObject({
       evidence: { status: "unverified", precedents: [], decisions: ["interpretation:1"], issues: [{ status: "none" }] },
     });
+  });
+
+  it.each([false, true])("records model-visible ranges for articles and decisions even when adopted=%s", async (adopted) => {
+    if (adopted) vi.mocked(searchLaw).mockResolvedValueOnce({ found: false, marker: "NOT_FOUND", text: "[NOT_FOUND]" });
+    const article = { law: "민법", jo: "제390조", title: "채무불이행과 손해배상", excerpt: precedentBody, matched: [] };
+    vi.mocked(enrichResearch).mockResolvedValueOnce({ decisionOriginals: originals,
+      supplement: { status: "found", articles: [article] } });
+    const window = { start: 3, end: 30, total: 80 };
+    vi.mocked(verifyResearchAdoption).mockImplementationOnce(async (_query, _issues, candidates, request) => {
+      const visible = candidates.filter(candidate => candidate.decisionKey !== "constitutional:1");
+      request.onAdoptionCoverage?.(visible.map(candidate => ({
+        id: candidate.id, ...(candidate.decisionKey === "admin_appeal:1" ? {} : { window }),
+      })));
+      return adopted ? visible.map(candidate => ({
+        issueIndex: 0, candidateId: candidate.id, role: "supporting" as const, quote: candidate.text,
+        reason: "원질문의 관련 절차를 검토하는 보충자료이며 이 자료만으로 직접 요건을 확인하지 않습니다.",
+      })) : [];
+    });
+    const result = await runLegalResearch({ task: "full_research", query: original }, context);
+    if (!result.found) throw new Error("expected a research response");
+    const audit = result.enrichment?.adoptionReviews?.[0];
+    expect(audit?.articles).toContainEqual(expect.objectContaining({ law: article.law, jo: article.jo, adopted, window }));
+    expect(audit?.precedents).toContainEqual(expect.objectContaining({ id: "1", adopted, window }));
+    expect(audit?.decisions).toContainEqual(expect.objectContaining({ key: "interpretation:1", adopted, window }));
+    const whole = audit?.decisions?.find(candidate => candidate.key === "admin_appeal:1");
+    expect(whole).toMatchObject({ adopted });
+    expect(whole?.window).toBeUndefined();
+    const omitted = audit?.decisions?.find(candidate => candidate.key === "constitutional:1");
+    expect(omitted).toMatchObject({ adopted: false, reason: expect.stringContaining("원문 예산에 포함되지 않아 확인하지 못했습니다") });
+    expect(omitted?.window).toBeUndefined();
+    if (!adopted) {
+      expect(audit?.articles[0].reason).toContain("직접·보충 관련성이 확인되지 않았습니다");
+      expect(audit?.precedents[0].reason).toContain("직접·보충 관련성이 확인되지 않았습니다");
+      expect(audit?.decisions?.find(candidate => candidate.key === "interpretation:1")?.reason)
+        .toContain("직접·보충 관련성이 확인되지 않았습니다");
+    }
   });
 
   it("does not reuse old direct ranks after verification fails", async () => {
