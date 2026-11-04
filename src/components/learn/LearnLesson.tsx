@@ -18,6 +18,7 @@ import {
   Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { CommandCodeBlock } from "@/components/ui/command-code-block";
 import { levelMeta } from "@/lib/learn/curriculum";
 import { levelContent } from "@/lib/learn/content";
 import { practiceInputKind } from "@/lib/learn/practice";
@@ -26,29 +27,6 @@ import { VirtualTerminal } from "./VirtualTerminal";
 import { RepetitiveJobsPractice, WritingPractice } from "./LearnPractice";
 import { LearnSeparatedText } from "./LearnSeparatedText";
 
-/** 명령어 복사 버튼 — 클립보드 API 실패 시 폴백 */
-function CopyCommandButton({ command }: { command: string }) {
-  const [copied, setCopied] = useState(false);
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(command);
-    } catch {
-      const ta = document.createElement("textarea");
-      ta.value = command;
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand("copy");
-      document.body.removeChild(ta);
-    }
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1500);
-  };
-  return (
-    <Button type="button" variant="outline" size="sm" onClick={copy} aria-label={`${command} 복사`}>
-      {copied ? "복사됨" : "복사"}
-    </Button>
-  );
-}
 
 interface LearnLessonProps {
   level: LearnLevelNo;
@@ -260,13 +238,9 @@ export function LearnLesson({ level, initialUnitId, progress, onPersistUnit, pra
           <div className="learn-card-body">
             {inputKind === "terminal" ? (
               <div className="learn-practice-guidance">
-                <p><strong>실행 환경:</strong> Windows PowerShell <span className="learn-muted">실제 시스템에는 영향을 주지 않는 가상 터미널입니다. 명령어를 가상 터미널에 직접 입력해 연습해 보세요.</span></p>
+                <p><strong>실행 환경:</strong> Windows PowerShell</p>
               </div>
-            ) : (
-              <div className="learn-practice-guidance">
-                <p className="learn-muted"><strong>연습 모드:</strong> 작성형 연습이며, 점수에 반영되지 않습니다.</p>
-              </div>
-            )}
+            ) : null}
             {inputKind !== "writing" ? (
               <div className="learn-practice-guidance">
                 <ol className="learn-practice-steps">
@@ -275,15 +249,9 @@ export function LearnLesson({ level, initialUnitId, progress, onPersistUnit, pra
               </div>
             ) : null}
             {unit.practice.commands && unit.practice.commands.length > 0 ? (
-              <div className="learn-command-box">
-                <p>
-                  <small className="learn-muted"><strong>명령어 예시:</strong> 복사해서 가상 터미널에 붙여넣을 수 있습니다</small>
-                </p>
+              <div className="learn-command-list">
                 {unit.practice.commands.map((cmd, i) => (
-                  <div key={i} className="learn-command-row">
-                    <code>{cmd}</code>
-                    <CopyCommandButton command={cmd} />
-                  </div>
+                  <CommandCodeBlock key={i} command={cmd} copyLabel={`${cmd} 복사`} />
                 ))}
               </div>
             ) : null}
@@ -291,7 +259,6 @@ export function LearnLesson({ level, initialUnitId, progress, onPersistUnit, pra
               <PracticeTerminal
                 level={level}
                 unitId={unit.id}
-                practiceTitle={unit.practice.title}
                 practiceStates={practiceStates}
                 onPracticeStateChange={onPracticeStateChange}
               />
@@ -311,16 +278,16 @@ export function LearnLesson({ level, initialUnitId, progress, onPersistUnit, pra
           <TriangleAlert /> 자주 발생하는 실수
         </h4>
         <div className="learn-card-body">
-          <div className="learn-mistake-grid">
+          <ul className="learn-mistake-list">
             {unit.mistakes.map((m, i) => (
-              <div className="learn-mistake-card" key={i}>
+              <li className="learn-mistake-item" key={i}>
                 <p><strong>{m.mistake}:</strong> {m.why}</p>
                 <p>
-                  <strong>이렇게 이해하세요:</strong> {m.fix}
+                  <strong>해결 방법:</strong> {m.fix}
                 </p>
-              </div>
+              </li>
             ))}
-          </div>
+          </ul>
         </div>
       </section>
 
@@ -362,13 +329,11 @@ export function LearnLesson({ level, initialUnitId, progress, onPersistUnit, pra
 function PracticeTerminal({
   level,
   unitId,
-  practiceTitle,
   practiceStates,
   onPracticeStateChange,
 }: {
   level: LearnLevelNo;
   unitId: string;
-  practiceTitle: string;
   practiceStates: Record<string, TerminalStateSnapshot>;
   onPracticeStateChange: (key: string, snapshot: TerminalStateSnapshot) => void;
 }) {
@@ -376,16 +341,12 @@ function PracticeTerminal({
   const scenario: TerminalTaskSpec["scenario"] =
     level === 5 ? (unitId === "l5-u1" ? "folder-nav" : unitId === "l5-u4" ? "git-remote" : "git-basic") : "folder-nav";
   const stateKey = `${level}:${unitId}`;
-  const instructions = [
-    `아래 가상 터미널에서 '${practiceTitle}' 단계를 직접 연습해 보세요.`,
-    "실제 시스템에는 영향을 주지 않으며, 연습 결과는 점수에 반영되지 않습니다.",
-  ];
   return (
     <div style={{ marginTop: 12 }}>
       <VirtualTerminal
         key={stateKey}
         scenario={scenario}
-        instructions={instructions}
+        instructions={[]}
         successChecks={[]}
         practiceMode
         initialSnapshot={practiceStates[stateKey] ?? null}
