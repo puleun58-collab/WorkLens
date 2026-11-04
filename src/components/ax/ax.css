@@ -159,8 +159,10 @@
   .ax-title-group > .ax-status-badge { height: calc(var(--spacing) * 7); font-size: var(--text-sm); line-height: var(--text-sm--line-height); }
 }
 /* Level·Gate 배지 통일 규격(레퍼런스 기준): 높이·패딩·라운드·폰트·정렬 동일,
- * 배경·테두리·글자색만 상태별로 다르다. Level은 연한 블루 배지이다. */
-.ax-level-badge, .ax-result-level, .ax-gate-badge { display: inline-flex; align-items: center; min-height: 24px; padding: 3px 10px; border: 1px solid transparent; border-radius: 999px; font-size: 12px; font-weight: 600; line-height: 1.2; box-shadow: none; white-space: nowrap; }
+ * 배경·테두리·글자색만 상태별로 다르다. Level은 연한 블루 배지이다.
+ * 업무 진단 헤더의 정보/보정 상태도 같은 규격을 재사용하며 다른 화면의 Badge는 유지한다. */
+.ax-level-badge, .ax-result-level, .ax-gate-badge, .ax-diag-badges > .ax-status-badge { display: inline-flex; align-items: center; min-height: 24px; padding: 3px 10px; border: 1px solid transparent; border-radius: 999px; font-size: 12px; font-weight: 600; line-height: 1.2; box-shadow: none; white-space: nowrap; }
+.ax-diag-badges > .ax-status-badge { height: auto; border-color: color-mix(in srgb, var(--primary) 28%, var(--border)); }
 .ax-level-badge, .ax-result-level { background: var(--blue-callout); border-color: var(--blue-callout-border); color: #1d4ed8; box-shadow: none; }
 .ax-result-level { white-space: normal; }
 .ax-summary { margin: 12px 0; }
