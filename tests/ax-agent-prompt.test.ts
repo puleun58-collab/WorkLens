@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildAgentInstructionModel, buildAllInOnePrompt, type AgentInstructionModel } from "../src/lib/ax/guide";
+import { buildAgentInstructionModel, buildAllInOnePrompt, planSummary, type AgentInstructionModel } from "../src/lib/ax/guide";
 import { executionProfile } from "../src/lib/ax/policy";
 import { exportAxState, importAxState } from "../src/lib/ax/transfer";
 import type { AxDiagnosis, AxPlan } from "../src/lib/ax/types";
@@ -166,6 +166,27 @@ describe("coding-agent instructions with missing or persisted data", () => {
     expect(model.gate).toBe("conditional");
     expect(model.steps.filter(step => step.scope === "after-check").map(step => step.step)).toContain("누락·중복 검증");
     expect(model.steps.some(step => step.scope === "implement")).toBe(false);
+  });
+
+  it("keeps raw go with a required gap conditional across implementation, acceptance and all-in-one instructions", () => {
+    const diagnosis = withFactors([4, 4, 4, 3, 3, 3], {
+      informationSufficiency: "sufficient", decisionGate: { verdict: "go", reasons: [] },
+      technicalChecks: [{ topic: "자료 접근", status: "확인 필요", note: "자료 수집 — 권한 확인 필요", required: true }],
+    });
+    const plan: AxPlan = { ...planFixture, implementation: ["자료 수집 — 확인된 파일을 읽는다"],
+      tests: ["자료 수집 — 파일 내용을 원본과 대조"], acceptance: ["자료 수집 — 읽은 내용이 원본과 일치"] };
+    const before = structuredClone({ diagnosis, plan });
+    const model = buildAgentInstructionModel(plan, { diagnosis });
+    expect(model.gate).toBe("conditional");
+    expect(model.profile?.executionCandidate).toBe(false);
+    expect(classified(model, "plan.implementation", plan.implementation[0])).toMatchObject({ scope: "after-check", step: "자료 수집" });
+    expect(classified(model, "plan.acceptance", plan.acceptance[0])).toMatchObject({ scope: "after-check", step: "자료 수집" });
+    expect(planSummary(diagnosis, plan).checks).toContainEqual(expect.objectContaining({ topic: "자료 접근", status: "확인 필요" }));
+    const prompt = buildAllInOnePrompt(plan, "codex", { diagnosis });
+    expect(prompt).toContain("확인 후 구현");
+    expect(prompt).toContain("확인되지 않은 조건에 의존하지 않는 허용 단계는 진행하되");
+    expect(prompt).toContain("자료 수집 — 권한 확인 필요");
+    expect({ diagnosis, plan }).toEqual(before);
   });
 
   it("builds from diagnosis alone without introducing a generated plan source", () => {

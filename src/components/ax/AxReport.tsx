@@ -355,9 +355,11 @@ export function AxProcess({ diagnosis: d, reviewProps }: { diagnosis: AxDiagnosi
       {d.asIs.systems.length ? <div className="ax-process-systems"><MonitorCog aria-hidden="true" /><p><strong>사용 시스템</strong><span aria-hidden="true"> · </span>{uiText(d.asIs.systems.join(" · "))}</p></div> : null}
     </section>
     <AxStepTable key={reviewProps?.taskId ?? "static"} diagnosis={d} headers={["업무 단계", "판정", "담당", "판단 근거"]} reviewProps={reviewProps} />
-    {!d.risks.length ? <section className="ax-section ax-panel" aria-label="위험 평가 상태"><h3>위험 평가 상태</h3><p className="ax-muted" role="status">{d.asIs?.steps?.length
-      ? "위험 평가 결과가 생성되지 않았습니다. 위험이 없다는 뜻이 아닙니다. 업무 다시 진단으로 다시 생성하세요."
-      : "현재 업무 절차가 확인되지 않아 위험을 평가하지 못했습니다. 위험이 없다는 뜻이 아닙니다."}</p></section> : null}
+    {!d.risks.length ? <section className="ax-section ax-panel" aria-label="위험 평가 상태"><h3>위험 평가 상태</h3><p className="ax-muted" role="status">{!d.asIs.steps.length
+      ? "현재 업무 절차가 확인되지 않아 위험을 평가하지 못했습니다. 위험이 없다는 뜻이 아닙니다."
+      : d.informationSufficiency === "needs-check"
+        ? "핵심 업무 정보가 부족해 위험 평가를 확정할 수 없습니다. 추가 질문과 업무 정보를 확인하세요. 위험이 없다는 뜻이 아닙니다."
+        : "위험 평가 결과가 비어 있어 평가 미완료 상태입니다. 위험이 없다는 뜻이 아닙니다. 평가 근거 부족인지 생성 누락인지는 미확인입니다. 업무 정보를 확인한 뒤 업무 다시 진단으로 재평가하세요."} 서버 예산·응답 형식·생성 실패 여부는 현재 진단만으로 확인할 수 없습니다.</p></section> : null}
     {reviewProps ? <AxRiskReview key={reviewProps.taskId} diagnosis={d} reviewProps={reviewProps} /> : null}
     <AxToBe diagnosis={d} />
   </>;
@@ -597,10 +599,13 @@ function AxToBe({ diagnosis: d }: { diagnosis: AxDiagnosis }) {
     {d.toBe.length ? <ol className="ax-tobe-flow">{d.toBe.map((s, i) => { const Icon = icons[s.owner]; return <li className="ax-tobe-item" data-owner={s.owner} key={i}>
       <span className="ax-tobe-icon"><Icon aria-hidden="true" /></span><strong>{uiText(s.step)}</strong><span>{OWNER_LABELS[s.owner]}</span>
       {i < d.toBe.length - 1 ? <ArrowRight className="ax-tobe-arrow" aria-hidden="true" /> : null}
-    </li>; })}</ol> : <p className="ax-muted">{d.asIs?.steps?.length
-      // A confirmed procedure with no target flow is a generation gap, not "no change needed".
-      ? "목표 흐름이 생성되지 않았습니다. 업무 다시 진단으로 다시 생성하세요."
-      : "현재 업무 절차가 확인되면 목표 흐름을 작성할 수 있습니다."}</p>}
+    </li>; })}</ol> : <p className="ax-muted" role="status">{!d.asIs.steps.length
+      ? "현재 업무 절차가 확인되지 않아 목표 흐름을 평가할 수 없습니다. 업무 정보를 보완하세요."
+      : d.informationSufficiency === "needs-check"
+        ? "핵심 업무 정보가 부족해 목표 흐름을 확정할 수 없습니다. 추가 질문과 업무 정보를 확인하세요."
+        // 사람 유지도 담당자가 수행하는 목표 흐름이 필요하므로 빈 TO-BE의 정상 사유가 아니다.
+        : "현재 업무 절차는 있지만 목표 흐름이 생성되지 않았습니다. 업무 다시 진단으로 다시 생성하세요."} {d.stepAssessments.length > 0 && d.stepAssessments.every(step => step.verdict === "사람 유지")
+          ? "모든 평가 단계가 담당자 수행이어도 목표 역할·흐름이 불필요하다는 뜻은 아닙니다. " : ""}서버 예산·응답 형식·생성 실패 여부는 현재 진단만으로 확인할 수 없습니다.</p>}
   </section>;
 }
 

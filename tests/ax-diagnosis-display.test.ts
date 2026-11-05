@@ -1,10 +1,10 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, test } from "vitest";
-import { AxProcess, diagnosisCheckItems, diagnosisSummaryParts, diagnosisSummarySentences, matrixRationaleBullets, visibleDiagnosisCheckItems } from "../src/components/ax/AxReport";
+import { AxProcess, AxResultSummary, AxSummary, diagnosisCheckItems, diagnosisSummaryParts, diagnosisSummarySentences, matrixRationaleBullets, visibleDiagnosisCheckItems } from "../src/components/ax/AxReport";
 import { LEVEL_DESCRIPTIONS, LEVEL_LABELS, levelDescription, levelDisplayLabel } from "../src/lib/ax/policy";
 import { uiText } from "../src/lib/ax/display-text";
-import { outputFixture } from "./fixtures/ax";
+import { outputFixture, taskFixture } from "./fixtures/ax";
 
 describe("AX display-only punctuation", () => {
   test("removes only final sentence periods without changing intermediate sentences or protected endings", () => {
@@ -204,19 +204,61 @@ describe("empty diagnosis consumer states", () => {
     const reviewProps = { taskId: "empty-risk", reviews: [], onSaveReview: () => ({ saved: true }) };
     for (const props of [{ diagnosis: d }, { diagnosis: d, reviewProps }]) {
       const html = renderToStaticMarkup(createElement(AxProcess, props));
-      expect(html).toContain("위험 평가 결과가 생성되지 않았습니다");
+      expect(html).toContain("위험 평가 결과가 비어 있어 평가 미완료 상태입니다");
       expect(html).toContain("위험이 없다는 뜻이 아닙니다");
       expect(html).toContain("목표 흐름이 생성되지 않았습니다");
       expect(html).not.toContain("위험·확인사항 검토");
+      expect(html).toContain("평가 근거 부족인지 생성 누락인지는 미확인");
+      expect(html).toContain("서버 예산·응답 형식·생성 실패 여부는 현재 진단만으로 확인할 수 없습니다");
     }
     expect(d).toEqual(before);
     const noProcedure = { ...d, asIs: { ...d.asIs, steps: [] } };
     const html = renderToStaticMarkup(createElement(AxProcess, { diagnosis: noProcedure }));
     expect(html).toContain("현재 업무 절차가 확인되지 않아 위험을 평가하지 못했습니다");
-    expect(html).not.toContain("위험 평가 결과가 생성되지 않았습니다");
+    expect(html).not.toContain("위험 평가 결과가 비어 있어");
+    expect(html).toContain("현재 업무 절차가 확인되지 않아 목표 흐름을 평가할 수 없습니다");
+  });
+  test("known steps with insufficient core information are not labelled a confirmed generation gap", () => {
+    const d = { ...outputFixture(), sourceNote: "test", informationSufficiency: "needs-check" as const, toBe: [], risks: [] };
+    const before = structuredClone(d);
+    const html = renderToStaticMarkup(createElement(AxProcess, { diagnosis: d }));
+    expect(html).toContain("핵심 업무 정보가 부족해 위험 평가를 확정할 수 없습니다");
+    expect(html).toContain("핵심 업무 정보가 부족해 목표 흐름을 확정할 수 없습니다");
+    expect(html).not.toContain("목표 흐름이 생성되지 않았습니다");
+    expect(html).not.toContain("위험 평가 결과가 비어 있어");
+    expect(d).toEqual(before);
+  });
+  test("all-human assessments still require a target role flow and do not prove risks are absent", () => {
+    const d = { ...outputFixture(), sourceNote: "test", toBe: [], risks: [],
+      stepAssessments: outputFixture().stepAssessments.map(step => ({ ...step, verdict: "사람 유지" as const, owner: "사용자" as const })) };
+    const before = structuredClone(d);
+    const html = renderToStaticMarkup(createElement(AxProcess, { diagnosis: d }));
+    expect(html).toContain("목표 흐름이 생성되지 않았습니다");
+    expect(html).toContain("모든 평가 단계가 담당자 수행이어도 목표 역할·흐름이 불필요하다는 뜻은 아닙니다");
+    expect(html).toContain("위험이 없다는 뜻이 아닙니다");
+    expect(html).not.toContain("해당 없음");
+    expect(d).toEqual(before);
   });
   test("an existing risk is not relabelled as an incomplete assessment", () => {
     const d = { ...outputFixture(), sourceNote: "test" };
     expect(renderToStaticMarkup(createElement(AxProcess, { diagnosis: d }))).not.toContain("위험 평가 상태");
+  });
+});
+
+describe("UI execution approval follows the effective gate, not the raw model verdict", () => {
+  test.each([
+    { informationSufficiency: "needs-check" as const, technicalChecks: [], expected: "conditional" },
+    { informationSufficiency: "sufficient" as const, technicalChecks: [{ topic: "입력 형식", status: "확인 필요" as const, note: "확인 필요" }], expected: "conditional" },
+    { informationSufficiency: "sufficient" as const, technicalChecks: [{ topic: "향후 연동", status: "불가" as const, note: "선택 사항", required: false }], expected: "ready" },
+  ])("raw go with $informationSufficiency is displayed as $expected", ({ informationSufficiency, technicalChecks, expected }) => {
+    const d = { ...outputFixture(), sourceNote: "test", decisionGate: { verdict: "go" as const, reasons: [] }, informationSufficiency, technicalChecks };
+    const before = structuredClone(d);
+    const task = taskFixture("synthetic-ui-gate", d);
+    for (const Component of [AxSummary, AxResultSummary]) {
+      const html = renderToStaticMarkup(createElement(Component, { task }));
+      expect(html).toContain(`data-gate="${expected}"`);
+      if (expected === "conditional") expect(html).not.toContain('data-gate="ready"');
+    }
+    expect(d).toEqual(before);
   });
 });

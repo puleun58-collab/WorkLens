@@ -98,6 +98,20 @@ function section(prompt: string, title: string): string {
 }
 
 describe("HITL 지시문 정합성 T1~T15", () => {
+  it.each(["keep", "exclude", "defer"] as const)("HITL %s never upgrades raw go plus a required gap to execution approval", action => {
+    const diag: AxDiagnosis = { ...diagnosis, informationSufficiency: "sufficient",
+      technicalChecks: [{ topic: "파일 접근", status: "확인 필요", note: "원본 파일 읽기 — 접근 권한 미확정", required: true }] };
+    const reviews = items("codex", diag).map(item => makeReview(item, action,
+      action === "defer" ? { reason: "조건 확인 전", resumeCondition: "조건 확인 후" } : {}));
+    const before = structuredClone({ diag, reviews });
+    const model = buildAgentInstructionModel(plan, { diagnosis: diag, hitlReviews: reviews, hitlTool: "codex" });
+    expect(model.gate).toBe("conditional");
+    expect(model.profile?.readyExecutionCandidate).toBe(false);
+    expect(model.steps.some(step => step.scope === "implement")).toBe(false);
+    expect(promptWith(reviews, "codex", diag)).toContain("미확인·거부된 보안·권한을 우회하지 마세요");
+    expect({ diag, reviews }).toEqual(before);
+  });
+
   it("T1 HITL 결정 없는 일반 업무는 기존 산출물·예외를 유지한다", () => {
     const model = buildAgentInstructionModel(plan, { taskName: "거래 검증", diagnosis });
     const prompt = promptWith([]);

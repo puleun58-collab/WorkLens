@@ -168,6 +168,17 @@ function markStaleReviews(taskId: string, newDiagnosis: AxDiagnosis) {
 - `followUpDiagnosis`는 성공한 재진단에 사용된 답변 문맥·파일 식별·읽기 상태의 스냅샷이다. 읽기 성공과 질문 충족은 다르며, 자료 저장만으로 기술 확인·HITL을 확정하지 않는다. 계획에는 해당 답변을, 올인원 지시문에는 파일 목적·질문 연결·읽기 상태와 코딩 에이전트에 원본을 별도로 제공해야 하는 조건을 전달한다.
 - 두 화면의 진단 요약은 `diagnosisSummaryStats`의 동일 단계 판정 3카드를 사용한다. 제거된 로드맵 확인 아코디언과 네 번째 요약 카드의 조건 데이터는 실행 Gate·완료 기준·지시문에 그대로 남는다.
 
+## 모델 판정과 실행 Gate 소비 계약
+
+- 모델 원본 `decisionGate.verdict/reasons`는 저장·내보내기와 원인 분석을 위해 보존한다. 원본 `go`는 실행 승인이 아니다. 실행 상태·실행 후보·계획·완료 기준·HITL 적용·올인원 지시문은 `executionGate`와 `executionProfile`의 파생 범위를 따른다.
+- 계산 규칙은 변경하지 않는다. 명시적 모델 `no-go`만 `blocked`다. 모델 `conditional`, `informationSufficiency: needs-check`, 또는 `required !== false`인 항목의 미확인·불가는 `conditional`이다. `required` 생략도 필수이며 선택 항목만 미확인인 경우와 `partial`만으로는 Gate를 제한하지 않는다.
+- `planAllowed`는 차단되지 않은 업무의 계획 생성 허용이며 즉시 구현·운영 승인과 다르다. `conditional`은 즉시 실행 후보가 아니지만 실제 의존 조건과 무관한 독립 단계까지 일괄 차단하지 않는다. 미확인 조건에 의존하는 단계는 확인 후 구현하고, 담당자 단계와 권한·보안 거부는 우회하지 않는다.
+- `ax-plan` 제공자 요청은 원본 `decisionGate`를 유지하면서 최상위 `executionScope`에 정책 파생 `level`, `gate`, `prerequisites`, `blockReasons`, `stepScope`, `planAllowed`를 별도로 전달한다. 시스템 지침은 원본 `go`보다 이 범위를 우선 적용하도록 명시한다. 기존 정렬된 roadmap·PoC·nextAction 전달도 유지하며 요청 생성은 저장 원본을 수정하지 않는다.
+- 진단 프롬프트는 독립 단계의 진행 허용과 전체 `go`를 구분한다. 출력 직전 최종 기술 확인·정보 충분도와 verdict를 교차 점검하고 필수 미확정이 남으면 명시적 `no-go` 사유가 없는 한 `conditional`과 해당 이유를 작성한다. 정합성을 맞추려고 필수 조건 삭제·선택화·확인 완료를 조작하지 않는다.
+- HITL `keep`·`exclude`·`defer`는 검토 범위에만 적용하며 필수 조건이나 실행 Gate를 승인으로 승격하지 않는다. 계획과 완료 기준의 단계 범위 및 올인원 실행 조건은 동일 파생 모델을 공유한다. 담당자 확인은 실제 구현·테스트·권한·운영 검증 완료의 증거가 아니다.
+- 서버 추적은 AX 진단 요청 경계의 기존 `[AI][Groq]` 로그 1건에 `axStages`를 추가한다. 실제 제공자 호출의 schema명·attempt·HTTP 상태·토큰과 `initial-parsed`·`current-facts-applied`·`whole-correction`·`focused` 단계의 필드 개수 및 실행 생략 사유만 기록하며 업무 원문·첨부 원문·키는 기록하지 않는다. 계측만으로 재생성 순서·호출 횟수·Gate·사용자 저장 결과를 바꾸지 않는다. 현재 전체 보정·집중 보완 순서와 최대 4회 공유 예산은 별도 동작 변경이 확정되기 전까지 위 계약을 유지한다.
+- 합성 회귀 범위: `ax-gate.test.ts`, `ax-profile.test.ts`, `ax-gate-consistency.test.ts`, `ax-agent-prompt.test.ts`, `ax-hitl-prompt-consistency.test.ts`. 원본 `go`+필수 미확정, 기존 required 생략, 두 계획 대상, 단계별 구현·완료 기준, HITL 동작과 원본 불변을 다룬다.
+
 ## 실제 업무 저장 기록·실행 지시문 안전 경계
 
 - 실제 5업무 내보내기를 읽기 전용으로 조사한 결과 기술 확인 기록은 6개, HITL 기록은 17개다. 기술 확인 6개는 모두 `result: "확인 완료"`, `note: "확인"`이다. 이 기록을 삭제·수정하거나 저장된 진단·계획을 읽는 순간 자동 보정하지 않는다.

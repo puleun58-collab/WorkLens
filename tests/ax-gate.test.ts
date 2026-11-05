@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   GATE_LABELS, executionGate, gatePrerequisites, gateBlockReasons, gateRecommendedChecks, splitGatePrerequisites,
-  matrixPosition, planAllowed, priorityDisplayLabel,
+  matrixPosition, planAllowed, priorityDisplayLabel, executionProfile,
 } from "@/lib/ax/policy";
 import type { AxDiagnosis } from "@/lib/ax/types";
 import { diagnosisFixture } from "./fixtures/ax";
@@ -81,6 +81,22 @@ describe("AX execution gate", () => {
     const d = diagnosis({ technicalChecks: [{ topic: "API", status: "확인 필요", note: "" }] });
     expect(executionGate(d)).toBe("conditional");
     expect(gatePrerequisites(d)).toEqual(["API"]);
+  });
+
+  it.each([true, undefined] as const)("never treats raw go as execution approval with required=%s", required => {
+    const d = diagnosis({
+      technicalChecks: [{ topic: "자료 접근", status: "확인 필요", note: "자료 수집 단계 권한 미확정", required }],
+    });
+    const before = structuredClone(d);
+    const profile = executionProfile(d);
+    expect(profile.gate).toBe("conditional");
+    expect(profile.planAllowed).toBe(true);
+    expect(profile.executionCandidate).toBe(false);
+    expect(profile.readyExecutionCandidate).toBe(false);
+    expect(profile.stepScope.some(step => step.scope === "implement")).toBe(false);
+    expect(profile.prerequisites).toContain("자료 접근 — 자료 수집 단계 권한 미확정");
+    expect(d).toEqual(before);
+    expect(d.decisionGate.verdict).toBe("go");
   });
 
   it("gives no-go precedence over missing information and unconfirmed checks", () => {
