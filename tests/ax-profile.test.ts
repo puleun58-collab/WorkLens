@@ -127,4 +127,21 @@ describe("AX execution profile (Level ∩ Gate)", () => {
     expect(sent.diagnosis.poc).toEqual(executionProfile(d).poc);
     expect(sent.diagnosis.factors).toEqual(d.factors);
   });
+
+  it.each(["codex", "claude"] as const)("sends %s an authoritative derived scope without rewriting raw go", target => {
+    const d = build(2, "ready");
+    d.technicalChecks = [{ topic: "자료 접근", status: "확인 필요", note: "자료 수집 — 접근 권한 미확정", required: true }];
+    const request = { kind: "ax-plan" as const, target, task: { name: "취합", description: "매월 취합", details: {} }, diagnosis: confirmedAxDiagnosis(d) };
+    const before = structuredClone(request);
+    const [, user] = axMessages(request);
+    const sent = JSON.parse(user.content);
+    const profile = executionProfile({ ...request.diagnosis, sourceNote: "" });
+    expect(sent.diagnosis.decisionGate).toEqual({ verdict: "go", reasons: [] });
+    expect(sent.executionScope).toEqual({
+      level: profile.level, gate: "conditional", prerequisites: profile.prerequisites,
+      blockReasons: [], stepScope: profile.stepScope, planAllowed: true,
+    });
+    expect(sent.executionScope.stepScope.some((step: { scope: string }) => step.scope === "implement")).toBe(false);
+    expect(request).toEqual(before);
+  });
 });

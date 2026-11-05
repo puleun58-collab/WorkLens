@@ -180,17 +180,17 @@ const GUIDES: Guide[] = [
   {
     id: "ax", label: "업무 자동화 진단", summary: "업무 등록 후 자동화 가능성·우선순위·실행 계획 확인",
     steps: [
-      { title: "업무 등록", text: "업무 내용을 입력하고 필요한 자료를 추가합니다.", mini: <Run label="업무 등록" before={<Field text="자료 취합과 승인 절차" />} /> },
-      { title: "업무 진단", text: "평가 근거와 업무 단계를 확인하고 자동화 판단을 검토합니다. 결정 지점(D1~D7)과 저장한 업무 처리 예시는 올인원 지시문에 반영됩니다. 규칙에 따라 결과가 달라지는 업무는 확정 예시 3건이 필수이며, 3건 미만이면 '업무 처리 예시 미확정' 보류 사유가 함께 붙습니다. 필수 여부가 확인되지 않은 업무는 확인 필요로 표시됩니다.", mini: <Result title="업무 진단" status="목표 흐름 확인" lines={["목적 · 시작 조건 · 입력 · 출력", "현재 업무 단계 → 판단표 → TO-BE", "결정 지점 D1~D7 확인 · 업무 처리 예시 확인"]} /> },
+      { title: "업무 등록", text: "업무 설명을 입력하고 ‘파일 추가’로 필요한 자료를 첨부한 뒤 ‘업무 등록’을 선택합니다. ‘추가 정보’에서 산출물 등을 입력할 수 있습니다.", mini: <Run label="업무 등록" before={<Field text="자료 취합과 승인 절차 · 산출물" />} /> },
+      { title: "업무 진단", text: "현재 업무(AS-IS)와 단계별 자동화 판단·목표 흐름(TO-BE)을 검토하고 ‘업무 규칙 확인’에서 필요한 규칙을 확정합니다. 추가 질문에 답변을 저장한 뒤 ‘답변 반영 후 재진단’으로 분석에 반영합니다.", mini: <Result title="업무 진단" status="확인 후 진행" lines={["현재 업무 단계 → 단계별 자동화 판단 → TO-BE", "업무 규칙 확인 · 구현 전 확인 사항"]} actions={["답변 반영 후 재진단"]} /> },
       { title: "자동화 매트릭스", text: "자동화 가치·실현 가능성·진행 상태를 비교해 우선 검토할 업무를 선택합니다.", mini: <Result title="자동화 매트릭스" status="진단 업무" lines={["빠른 실행 후보 · 전략 과제", "검토 후보 · 수동 유지·보류"]} /> },
-      { title: "결과·로드맵", text: "실행 범위와 선행 조건을 확인한 뒤 올인원 지시문을 복사해 Codex 또는 Claude Code로 1차 MVP를 구현합니다.", mini: <Result title="결과·로드맵" status="실행 범위 확인" actions={["Codex · Claude Code"]} lines={["진단 요약 → 실행 로드맵 → 01~03 확인", "설치·시작 가이드 → 04 올인원 지시문"]} /> },
+      { title: "결과·로드맵", text: "실행 상태(진행 가능·확인 후 진행·진행 보류)와 선행 조건을 확인합니다. 허용된 실행 범위의 올인원 지시문을 복사해 Codex 또는 Claude Code로 1차 MVP를 구현합니다.", mini: <Result title="결과·로드맵" status="실행 범위 확인" actions={["Codex · Claude Code"]} lines={["진단 요약 → 실행 로드맵 → 01~03 확인", "설치·시작 가이드 → 04 올인원 지시문"]} /> },
     ],
-    tip: "올인원 지시문 실행은 1차 MVP 구현 과정입니다. 실제 기능·배포를 검증하고, 업무 데이터는 내보내기로 백업하세요.",
+    tip: "목표 흐름·위험 평가가 미완료면 다시 진단하고, 구현 후 실제 기능·배포를 검증하세요. 업무 데이터는 내보내기로 백업하세요.",
   },
   {
     id: "dictionary", label: "용어 사전", summary: "맞춤법·용어 오탐을 줄이는 사전",
     steps: [
-      { title: "용어 사전 열기", text: "왼쪽 메뉴(좁은 화면에서는 메뉴 버튼)의 HELP에서 ‘용어 사전’ 선택", mini: <span className="mini-files"><span className="mini-row"><span className="mini-name">사용 가이드</span></span><span className="mini-row is-mark is-checked"><span className="mini-name">용어 사전</span></span><span className="mini-row"><span className="mini-name">설정</span></span></span> },
+      { title: "용어 사전 열기", text: "‘검수’ 화면 상단의 ‘용어 사전’을 선택합니다.", mini: <span className="mini-operation"><Field text="검수" mark={false} /><span className="mini-button is-mark">용어 사전</span></span> },
       { title: "단어 추가", text: "회사 용어를 개인 사전에 추가", mini: <span className="mini-operation"><Field text="WorkLens" /><span className="mini-button">추가</span></span> },
       { title: "검수에 반영", text: "추가한 단어는 맞춤법 오류에서 제외", mini: <Result title="개인 사전" status="1개" lines={["WorkLens"]} /> },
     ],

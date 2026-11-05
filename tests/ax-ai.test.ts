@@ -124,78 +124,71 @@ describe("AX invalid numerical requirements", () => {
     respond(facts, metric(), { invalid: true });
     await expect(runGroqAi(request)).rejects.toMatchObject({ code: "INVALID_PROVIDER_OUTPUT" });
   });
-  it("asks once for empty step judgements, target flow and risks of a grounded procedure, but keeps a valid answer if that fails", async () => {
-    const withSteps = facts;
-    const empty = { ...outputFixture(), toBe: [], risks: [], technicalChecks: [] };
-    const fetcher = respond(withSteps, empty, outputFixture());
-    await expect(runGroqAi(request)).resolves.toMatchObject({ diagnosis: { toBe: outputFixture().toBe, risks: outputFixture().risks } });
+  it("repairs only missing target flow and risks without regenerating a valid diagnosis", async () => {
+    // Keep the fixture's open required check: an empty list would (correctly) receive the
+    // server-derived system-access check, which is not what this case exercises.
+    const empty = { ...outputFixture(), toBe: [], risks: [] };
+    const gaps = { toBe: outputFixture().toBe, risks: ["입력 표 대조가 필요함"] };
+    const fetcher = respond(facts, empty, gaps);
+    await expect(runGroqAi(request)).resolves.toMatchObject({ diagnosis: { asIs: { inputs: ["입력 표"] }, toBe: gaps.toBe, risks: gaps.risks, technicalChecks: empty.technicalChecks, decisionGate: empty.decisionGate } });
     expect(fetcher).toHaveBeenCalledTimes(3);
-    expect(JSON.parse(fetcher.mock.calls[2][1].body).messages.at(-1).content).toContain("toBe, risks");
-    respond(withSteps, empty, { invalid: true });
-    await expect(runGroqAi(request)).resolves.toMatchObject({ diagnosis: { toBe: [], risks: [] } });
-    // An extraction without a stated procedure is asked once more; the wider answer is kept, and a
-    // grounded set without a procedure does not demand a target flow.
-    const noSteps = respond(withoutSteps, withoutSteps, empty);
-    await expect(runGroqAi(request)).resolves.toMatchObject({ diagnosis: { toBe: [] } });
-    expect(noSteps).toHaveBeenCalledTimes(3);
-    const recovered = respond(withoutSteps, facts, outputFixture());
-    await expect(runGroqAi(request)).resolves.toMatchObject({ diagnosis: { asIs: { steps: ["입력 표를 취합하여"] } } });
-    expect(recovered).toHaveBeenCalledTimes(3);
-  });
-  it("fills a target flow and risks that two whole answers left empty with one focused pass, never with unvalidated content", async () => {
-    const empty = { ...outputFixture(), toBe: [], risks: [] };
-    const gaps = { toBe: outputFixture().toBe, risks: ["입력 표 형식이 확인되지 않아 취합 결과가 누락될 수 있음"] };
-    const fetcher = respond(facts, empty, empty, gaps);
-    await expect(runGroqAi(request)).resolves.toMatchObject({ diagnosis: { toBe: gaps.toBe, risks: gaps.risks, asIs: { steps: ["입력 표를 취합하여"] } } });
-    expect(fetcher).toHaveBeenCalledTimes(4);
+    expect(JSON.parse(fetcher.mock.calls[2][1].body).response_format.json_schema.name).toBe("worklens_ax_diagnosis_gaps");
     expect(console.info).toHaveBeenLastCalledWith("[AI][Groq]", expect.objectContaining({
-      attempt: 4, maxAttempts: 4, cumulativePromptTokens: 400, cumulativeCompletionTokens: 2000, cumulativeTotalTokens: 2400,
+      attempt: 3, maxAttempts: 4, cumulativeTotalTokens: 1800,
+      axStages: expect.arrayContaining([expect.objectContaining({ stage: "focused-start", reason: "toBe,risks" })]),
     }));
-    const focused = JSON.parse(JSON.parse(fetcher.mock.calls[3][1].body).messages[1].content);
-    expect(focused).toMatchObject({ missing: ["toBe", "risks"], asIs: { steps: ["입력 표를 취합하여"] } });
-    // A focused answer that invents a performance figure is discarded: the gap stays visible.
-    respond(facts, empty, empty, { ...gaps, risks: ["작업 시간 50% 절감 실패 위험"] });
+    respond(facts, empty, { invalid: true });
     await expect(runGroqAi(request)).resolves.toMatchObject({ diagnosis: { toBe: [], risks: [] } });
-    // Without a confirmed procedure there is nothing to build a target flow from.
-    const noSteps = respond(withoutSteps, withoutSteps, empty);
-    await expect(runGroqAi(request)).resolves.toMatchObject({ diagnosis: { toBe: [], risks: [] } });
-    expect(noSteps).toHaveBeenCalledTimes(3);
   });
-  it("skips focused repair when extraction and whole-answer correction have consumed the request budget", async () => {
+  it("preserves a valid focused field when another focused field fails semantic validation", async () => {
     const empty = { ...outputFixture(), toBe: [], risks: [] };
-    const fetcher = respond(withoutSteps, facts, empty, empty);
-    const result = await runGroqAi(request);
-    expect(result).toMatchObject({ diagnosis: { toBe: [], risks: [], asIs: { steps: ["입력 표를 취합하여"] } } });
-    expect(fetcher).toHaveBeenCalledTimes(4);
-    expect(console.info).toHaveBeenLastCalledWith("[AI][Groq]", expect.objectContaining({
-      attempt: 4, maxAttempts: 4, cumulativeTotalTokens: 2400,
-    }));
-    expect(JSON.parse(fetcher.mock.calls[3][1].body).response_format.json_schema.name).not.toBe("worklens_ax_diagnosis_gaps");
+    respond(facts, empty, { toBe: outputFixture().toBe, risks: ["작업 시간 50% 절감 실패 위험"] });
+    await expect(runGroqAi(request)).resolves.toMatchObject({ diagnosis: { toBe: outputFixture().toBe, risks: [] } });
   });
-  it("counts a failed focused call without retrying beyond four calls, preserving the valid diagnosis", async () => {
-    const empty = { ...outputFixture(), risks: [] };
-    const fetcher = respond(facts, empty, empty);
+  it("does not request a target flow without grounded current steps", async () => {
+    const empty = { ...outputFixture(), toBe: [], risks: [] };
+    const fetcher = respond(withoutSteps, withoutSteps, empty);
+    await expect(runGroqAi(request)).resolves.toMatchObject({ diagnosis: { toBe: [], risks: [] } });
+    expect(fetcher).toHaveBeenCalledTimes(3);
+  });
+  it("uses the last shared attempt for focused repair after a repeated fact extraction", async () => {
+    const empty = { ...outputFixture(), toBe: [], risks: [] };
+    const gaps = { toBe: outputFixture().toBe, risks: ["입력 표 대조가 필요함"] };
+    const fetcher = respond(withoutSteps, facts, empty, gaps);
+    await expect(runGroqAi(request)).resolves.toMatchObject({ diagnosis: { toBe: gaps.toBe, risks: gaps.risks } });
+    expect(fetcher).toHaveBeenCalledTimes(4);
+    expect(JSON.parse(fetcher.mock.calls[3][1].body).response_format.json_schema.name).toBe("worklens_ax_diagnosis_gaps");
+  });
+  it("skips focused repair when provider retries exhaust the shared budget", async () => {
+    const empty = { ...outputFixture(), toBe: [], risks: [] };
+    const fetcher = respond(withoutSteps, facts);
     fetcher.mockResolvedValueOnce(new Response("{}", { status: 503, headers: { "retry-after": "0" } }));
-    const result = await runGroqAi(request);
-    expect(result).toMatchObject({ diagnosis: {
+    fetcher.mockResolvedValueOnce(provider(empty));
+    await expect(runGroqAi(request)).resolves.toMatchObject({ diagnosis: { toBe: [], risks: [] } });
+    expect(fetcher).toHaveBeenCalledTimes(4);
+    expect(console.info).toHaveBeenLastCalledWith("[AI][Groq]", expect.objectContaining({
+      axStages: expect.arrayContaining([expect.objectContaining({ stage: "focused-skipped", reason: "budget-exhausted" })]),
+    }));
+  });
+  it("retains the valid diagnosis when focused calls fail within the four-call ceiling", async () => {
+    const empty = { ...outputFixture(), risks: [] };
+    const fetcher = respond(facts, empty);
+    fetcher.mockResolvedValue(new Response("{}", { status: 503, headers: { "retry-after": "0" } }));
+    await expect(runGroqAi(request)).resolves.toMatchObject({ diagnosis: {
       toBe: empty.toBe, risks: [], stepAssessments: empty.stepAssessments, poc: empty.poc,
       decisionGate: empty.decisionGate, operation: empty.operation, nextAction: empty.nextAction,
       asIs: { steps: ["입력 표를 취합하여"] },
     } });
     expect(fetcher).toHaveBeenCalledTimes(4);
-    expect(console.info).toHaveBeenLastCalledWith("[AI][Groq]", expect.objectContaining({
-      attempt: 4, maxAttempts: 4, cumulativeTotalTokens: 1800,
-    }));
     expect(console.error).not.toHaveBeenCalled();
   });
   it("fills only missing fields and rejects attachment copies without changing AS-IS or other diagnosis fields", async () => {
     const empty = { ...outputFixture(), risks: [] };
     const gaps = { toBe: [{ ...outputFixture().toBe[0], step: "기존 목표 대체 금지" }], risks: ["입력 표 대조가 필요함"] };
-    respond(facts, empty, empty, gaps);
-    const result = await runGroqAi(request);
-    expect(result).toMatchObject({ diagnosis: { toBe: empty.toBe, risks: gaps.risks, asIs: { steps: ["입력 표를 취합하여"] }, decisionGate: empty.decisionGate } });
+    respond(facts, empty, gaps);
+    await expect(runGroqAi(request)).resolves.toMatchObject({ diagnosis: { toBe: empty.toBe, risks: gaps.risks, decisionGate: empty.decisionGate } });
     const attachmentSummary = "첨부의 개인 자료 내용으로 이루어진 긴 원문 문장입니다.".repeat(6);
-    respond(facts, empty, empty, { ...gaps, risks: [attachmentSummary] });
+    respond(facts, empty, { ...gaps, risks: [attachmentSummary] });
     await expect(runGroqAi({ ...request, attachmentSummary })).resolves.toMatchObject({ diagnosis: { toBe: empty.toBe, risks: [] } });
   });
 });

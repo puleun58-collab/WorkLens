@@ -48,6 +48,18 @@ describe("AX diagnosis prompt: required/optional classification and verdict crit
       "승인과 무관한 독립 단계까지 조건부로 제한하지 마세요.",
     ]) expect(prompt).toContain(rule);
   });
+  it("checks the final verdict against required gaps without blocking independent work or inventing confirmation", () => {
+    const prompt = axMessages(request)[0].content;
+    for (const rule of [
+      "독립 단계를 진행할 수 있다는 것은 전체 decisionGate를 go로 판정하라는 뜻이 아닙니다.",
+      "출력 직전 최종 technicalChecks·informationSufficiency와 decisionGate를 함께 대조하세요",
+      "required가 false가 아닌 항목(생략 포함)",
+      'status가 "확인 필요" 또는 "불가"',
+      "informationSufficiency가 needs-check면 go로 쓰지 마세요",
+      "partial만으로 conditional을 강제하지 말고",
+      "판정을 맞추려고 필수 조건을 삭제·선택으로 낮추거나 확인됨으로 바꾸지 마세요.",
+    ]) expect(prompt).toContain(rule);
+  });
 });
 
 describe("AX gate consistency validation (read-only, never rewrites the verdict)", () => {

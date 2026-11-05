@@ -120,7 +120,7 @@ export const GATE_LABELS: Record<ExecutionGate, string> = {
 };
 
 export function executionGate(d: AxDiagnosis): ExecutionGate {
-  // 1. no-go만 hard blocker다. "불가" 상태의 필수 항목만 전체를 차단한다.
+  // 1. 모델의 명시적 no-go만 전체를 차단한다. 개별 필수 항목의 "불가"는 아래 conditional에 포함된다.
   if (d.decisionGate.verdict === "no-go") return "blocked";
   // 2. 조건부 판정, 정보 부족, 미확인 필수 기술 항목은 선행 확인이 필요하다.
   //    선택(optional) 항목은 Gate 판정에 영향을 주지 않는다.

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { axDiagnosisJsonSchema, axPlanJsonSchema, REPOSITORY_FIRST } from "./schema";
-import { automationLevel, executionGate, executionProfile, GATE_LABELS } from "./policy";
+import { automationLevel, executionGate, executionProfile, GATE_LABELS, type ExecutionProfile } from "./policy";
 import type { AxDiagnosisRequest, AxPlanRequest } from "./types";
 /** Scope each level allows; a higher level is never a target in itself. */
 const LEVEL_SCOPE = [
@@ -24,6 +24,7 @@ repositoryFirst에는 다음 문구를 정확히 넣으세요: ${REPOSITORY_FIRS
 task의 원래 설명·details, 진단의 AS-IS 입력·출력·단계·예외, TO-BE, stepAssessments·humanInLoop, technicalChecks.status·note, decisionGate.reasons와 PoC 기준을 함께 고려하세요. 진단의 roadmap·poc·nextAction은 확정 Level·실행 상태에 맞춘 참고 범위입니다.
 계획의 asIs는 등록 정보·답변·실제로 읽힌 첨부 내용에 근거한 현재 운영만 요약하세요. task.details.goal·진단 toBe·poc·roadmap·stepAssessments의 개선 판정과 역할로 현재 절차를 보충하지 마세요. 현재 수동·부분 자동·기존 자동 운영과 미확인 부분을 그대로 구분하고, 제안은 toBe 등 미래 계획에만 두세요.
 현재 진단 ${level.label.replace(/^L\d+ /, "")} · Level ${level.level}: ${LEVEL_SCOPE[level.level]} 실행 상태 ${GATE_LABELS[gate]}: ${GATE_SCOPE[gate]}
+요청의 executionScope는 서버 정책으로 계산한 실행 범위이며 diagnosis.decisionGate는 보존된 모델 원본입니다. 원본 go를 실행 승인으로 쓰지 말고 executionScope.gate·prerequisites·blockReasons·stepScope를 구현·tests·acceptance·humanInLoop 전체에 적용하세요. planAllowed는 계획 생성 허용일 뿐 즉시 실행 승인이 아닙니다. conditional에서는 의존 조건 확인 전 해당 기능의 구현·실행·완료를 확정하지 말고, 독립 단계도 실제 의존 관계를 확인한 뒤에만 진행하세요.
 ${manual.length ? `담당자 수행 단계(${manual.join(", ")})는 자동 구현하지 말고 outOfScope 또는 humanInLoop에 두세요.\n` : ""}규칙:
 - 업무 규칙 근거 없이 자동 삭제·수정·승인·등록·전송·결재, 권한 변경, 담당 조직 지정을 정하지 마세요. 예외는 발생 가능성만 쓰고 처리는 '표시 후 담당자 확인'으로 두세요(예: 중복 후보 표시).
 - API·SDK·DB·인증·자동 로그인·파일명·함수명이 있다고 가정하지 마세요. 저장·조회나 외부 API가 실제 업무에 필요하면 확인된 기존 방식을 쓰고 연동 오류·권한 거부를 다루세요.
@@ -56,6 +57,7 @@ AS-IS와 TO-BE의 시간·근거 경계를 먼저 구분하세요:
 - 출력 전 asIs의 각 항목과 현재 사실에 대한 근거를 위 입력에서 다시 대조하세요. 미래 제안만으로 뒷받침된 항목은 미래 제안으로 분리하고, 근거가 부족한 현재 항목은 확인 필요로 남기세요. 부족한 정보는 기존 informationSufficiency 기준과 핵심 추가 질문으로 드러내세요. 추정으로 충분성을 높이지 말고, 핵심 정보가 이미 있는데 시작 방식·세부 절차 같은 일부 미확인만으로 needs-check로 낮추지도 마세요.
 - 아래 배열 개수 지침은 확인된 근거가 없는 asIs 목록을 채우라는 뜻이 아닙니다. 빈 배열 원칙은 asIs(현재 사실) 목록에만 적용됩니다.
 - stepAssessments·toBe·risks는 확인된 AS-IS를 바탕으로 한 진단 결과입니다. asIs.steps에 확인된 현재 절차가 있으면 각 절차에 대한 stepAssessments와 개선 또는 사람 유지 목표 흐름 toBe를 작성하세요. 입력에 없는 시스템·API·알림·자동 실행을 현재 기능처럼 쓰지 말고 도입이 필요한 것은 미래 조건으로 표시하세요.
+- stepAssessments는 현재 누가 수행하는지 복사하는 목록이 아니라 향후 각 단계의 적합성 판정입니다. 현재 수동이라는 이유만으로 모두 "사람 유지"로 판정하지 마세요. 입력·계산 규칙이 명시된 반복 계산은 규칙 기반 자동화 적합성을 검토하고, 예외 판단·최종 검토는 사람에게 유지하세요. 도입 기술·접근의 미확정은 technicalChecks에 남기고, 없는 계산 규칙·권한·시스템 기능은 만들지 마세요. 모든 단계가 사람 유지여도 확인된 현재 절차의 목표 역할·흐름은 toBe에 작성하세요.
 - risks는 실제 입력·산출물·담당자 판단·주기 또는 기술 확인 항목과 어떤 관계인지 근거를 함께 쓰세요. 위험 유형을 채우려고 법적 위험을 만들지 마세요. 법령명·법 위반·저작권·공정거래·개인정보·인허가 같은 법적 위험은 입력에 해당 규제·권리·의무가 명시된 경우에만 쓰고, 그 외 민감정보·접근 제한·장애·보안 정책도 입력에 없는 것을 전제로 만들지 마세요. 향후 제안의 위험이면 현재 업무의 결함으로 쓰지 말고 도입 시 검증할 조건임을 밝히세요. 정보 미기재는 실제 제도·절차가 없다는 사실이 아닙니다.
 - 위험 개수를 채우기 위한 일반 위험은 금지입니다. 실제 연결 근거를 확보하지 못했으면 risks를 빈 배열로 두세요. 빈 배열은 위험 없음의 확정이 아니며 소비자가 평가 미완료로 구분합니다. 현재 절차가 전혀 확인되지 않았으면 toBe도 빈 배열입니다.
 Factor는 repetition, regularity, dataStructure, systemAccess, humanJudgment, operationalRisk를 각각 한 번 포함하고 1~5점과 근거를 제시하세요. 사람판단과 위험은 높을수록 의존도·위험이 높습니다.
@@ -76,6 +78,7 @@ details.outputs에 명시된 출력 파일명·컬럼명·순서·필요한 타�
 선택적 조건(required를 false로 표시)은 현재 구현 범위를 직접 차단하지 않는 권장·향후 조건입니다: 향후 확장용 API 연동, 선택적 편의 기능, 현재 구현에 필요하지 않은 추가 환경 설정.
 각 기술 확인 항목의 note에는 실제로 적용되는 단계명과 그 단계에서 이 조건이 필요한 이유를 적으세요. 미확정이라는 이유만으로 선택적 조건을 필수로 분류하지 마세요. 실제 필수 조건을 선택 사항으로 완화하거나, 확인되지 않은 사실을 확인됨으로 바꾸거나, 미확정 외부 연동을 우회하지 마세요.
 decisionGate 판정 기준: 미확정 필수 조건·핵심 정보 부족이 없고 명시적 진행 불가 사유가 없으면 go, 미확정 필수 기술 확인사항·핵심 정보 부족·미확정 필수 조건이 있으면 conditional, 명시적 안전·법률·권한 제한이 있으면 no-go. 모든 필수 조건이 확인되고 핵심 정보가 충분하면 근거 없이 conditional로 판정하지 마세요. 담당자 승인 단계는 humanInLoop로 다루고, 승인과 무관한 독립 단계까지 조건부로 제한하지 마세요.
+독립 단계를 진행할 수 있다는 것은 전체 decisionGate를 go로 판정하라는 뜻이 아닙니다. 출력 직전 최종 technicalChecks·informationSufficiency와 decisionGate를 함께 대조하세요: required가 false가 아닌 항목(생략 포함)에 status가 "확인 필요" 또는 "불가"가 하나라도 있거나 informationSufficiency가 needs-check면 go로 쓰지 마세요. 명시적 no-go 사유가 없으면 conditional로 쓰고 reasons에 해당 필수 조건을 적으세요. partial만으로 conditional을 강제하지 말고, 담당자가 수행할 승인 단계와 그 단계 구현에 필요한 미확정 승인·권한 조건을 구분하세요. 판정을 맞추려고 필수 조건을 삭제·선택으로 낮추거나 확인됨으로 바꾸지 마세요.
 systemAccess 점수는 자동화·시스템이 접근할 수 있는 정도를 기준으로 매기세요. 입력에서 API 등 시스템 간 자동 연동이 확인되면 담당자의 확인 단계가 있어도 자동화 접근성을 기준으로 평가하고, 담당자가 직접 로그인해 수기로만 조회·입력하는 경우에만 낮게 평가하세요.
 입력에 없는 조직·부서·승인 주체 이름을 만들지 마세요. 승인과 검토 주체는 "담당자"로 표현하세요.
 현재사실 추출·원문 대조 결과로 서버가 informationSufficiency를 결정합니다. 수행 주기(접수 등 사건 기반 시작 포함)·입력·산출물·담당자 판단 중 확인된 항목이 0~1개면 needs-check, 2개 이상이면 partial입니다. 네 핵심 정보와 목적·현재 절차가 모두 근거로 확인되고 상충이 없을 때만 sufficient입니다. 사용 시스템·예외가 미기재면 AS-IS에 확인 필요로 남깁니다. 기술 구현 조건·양식의 상세 컬럼 미확정·검토 미완료는 별도 조건이며 업무 등록 정보 충분도를 낮추는 근거가 아닙니다.
@@ -83,10 +86,17 @@ systemAccess 점수는 자동화·시스템이 접근할 수 있는 정도를 �
     : planInstructions(request);
   return [{ role: "system", content: `${SAFETY}\n${instructions}` }, { role: "user", content: JSON.stringify(request.kind === "ax-plan" ? alignedPlanRequest(request) : request) }];
 }
-/** The plan model sees the policy-aligned roadmap/PoC/next action, never the raw AI narrative that predates Level/Gate. */
-function alignedPlanRequest(request: AxPlanRequest): AxPlanRequest {
+/** Send derived authorization separately while preserving the model's original decisionGate. */
+function alignedPlanRequest(request: AxPlanRequest): AxPlanRequest & {
+  executionScope: Pick<ExecutionProfile, "level" | "gate" | "prerequisites" | "blockReasons" | "stepScope" | "planAllowed">;
+} {
   const profile = executionProfile({ ...request.diagnosis, sourceNote: "" });
-  return { ...request, diagnosis: { ...request.diagnosis, roadmap: profile.roadmap, poc: profile.poc, nextAction: profile.nextAction } };
+  const { level, gate, prerequisites, blockReasons, stepScope, planAllowed } = profile;
+  return {
+    ...request,
+    executionScope: { level, gate, prerequisites, blockReasons, stepScope, planAllowed },
+    diagnosis: { ...request.diagnosis, roadmap: profile.roadmap, poc: profile.poc, nextAction: profile.nextAction },
+  };
 }
 function strictJson(schema: z.ZodType): Record<string, unknown> {
   const json = z.toJSONSchema(schema);
