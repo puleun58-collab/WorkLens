@@ -26,6 +26,8 @@ export interface WorkerEnv {
   GROQ_API_KEY?: string;
   LAW_OC?: string;
   LAW_MCP_URL?: string;
+  /** Staging only: "1" records structural law-evidence decisions next to the existing gates. Unset in production. */
+  LAW_STRUCTURE_SHADOW?: string;
 }
 
 export function workerEnv(): WorkerEnv {
@@ -36,7 +38,9 @@ export function workerEnv(): WorkerEnv {
   const groqApiKey = source.GROQ_API_KEY ?? process.env.GROQ_API_KEY;
   const lawOc = source.LAW_OC ?? process.env.LAW_OC;
   const lawMcpUrl = source.LAW_MCP_URL ?? process.env.LAW_MCP_URL;
+  const structureShadow = source.LAW_STRUCTURE_SHADOW ?? process.env.LAW_STRUCTURE_SHADOW;
   return {
+    ...(typeof structureShadow === "string" && structureShadow.trim() ? { LAW_STRUCTURE_SHADOW: structureShadow.trim() } : {}),
     ...(database && typeof database === "object" ? { WORKLENS_CONFIG_DB: database as D1DatabaseLike } : {}),
     ...(typeof password === "string" ? { WORKLENS_ADMIN_PASSWORD: password } : {}),
     ...(typeof secret === "string" ? { WORKLENS_ADMIN_SESSION_SECRET: secret } : {}),

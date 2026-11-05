@@ -1,9 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { articleDisplayKey, hasQuestionTermInTitle, taskSourceRole, taskSources, type TaskSource } from "../src/components/research/research-result-display";
+import { articleDisplayKey, hasQuestionTermInTitle, needsConfirmationView, taskSourceRole, taskSources, type TaskSource } from "../src/components/research/research-result-display";
 import { assessLawSystem } from "../src/lib/law-system-evidence";
 import { detailArticles } from "../src/lib/task-evidence";
 import { lawSourceUrl } from "../src/lib/research-scope";
 import privacy from "./fixtures/law-system-privacy-38.json";
+
+describe("needs_confirmation issue view", () => {
+  it("lists distinct unconfirmed requirements and asks only for them", () => {
+    expect(needsConfirmationView({ status: "needs_confirmation", unconfirmed: [" 퇴직 여부 ", "퇴직 여부", ""] }))
+      .toEqual({ items: ["퇴직 여부"], followUp: "다음 적용 요건에 해당하는 사실을 알려주면 다시 확인할 수 있습니다: 퇴직 여부." });
+    expect(needsConfirmationView({ status: "needs_confirmation", followUp: "근무 기간을 알려주세요." }))
+      .toEqual({ items: [], followUp: "근무 기간을 알려주세요." });
+    expect(needsConfirmationView({ status: "needs_confirmation" })?.followUp).toBe("적용 요건에 해당하는 사실을 질문에 더하면 다시 확인할 수 있습니다.");
+  });
+  it.each(["found", "none", "failed", "timeout"] as const)("is absent for %s", (status) => {
+    expect(needsConfirmationView({ status, unconfirmed: ["x"] })).toBeUndefined();
+  });
+});
 
 describe("research source presentation", () => {
   const article = { law: "근로기준법", jo: "제23조", excerpt: "① 원문", effective: "2025.01.01" };

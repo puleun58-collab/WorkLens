@@ -431,6 +431,106 @@ describe("original-party adoption and issue status", () => {
         expect.objectContaining({ excerpt: old, adopted: false, effectiveDate: "2025.01.01" }),
       ]) })] } });
   });
+
+  it("does not treat a named article's truncated preview as its verified official identity", async () => {
+    const query = "민법 제617조 손해배상 기간";
+    vi.mocked(interpretResearchQuery).mockResolvedValueOnce({ original: query, situation: query, facts: [],
+      issues: [{ label: "손해배상 기간", query: "손해배상 기간" }], confidence: "high" });
+    const text = "═══ 종합 리서치 ═══\n▶ AI 법령검색 결과\n지능형 법령검색 결과 (법령조문, 1건):\n\n민법\n   제0617조 (손해배상, 비용상환청구의 기간)\n손해배상의 청구와 비용의 상환청구는 …\n   시행: 2026.03.17 | 법무부";
+    upstream({ legal_research: () => text });
+    const result = await runLegalResearch({ task: "full_research", query }, ctx);
+    expect(result).toMatchObject({
+      evidence: { status: "unverified", articles: [], issues: [{ status: "none", articles: [] }] },
+      enrichment: { adoptionReviews: [expect.objectContaining({ articles: expect.arrayContaining([
+        expect.objectContaining({ law: "민법", jo: "제617조", adopted: false }),
+      ]) })] },
+    });
+  });
+});
+
+describe("structural shadow mode (staging only)", () => {
+  const query = "회사가 이번 달 월급을 주지 않습니다. 지급해야 하는지 궁금합니다";
+  const wage = "임금은 통화로 직접 근로자에게 그 전액을 지급하여야 한다.";
+  const settlement = "사용자는 근로자가 사망 또는 퇴직한 경우에는 그 지급 사유가 발생한 때부터 14일 이내에 임금, 보상금, 그 밖의 모든 금품을 지급하여야 한다.";
+  const text = `═══ 종합 리서치 ═══\n▶ AI 법령검색 결과\n지능형 법령검색 결과 (법령조문, 2건):\n\n${article("0043조", "임금 지급", wage)}\n\n${article("0036조", "금품 청산", settlement)}`;
+  const factFrame = {
+    parties: [{ id: "p1", role: "근로자", span: "월급을" }], relation: { type: "근로관계", span: "회사가" },
+    acts: [{ id: "a1", actor: "p2", act: "임금 미지급", polarity: "affirmed" as const, span: "월급을 주지 않습니다" }],
+    conditions: [], asks: [{ id: "q1", kind: "의무" as const, span: "지급해야 하는지" }],
+  };
+  const run = async () => {
+    vi.mocked(interpretResearchQuery).mockImplementationOnce(async (original, request) => {
+      request.onFactFrame?.({ frame: factFrame, dropped: 0 });
+      return { original, situation: original, facts: [], issues: [{ label: "임금 지급", query: "임금 지급" }], confidence: "high" };
+    });
+    vi.mocked(verifyResearchAdoption).mockImplementationOnce(async (_query, _issues, candidates, request) => {
+      request.onAdoptionCoverage?.(candidates.map(({ id }) => ({ id })));
+      const wageId = candidates.find((candidate) => candidate.jo === "제43조")!.id;
+      const settlementId = candidates.find((candidate) => candidate.jo === "제36조")!.id;
+      request.adoptionStructure?.onResult({
+        profiles: [
+          { candidateId: wageId, regulatedParties: [{ role: "근로자", quote: "근로자에게" }], regulatedAct: { act: "임금 지급", quote: "전액을 지급하여야 한다" },
+            effectType: "duty", requirements: [{ id: "r1", text: "근로자의 임금", quote: "근로자에게 그 전액을" }] },
+          { candidateId: settlementId, regulatedParties: [{ role: "사용자", quote: "사용자는" }], regulatedAct: { act: "금품 청산", quote: "모든 금품을 지급하여야 한다" },
+            effectType: "duty", requirements: [{ id: "r1", text: "근로자의 사망 또는 퇴직", quote: "사망 또는 퇴직한 경우에는" }] },
+        ],
+        comparisons: [
+          { issueIndex: 0, candidateId: wageId, A: { value: "same", factPartyIds: ["p1"], quote: "근로자에게" },
+            B: { value: "same", factActIds: ["a1"], quote: "전액을 지급하여야 한다" }, C: { addressesAsk: true, askId: "q1", effectType: "duty" },
+            D: [{ reqId: "r1", value: "satisfied", factIds: ["a1"], general: false }] },
+          { issueIndex: 0, candidateId: settlementId, A: { value: "same", factPartyIds: ["p1"], quote: "근로자가" },
+            B: { value: "same", factActIds: ["a1"], quote: "모든 금품을 지급하여야 한다" }, C: { addressesAsk: true, askId: "q1", effectType: "duty" },
+            D: [{ reqId: "r1", value: "unconfirmed", factIds: [], general: false }] },
+        ],
+      });
+      // The legacy model adopts both as direct; the structure keeps 제36조 at S3.
+      return [
+        { issueIndex: 0, candidateId: wageId, role: "direct", quote: wage, reason: "월급 미지급에 대한 사용자의 임금 전액 지급 의무를 직접 정합니다." },
+        { issueIndex: 0, candidateId: settlementId, role: "direct", quote: settlement, reason: "임금 등 금품을 지급할 사용자의 의무를 직접 정한다는 모델 응답입니다." },
+      ];
+    });
+    upstream({ legal_research: () => text });
+    return runLegalResearch({ task: "full_research", query }, ctx);
+  };
+
+  it("records structural states and differences without changing the operational result", async () => {
+    const baseline = await run();
+    expect(baseline).not.toHaveProperty("structureShadow");
+    expect(vi.mocked(interpretResearchQuery).mock.calls[0][1]).toBe(ctx);
+    expect(vi.mocked(verifyResearchAdoption).mock.calls[0][3]).not.toHaveProperty("adoptionStructure");
+    vi.stubEnv("LAW_STRUCTURE_SHADOW", "1");
+    const shadowed = await run();
+    if (!baseline.found || !shadowed.found) throw new Error("expected research responses");
+    const { structureShadow, ...operational } = shadowed;
+    expect(operational).toEqual(baseline);
+    expect(operational.evidence?.issues?.[0].status).toBe("found");
+    expect(structureShadow).toMatchObject({
+      mode: "shadow", adoption: "verified", factFrameDropped: 0,
+      issues: [{ issueIndex: 0, legacyStatus: "found", status: "found", differs: false }],
+      articles: [{ law: "근로기준법", jo: "제43조", state: "direct" }],
+    });
+    const decisions = structureShadow!.decisions;
+    expect(decisions.find((decision) => decision.jo === "제43조")).toMatchObject({ state: "direct", rule: 8, legacy: { adopted: true, role: "direct" }, differs: false });
+    expect(decisions.find((decision) => decision.jo === "제36조")).toMatchObject({ state: "needs_condition", rule: 5,
+      unconfirmed: ["근로자의 사망 또는 퇴직"], legacy: { adopted: true, role: "direct" }, differs: true });
+    expect(structureShadow!.differences).toBe(1);
+    // Counts only in the log: no spans, quotes or the user's text.
+    const logged = vi.mocked(console.info).mock.calls.find(([label]) => label === "[law][structure-shadow]");
+    expect(logged).toBeDefined();
+    expect(JSON.stringify(logged)).not.toContain("월급");
+  });
+
+  it("marks every pair verifier_unavailable when the single adoption call fails", async () => {
+    vi.stubEnv("LAW_STRUCTURE_SHADOW", "1");
+    vi.mocked(interpretResearchQuery).mockResolvedValueOnce({ original: query, situation: query, facts: [], issues: [{ label: "임금 지급", query: "임금 지급" }], confidence: "high" });
+    vi.mocked(verifyResearchAdoption).mockRejectedValueOnce(new Error("unavailable"));
+    upstream({ legal_research: () => text });
+    const result = await runLegalResearch({ task: "full_research", query }, ctx);
+    if (!result.found) throw new Error("expected research response");
+    expect(result.structureShadow?.adoption).toBe("unavailable");
+    expect(result.structureShadow?.decisions.every((decision) => decision.state === "unverified" && decision.subReason === "verifier_unavailable")).toBe(true);
+    expect(result.structureShadow?.issues[0]).toMatchObject({ status: "unverified" });
+  });
 });
 
 describe("currency of cited articles", () => {

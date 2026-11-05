@@ -215,18 +215,78 @@ describe("final official-source adoption verifier", () => {
     const fetcher = provider([direct, { ...direct, quote: damagesQuote }, holding]);
     const result = await verifyResearchAdoption(originalQuery, issues, [first, partial], context);
     expect(result).toEqual([expect.objectContaining({ ...direct,
-      window: { start: 0, end: wageQuote.length + 1, total: first.text.length },
+      window: { start: 0, end: expect.any(Number), total: first.text.length },
       reason: expect.stringContaining("원문 범위에 한정한 관련성 확인"),
     })]);
     const payload = JSON.parse(requestPayload(fetcher).messages.find((entry) => entry.role === "user")!.content) as {
       candidates: Array<ResearchAdoptionCandidate & { window?: ResearchAdoptionVerdict["window"] }>;
     };
-    expect(payload.candidates[0]).toMatchObject({ text: wageQuote + "\n", partial: false,
-      window: { start: 0, end: wageQuote.length + 1, total: first.text.length } });
-    expect(payload.candidates[1]).toMatchObject({ partial: true });
-    expect(payload.candidates[0].text).not.toContain(damagesQuote);
+    const viewed = payload.candidates.find(candidate => candidate.id === first.id)!;
+    expect(viewed.text).toBe(first.text.slice(viewed.window!.start, viewed.window!.end));
+    expect(viewed.text).toContain(wageQuote);
+    expect(viewed.text).not.toContain(damagesQuote);
+    expect(payload.candidates.find(candidate => candidate.id === partial.id)).toMatchObject({ partial: true });
     expect(payload.candidates.reduce((count, candidate) => count + candidate.text.length, 0)).toBeLessThanOrEqual(MAX_ANALYZE_EVIDENCE_CHARS);
     expect(fetcher).toHaveBeenCalledOnce();
+  });
+
+  it("reviews a later candidate instead of letting long earlier originals consume the whole budget", async () => {
+    const long = (index: number, quote: string) => ({ ...candidates[0], id: `article-long-${index}`, jo: `제${index}조`,
+      text: `${"나".repeat(MAX_EVIDENCE_CHARS)}\n${quote}\n${"다".repeat(MAX_EVIDENCE_CHARS)}` });
+    const sources = [long(1, "앞 조문 본문이다."), long(2, "가운데 조문 본문이다."), long(3, wageQuote)];
+    const reviewed: Array<{ id: string; window?: ResearchAdoptionVerdict["window"] }> = [];
+    const fetcher = provider([]);
+    await verifyResearchAdoption(originalQuery, issues, sources, { ...context, onAdoptionCoverage: visible => reviewed.push(...visible) });
+    const payload = JSON.parse(requestPayload(fetcher).messages.find((entry) => entry.role === "user")!.content) as {
+      candidates: Array<ResearchAdoptionCandidate & { window?: ResearchAdoptionVerdict["window"] }>;
+    };
+    expect(reviewed).toEqual(sources.map(source => {
+      const shown = payload.candidates.find(candidate => candidate.id === source.id)!;
+      expect(shown.window).toBeDefined();
+      expect(shown.text).toBe(source.text.slice(shown.window!.start, shown.window!.end));
+      return { id: source.id, window: shown.window };
+    }));
+    // The last original is centred on the line carrying the question's terms.
+    expect(payload.candidates.find(candidate => candidate.id === "article-long-3")!.text).toContain(wageQuote);
+    expect(payload.candidates.reduce((count, candidate) => count + candidate.text.length, 0)).toBeLessThanOrEqual(MAX_ANALYZE_EVIDENCE_CHARS);
+  });
+
+  it("can adopt the operative quote before or after a long irrelevant original", async () => {
+    const irrelevant = { ...candidates[1], text: "관련 없는 내용\n".repeat(MAX_EVIDENCE_CHARS) };
+    const operative = { ...candidates[0], text: `${"배경 설명\n".repeat(MAX_EVIDENCE_CHARS)}${wageQuote}\n시행일 확인` };
+    for (const ordered of [[irrelevant, operative], [operative, irrelevant]]) {
+      provider([direct]);
+      const result = await verifyResearchAdoption(originalQuery, issues, ordered, context);
+      expect(result).toEqual([expect.objectContaining({
+        candidateId: operative.id, role: "direct", quote: wageQuote,
+        window: { start: expect.any(Number), end: expect.any(Number), total: operative.text.length },
+      })]);
+    }
+  });
+
+  it("shadow mode only: extends the single adoption call with structural records and keeps legacy selections independent", async () => {
+    const fetcher = vi.fn().mockResolvedValue(completion(JSON.stringify({
+      selections: [direct], profiles: [{ candidateId: direct.candidateId }], comparisons: "broken" })));
+    vi.stubGlobal("fetch", fetcher);
+    let raw: unknown;
+    const result = await verifyResearchAdoption(originalQuery, issues, candidates, { ...context,
+      adoptionStructure: { factFrame: undefined, onResult: (value) => { raw = value; } } });
+    expect(result).toEqual([direct]);
+    expect(raw).toEqual({ profiles: [{ candidateId: direct.candidateId }], comparisons: "broken" });
+    const body = requestPayload(fetcher) as ReturnType<typeof requestPayload> & { response_format: { json_schema: { schema: { required: string[] } } } };
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(body.max_completion_tokens).toBe(8_000);
+    expect(body.response_format.json_schema.schema.required).toEqual(["selections", "profiles", "comparisons"]);
+    expect(JSON.parse(body.messages.find((entry) => entry.role === "user")!.content)).toHaveProperty("factFrame", null);
+  });
+
+  it("leaves the adoption call unchanged outside shadow mode", async () => {
+    const fetcher = provider([]);
+    await verifyResearchAdoption(originalQuery, issues, candidates, context);
+    const body = requestPayload(fetcher) as ReturnType<typeof requestPayload> & { response_format: { json_schema: { schema: { required: string[] } } } };
+    expect(body.max_completion_tokens).toBe(3_000);
+    expect(body.response_format.json_schema.schema.required).toEqual(["selections"]);
+    expect(JSON.parse(requestPayload(fetcher).messages.find((entry) => entry.role === "user")!.content)).not.toHaveProperty("factFrame");
   });
 
   it("treats quoted prompt instructions as data and cannot mint a candidate handle or a new version", async () => {

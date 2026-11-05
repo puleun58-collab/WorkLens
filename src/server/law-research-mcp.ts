@@ -26,6 +26,8 @@ import { assessAmendment } from "@/lib/amendment-evidence";
 import { assessDispute } from "@/lib/dispute-evidence";
 import { assessLawSystem, delegatingDetailBlocks, askedArticles } from "@/lib/law-system-evidence";
 import { integratedEvidenceStatus } from "@/lib/research-status";
+import type { FactFrame } from "@/lib/research-structure";
+import { buildStructureShadow, logStructureShadow, structureShadowEnabled } from "@/server/research-structure-shadow";
 
 const RESEARCH_FAILURE = "법령 리서치 서비스가 요청을 처리하지 못했습니다.";
 
@@ -177,7 +179,11 @@ async function fullResearch(
   // question's existing search path. It never supplies factual evidence.
   // Groq logs the final failure once, with the request ID; this layer only selects the fallback.
   let interpretationFailure: InterpretationFailure | undefined;
-  const interpretation = await interpretResearchQuery(query, context).catch((error: unknown) => {
+  // Staging-only structural shadow (DESIGN §5-1 ①): extends the same two model
+  // calls and records a comparison; operational evidence below is unchanged.
+  const shadow = structureShadowEnabled();
+  let factFrame: { frame?: FactFrame; dropped: number } | undefined;
+  const interpretation = await interpretResearchQuery(query, shadow ? { ...context, onFactFrame: (result) => { factFrame = result; } } : context).catch((error: unknown) => {
     const failure = error instanceof ApiError ? error : undefined;
     interpretationFailure = failure?.code === "AI_RATE_LIMITED" ? "rate-limited"
       : failure?.code === "AI_TIMEOUT" ? "timeout" : "unavailable";
@@ -314,14 +320,14 @@ async function fullResearch(
     if (!adopted.articles.length) {
       const lookupQuery = fallback ? questionSubjectTerms(query).join(" ") : issue.query;
       if (lookupQuery) {
-        // A lookup failure degrades to "no lookup", never to a failed request:
+        // A thrown lookup is an incomplete lookup, never a confirmed absence:
         // the chain's own adoption still stands, and the issue status below
-        // falls back to the chain outcome.
+        // reports the failure instead of "none".
         const questionIdentities = parseExplicitIdentities(query);
         lookup = await lookupIssue(lookupQuery, shownArticles, sources, expired,
           [...new Set([...lawNamesInQuery(query), ...questionTerms(query).filter(isLawName)])], questionTerms(query),
           questionIdentities.length ? questionIdentities : undefined)
-          .catch(() => undefined);
+          .catch(() => ({ status: "failed" as const, articles: [], precedents: [] }));
         if (lookup?.status === "found") adopted = await issueSources(issue.query, known, lookup, sources, summaries, requestTerms, fallback, query);
       }
     }
@@ -515,9 +521,14 @@ async function fullResearch(
   const candidates = [...candidateMap.values()].sort((a, b) => Number(Boolean(a.partial)) - Number(Boolean(b.partial)));
   let selections: ResearchAdoptionVerdict[] = [];
   let verification: "verified" | "unavailable" = "verified";
+  let evaluated: ReadonlyMap<string, ResearchAdoptionVerdict["window"]> | undefined;
+  let structureRaw: unknown;
   if (candidates.length) {
-    try { selections = await verifyResearchAdoption(query, issues, candidates, context); }
-    catch (error) {
+    try {
+      selections = await verifyResearchAdoption(query, issues, candidates, { ...context,
+        onAdoptionCoverage: (visible) => { evaluated = new Map(visible.map(({ id, window }) => [id, window])); },
+        ...(shadow ? { adoptionStructure: { factFrame: factFrame?.frame, onResult: (raw: unknown) => { structureRaw = raw; } } } : {}) });
+    } catch (error) {
       if (context.signal?.aborted) throw error;
       verification = "unavailable";
     }
@@ -540,6 +551,8 @@ async function fullResearch(
     }
   }
   const semanticArticles: SupplementArticle[] = [];
+  /** Legacy outcome per (issue, candidate), for the shadow comparison only. */
+  const legacyOutcomes = new Map<string, { adopted: boolean; role?: "direct" | "supporting" | "identity"; identity: boolean }>();
   for (const [issueIndex, item] of judged.entries()) {
     const byCandidate = new Map(selections.filter((selection) => selection.issueIndex === issueIndex)
       .map((selection) => [selection.candidateId, selection]));
@@ -558,7 +571,7 @@ async function fullResearch(
         || proposed.role === "direct" && !directConditionsSupported(fullScope, query)
         || candidate.kind === "article" && candidate.title?.replace(/\s+/gu, "") === "목적" && !query.includes("목적"));
       const selection = mismatch ? undefined : proposed;
-      const identity = requestedCandidateIds.has(candidate.id)
+      const identity = !candidate.partial && requestedCandidateIds.has(candidate.id)
         && (issues.length === 1 || questionTermsRelationLess(item.issue.query) || item.issue.query.includes(candidate.jo!))
         && !identityKeys.has(`${candidate.law}\0${candidate.jo}`);
       const accepted = Boolean(selection) || identity;
@@ -567,11 +580,13 @@ async function fullResearch(
         : mismatch ? "원질문의 당사자·법률관계 또는 질문 범위와 맞지 않아 근거로 채택하지 않았습니다."
         : selection?.reason ?? (candidate.partial ? "일부 원문만 확보되어 직접·보충 관련성을 확정하지 않았습니다."
         : verification === "unavailable" ? "원문은 확보했으나 관련성 검증을 완료하지 못해 추가 확인이 필요합니다."
+        : evaluated && !evaluated.has(candidate.id) ? "관련성 검증의 원문 예산에 포함되지 않아 확인하지 못했습니다."
         : "원질문과 이 쟁점을 뒷받침하는 직접·보충 관련성이 확인되지 않았습니다.");
+      legacyOutcomes.set(`${issueIndex}\0${candidate.id}`, { adopted: accepted, role, identity });
       if (candidate.kind === "article" && candidate.law && candidate.jo) {
         review.articles.push({ law: candidate.law, jo: candidate.jo, title: candidate.title,
           excerpt: candidate.text, effectiveDate: candidate.effectiveDate, stage: candidate.stage,
-          adopted: accepted, role, quote: selection?.quote ?? (identity ? candidate.text : undefined), reason, window: selection?.window });
+          adopted: accepted, role, quote: selection?.quote ?? (identity ? candidate.text : undefined), reason, window: evaluated?.get(candidate.id) });
         if (accepted) {
           if (!adopted.articles.some((article) => article.law === candidate.law && article.jo === candidate.jo)) {
             adopted.articles.push({ law: candidate.law, jo: candidate.jo });
@@ -588,13 +603,13 @@ async function fullResearch(
       } else if (candidate.precedentId) {
         review.precedents.push({ id: candidate.precedentId, key: candidate.decisionKey, domain: "precedent", title: candidate.title, body: candidate.body,
           date: candidate.date, caseNumber: candidate.caseNumber, excerpt: candidate.text, partial: candidate.partial,
-          adopted: accepted, role: selection?.role, quote: selection?.quote, reason, window: selection?.window });
+          adopted: accepted, role: selection?.role, quote: selection?.quote, reason, window: evaluated?.get(candidate.id) });
         if (accepted && !adopted.precedents.includes(candidate.precedentId)) adopted.precedents.push(candidate.precedentId);
       } else if (candidate.decisionId && candidate.decisionKey && candidate.domain) {
         (review.decisions ??= []).push({ key: candidate.decisionKey, domain: candidate.domain, id: candidate.decisionId,
           title: candidate.title, body: candidate.body, date: candidate.date, caseNumber: candidate.caseNumber,
           excerpt: candidate.text, partial: candidate.partial, source: candidate.source,
-          adopted: accepted, role: selection?.role, quote: selection?.quote, reason, window: selection?.window });
+          adopted: accepted, role: selection?.role, quote: selection?.quote, reason, window: evaluated?.get(candidate.id) });
         if (accepted) {
           const refs = adopted.decisions ??= [];
           if (!refs.includes(candidate.decisionKey)) refs.push(candidate.decisionKey);
@@ -669,6 +684,11 @@ async function fullResearch(
   const hasDirectDecision = [...known.reviews.values()].some((review) =>
     review.precedents.some((entry) => entry.adopted && entry.role === "direct")
     || review.decisions?.some((entry) => entry.adopted && entry.role === "direct"));
+  const structureShadow = shadow ? buildStructureShadow({
+    query, issues, candidates, evaluated, verification, structureRaw, factFrame, legacyOutcomes,
+    issueStates: judged.map((item) => ({ status: item.status, lookup: item.lookup?.status, chainFailed: chain.kind === "failed" })),
+  }) : undefined;
+  if (structureShadow) logStructureShadow(context.requestId, structureShadow);
   const relationCapped = Boolean(lawSystem && lawSystem.status !== "matched")
     || Boolean(followup && (followup.report.failed || followup.report.limited || followup.report.missing))
     || annexes.some((a) => a.status !== "verified")
@@ -695,6 +715,7 @@ async function fullResearch(
     },
     ...(interpretation ? { interpretation } : {}),
     ...(interpretationFailure ? { interpretationFailure } : {}),
+    ...(structureShadow ? { structureShadow } : {}),
   };
 }
 

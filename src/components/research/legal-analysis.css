@@ -403,7 +403,9 @@ p.research-meta { margin: 0; }
 .legal-research .research-issue-status::before { content: "·"; margin-right: 8px; color: var(--muted); font-weight: normal; }
 .legal-research .research-issue-status[data-status="found"] { color: var(--ink); }
 .legal-research .research-issue-status[data-status="failed"],
-.legal-research .research-issue-status[data-status="timeout"] { color: var(--warning); }
+.legal-research .research-issue-status[data-status="timeout"],
+.legal-research .research-issue-status[data-status="needs_confirmation"] { color: var(--warning); }
+.legal-research .research-unconfirmed { margin: 0; padding-left: 1.1em; }
 /* The top issue list doubles as the jump control: a plain-text button that
    keeps the list's numbered rhythm (no card, no extra chrome). The status
    stays outside the button, so the accessible name is number + label only. */

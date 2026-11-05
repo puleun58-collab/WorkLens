@@ -22,7 +22,7 @@ import { DECISION_DOMAINS } from "@/lib/decision-domain";
 import { annexBlocks, type AnnexCell } from "@/lib/research-annex";
 import type { ProcedureRequirementStatus } from "@/lib/procedure-evidence";
 import { LawTextBlock } from "./LawTextBlock";
-import { articleDisplayKey, hasQuestionTermInTitle, taskSourceRole, taskSources } from "./research-result-display";
+import { articleDisplayKey, hasQuestionTermInTitle, needsConfirmationView, taskSourceRole, taskSources } from "./research-result-display";
 import { ContractReviewResult, FileReviewExcluded } from "./ContractReviewResult";
 import { SourceToggleSummary } from "./SourceToggleSummary";
 import { ResearchResultSummary, ResearchSummaryNotice, ResearchSummaryNotices, STATUS_BADGE } from "./ResearchResultSummary";
@@ -557,6 +557,7 @@ const ISSUE_STATUS_LABEL: Record<IssueEvidence["status"], string> = {
   none: "직접 관련 근거 미확인",
   failed: "자료 확인 실패",
   timeout: "조회 미완료",
+  needs_confirmation: "적용 요건 확인 필요",
 };
 
 /** Per-requirement outcome for 절차·서식, from the server's evidence verdict. */
@@ -717,6 +718,7 @@ const ISSUE_GAP: Record<IssueEvidence["status"], string> = {
   none: "직접 관련된 근거를 찾지 못했습니다.",
   failed: "자료를 불러오지 못해 확인하지 못했습니다.",
   timeout: "조회를 마치지 못해 확인하지 못했습니다.",
+  needs_confirmation: "질문 사실만으로 확인할 수 없는 적용 요건이 있어 직접 근거로 확정하지 않았습니다.",
 };
 
 const STATUS_NOTE: Record<Exclude<ResearchSection["status"], "available">, string> = {
@@ -1578,14 +1580,19 @@ export function ResearchResult({ data, request, expandSources = false, onExpandS
             || review.precedents.some((item) => item.adopted && item.role === "direct")
             || review.decisions?.some((item) => item.adopted && item.role === "direct");
           const supportingOnly = Boolean(review && !hasDirect && sourceCount > 0);
+          // Structural S3: never a confirmed source, whatever supporting material is listed below.
+          const confirmation = needsConfirmationView(group);
           return <section key={`${group.label ?? ""}-${index}`} id={`research-issue-${index + 1}`} className="legal-analysis-section research-issue-evidence" data-status={group.status} data-issue-index={index}>
             <h3 tabIndex={-1}><span className="research-issue-number">{String(index + 1).padStart(2, "0")}</span>{group.label || "질문 쟁점"}</h3>
             <dl className="research-issue-findings">
-              <div><dt>핵심 검토 결과</dt><dd>{supportingOnly ? "보충 근거는 확인했지만 쟁점의 직접 근거는 추가 확인이 필요합니다." : sourceCount > 0
+              <div><dt>핵심 검토 결과</dt><dd>{confirmation ? ISSUE_GAP.needs_confirmation : supportingOnly ? "보충 근거는 확인했지만 쟁점의 직접 근거는 추가 확인이 필요합니다." : sourceCount > 0
                 ? `이 쟁점과 내용이 맞는 법령 ${articles.length}건·판례 ${cases.length}건${decisions.length ? `·결정·해석 자료 ${decisions.length}건` : ""}을 확인했습니다. 구체적인 사건의 법적 결론은 아닙니다.`
                 : ISSUE_GAP[group.status]}</dd></div>
-              <div><dt>근거 상태</dt><dd className="research-issue-status" data-status={group.status}>{supportingOnly ? "추가 확인 필요" : group.status === "found" && sourceCount === 0 ? "표시 근거 없음" : ISSUE_STATUS_LABEL[group.status]}</dd></div>
-              <div><dt>추가 확인</dt><dd>{group.status === "failed" || group.status === "timeout"
+              <div><dt>근거 상태</dt><dd className="research-issue-status" data-status={group.status}>{confirmation ? ISSUE_STATUS_LABEL.needs_confirmation : supportingOnly ? "추가 확인 필요" : group.status === "found" && sourceCount === 0 ? "표시 근거 없음" : ISSUE_STATUS_LABEL[group.status]}</dd></div>
+              {confirmation && confirmation.items.length > 0 && <div><dt>미확정 요건</dt><dd>
+                <ul className="research-unconfirmed" aria-label="미확정 적용 요건">{confirmation.items.map((item) => <li key={item}>{item}</li>)}</ul>
+              </dd></div>}
+              <div><dt>추가 확인</dt><dd>{confirmation ? confirmation.followUp : group.status === "failed" || group.status === "timeout"
                 ? "조회되지 않은 자료를 원문에서 추가로 확인해야 합니다."
                 : sourceCount > 0
                   ? "원문 시행 시점과 구체적인 사실관계에 대한 적용 여부를 대조해 주세요."

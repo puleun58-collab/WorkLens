@@ -1,3 +1,4 @@
+import type { IssueEvidence } from "@/lib/law-research";
 import type { SupplementArticle } from "@/lib/research-relevance";
 import type { TaskEvidenceItem, TaskEvidenceArticle, TaskEvidenceBodyRef } from "@/lib/task-evidence";
 import { compactLaw, lawSourceUrl, sameLawFamily } from "@/lib/research-scope";
@@ -83,6 +84,19 @@ export function taskSourceRole(
 /** Presentation only: never merge different versions or different source excerpts. */
 export function articleDisplayKey(article: { law: string; jo: string; excerpt: string; effective?: string }): string {
   return JSON.stringify([article.law, article.jo, article.effective ?? "", article.excerpt.trim()]);
+}
+
+/**
+ * needs_confirmation (structural S3): the party and act match but the user's
+ * facts could not confirm an application requirement. It is never a
+ * confirmed source; the list says exactly which facts would settle it.
+ */
+export function needsConfirmationView(issue: Pick<IssueEvidence, "status" | "unconfirmed" | "followUp">): { items: string[]; followUp: string } | undefined {
+  if (issue.status !== "needs_confirmation") return;
+  const items = [...new Set((issue.unconfirmed ?? []).map((item) => item.trim()).filter(Boolean))];
+  return { items, followUp: issue.followUp?.trim()
+    || (items.length ? `다음 적용 요건에 해당하는 사실을 알려주면 다시 확인할 수 있습니다: ${items.join(", ")}.`
+      : "적용 요건에 해당하는 사실을 질문에 더하면 다시 확인할 수 있습니다.") };
 }
 
 /** Describe the title we can see, without claiming which lookup produced it. */

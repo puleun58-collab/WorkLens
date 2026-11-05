@@ -446,6 +446,37 @@ describe("research result source structure", () => {
     expect(html.slice(html.indexOf("</section>", start))).toContain(excerpt.split("\n")[1]);
   });
 
+  it("shows needs_confirmation as an unconfirmed requirement list, never as a confirmed direct source", () => {
+    const supporting = { ...article, excerpt: "보충 원문에 포함된 확인 문언", effectiveDate: "2026.01.01" };
+    const html = render({ ...base, evidence: { status: "unverified", articles: [reference], precedents: [],
+      issues: [{ label: "임금 지급 기한", status: "needs_confirmation", articles: [reference], precedents: [],
+        unconfirmed: ["근로자의 퇴직 여부", "근로자의 퇴직 여부", "지급 사유 발생일"] }] },
+      enrichment: { supplement: { status: "found", articles: [supporting] }, adoptionReviews: [{
+        query: "임금", issueIndex: 0, verification: "verified",
+        articles: [{ ...supporting, stage: "issue", adopted: true, role: "supporting", reason: "주변 요건만 설명", quote: "확인 문언" }],
+        precedents: [],
+      }] } });
+    const start = html.indexOf('class="legal-analysis-section research-issue-evidence"');
+    const issue = html.slice(start, html.indexOf("</section>", start));
+    expect(issue).toContain('data-status="needs_confirmation"');
+    expect(issue).toContain("적용 요건 확인 필요");
+    expect(issue).toContain("질문 사실만으로 확인할 수 없는 적용 요건이 있어 직접 근거로 확정하지 않았습니다.");
+    expect(issue).toContain('aria-label="미확정 적용 요건"');
+    expect(issue.match(/근로자의 퇴직 여부<\/li>/gu)).toHaveLength(1);
+    expect(issue).toContain("다음 적용 요건에 해당하는 사실을 알려주면 다시 확인할 수 있습니다: 근로자의 퇴직 여부, 지급 사유 발생일.");
+    expect(issue).not.toContain('data-evidence-role="direct"');
+    expect(issue).not.toContain("근거 확인<");
+    expect(html).not.toMatch(/확인된 쟁점\s*<span/u);
+    expect(html).not.toContain("직접 근거 확인");
+  });
+
+  it("uses a server follow-up for needs_confirmation when one is given", () => {
+    const html = render({ ...base, evidence: { status: "unverified", articles: [], precedents: [],
+      issues: [{ label: "해고 기준", status: "needs_confirmation", articles: [], precedents: [], followUp: "근무 기간을 알려주세요." }] } });
+    expect(html).toContain("근무 기간을 알려주세요.");
+    expect(html).not.toContain('aria-label="미확정 적용 요건"');
+  });
+
   it("attributes audited versions and role explanations independently to each issue", () => {
     const newer = { ...article, effectiveDate: "2026.01.01", excerpt: "새 시행 버전의 고유 원문" };
     const html = render({ ...base, evidence: { status: "matched", articles: [reference], precedents: [], issues: [

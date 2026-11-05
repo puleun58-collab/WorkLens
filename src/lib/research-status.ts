@@ -34,7 +34,7 @@ export function integratedEvidenceStatus(
   relationCapped = false,
   precedentSufficient = false,
 ): "matched" | "partial" | "unverified" {
-  if (coveredCount === issueCount && (hasArticle || precedentSufficient) && !relationCapped) return "matched";
+  if (issueCount > 0 && coveredCount === issueCount && (hasArticle || precedentSufficient) && !relationCapped) return "matched";
   return coveredCount ? "partial" : "unverified";
 }
 

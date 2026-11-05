@@ -5,6 +5,7 @@ import { normalizeAnalysisDate, normalizeAnalysisJo } from "@/lib/law-analysis";
 import type { ContractReview } from "@/lib/contract-review";
 import type { ProcedureEvidence } from "@/lib/procedure-evidence";
 import type { ResearchEnrichment } from "@/lib/research-relevance";
+import type { FactFrame, S5Reason, ShadowIssueStatus, StructureComparison, StructureState } from "@/lib/research-structure";
 import type { TaskEvidence } from "@/lib/task-evidence";
 
 /**
@@ -198,7 +199,16 @@ export interface ResearchInterpretation {
 export interface IssueEvidence {
   /** Absent when the question could not be interpreted and was searched as written. */
   label?: string;
-  status: "found" | "none" | "failed" | "timeout";
+  /**
+   * `needs_confirmation` (structural S3, DESIGN §4.5): a candidate's party and act
+   * match but an application requirement cannot be confirmed from the user's
+   * facts. It never counts as covered; `unconfirmed`/`followUp` say what to add.
+   */
+  status: "found" | "none" | "failed" | "timeout" | "needs_confirmation";
+  /** needs_confirmation only: requirements the stated facts could not confirm. */
+  unconfirmed?: string[];
+  /** needs_confirmation only: a request for exactly those facts. */
+  followUp?: string;
   articles: Array<{ law: string; jo: string }>;
   precedents: string[];
   /** Adopted non-precedent decisions, scoped by canonical upstream domain + ID. */
@@ -239,6 +249,12 @@ export interface LawResearchData {
     /** The combined 법제처 research search failed; issue lookups alone supplied what is shown. */
     searchFailed?: true;
   };
+  /**
+   * 종합 리서치, staging shadow mode only (DESIGN §5-1 ①): the structural
+   * decision computed next to the existing gates. Never read by the UI and
+   * never changes `evidence`; absent in production.
+   */
+  structureShadow?: StructureShadowRecord;
   /** 조례 비교 only: each region's ordinance and the topic articles fetched from 법제처. */
   comparison?: OrdinanceComparison;
   /** 절차·서식 only: server-computed per-requirement evidence; the UI displays it, never recomputes it. */
@@ -267,7 +283,47 @@ export interface LawResearchData {
 export type LawCurrency = "current" | "upcoming" | "not_current" | "unconfirmed";
 export interface EvidenceArticle { law: string; jo: string; currency?: LawCurrency;
   /** Internal provenance of the adopted article: chain text, supplement lookup, issue lookup, re-read, or retry search. */
-  stage?: "chain" | "supplement" | "issue" | "reread" | "retry"; }
+  stage?: "chain" | "supplement" | "issue" | "reread" | "retry";
+  /** Structural role of the adopted article (F8): S1 direct or S2 supporting; identity counts as direct. */
+  state?: "direct" | "supporting"; }
+
+/** Per (issue, candidate) structural decision, recorded for comparison with the existing gates. */
+export interface StructureShadowDecision {
+  issueIndex: number;
+  candidateId: string;
+  kind: "article" | "precedent" | "decision";
+  law?: string;
+  jo?: string;
+  decisionKey?: string;
+  window?: { start: number; end: number; total: number };
+  complete: boolean;
+  identity: boolean;
+  /** identity whose comparison is S4: "질문 사실과 맞지 않는 요건 있음". */
+  identityMismatch?: true;
+  state: StructureState;
+  subReason?: S5Reason;
+  rule: number;
+  signals: string[];
+  unconfirmed: string[];
+  comparison?: StructureComparison | { malformed: string };
+  effectType?: string;
+  legacy: { adopted: boolean; role?: "direct" | "supporting" | "identity" };
+  /** Structural direct-ness differs from the legacy direct/identity adoption. */
+  differs: boolean;
+}
+
+export interface StructureShadowRecord {
+  mode: "shadow";
+  factFrame?: FactFrame;
+  factFrameDropped: number;
+  adoption: "verified" | "unavailable" | "malformed" | "not_run";
+  decisions: StructureShadowDecision[];
+  issues: Array<{ issueIndex: number; label?: string; legacyStatus: IssueEvidence["status"]; status: ShadowIssueStatus;
+    unconfirmed: string[]; followUp?: string; differs: boolean }>;
+  /** What `evidence.articles` would carry with structural states (F8). */
+  articles: Array<{ law: string; jo: string; state: "direct" | "supporting" }>;
+  differences: number;
+}
 
 export interface OrdinanceRegionResult {
   region: string;

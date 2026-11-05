@@ -9,6 +9,8 @@ import { z } from "zod";
 import type { AiApiRequest, AiApiResult } from "@/lib/ai/api";
 import type { ResearchInterpretation, ResearchIssue } from "@/lib/law-research";
 import type { ResearchAdoptionCandidate, ResearchAdoptionVerdict } from "@/lib/research-relevance";
+import { researchCandidateWindows } from "@/lib/research-candidate-window";
+import { ADOPTION_STRUCTURE_INSTRUCTION, ADOPTION_STRUCTURE_JSON_SCHEMA, FACT_FRAME_INSTRUCTION, FACT_FRAME_JSON_SCHEMA, validateFactFrame, type FactFrame } from "@/lib/research-structure";
 import { buildExtractMessages, EXTRACT_RESPONSE_SCHEMA, parseExtractResponse } from "@/lib/ai/extract-prompt";
 import { buildPolishBatchMessages, buildPolishMessages, parsePolishResponse, POLISH_BATCH_RESPONSE_SCHEMA, POLISH_RESPONSE_SCHEMA } from "@/lib/ai/polish-prompt";
 import { ANALYZE_RESPONSE_SCHEMA, buildMessages, CLAIM_RESPONSE_SCHEMA, MAX_ANALYZE_EVIDENCE_CHARS, MAX_EVIDENCE_CHARS, parseModelResponse } from "@/lib/ai/prompt";
@@ -54,6 +56,20 @@ type JsonSchema = Record<string, unknown>;
 export interface GroqRequestContext {
   requestId: string;
   signal?: AbortSignal;
+  /** Model-visible originals; absent window means the complete fetched text was shown. */
+  onAdoptionCoverage?: (candidates: ReadonlyArray<{ id: string; window?: ResearchAdoptionVerdict["window"] }>) => void;
+  /**
+   * Structural shadow mode only (DESIGN §5-1 ①). Its presence extends the
+   * interpretation call with a FactFrame; the server-validated frame is handed
+   * back here. Absent, the interpretation call is unchanged.
+   */
+  onFactFrame?: (result: { frame?: FactFrame; dropped: number }) => void;
+  /**
+   * Structural shadow mode only. Its presence extends the one adoption call with
+   * provision profiles and comparison records (raw; validated by the caller).
+   * `factFrame` is the validated frame sent to the model. Absent, the call is unchanged.
+   */
+  adoptionStructure?: { factFrame?: FactFrame; onResult: (raw: unknown) => void };
 }
 
 interface GroqAttemptBudget {
@@ -208,6 +224,60 @@ const RESEARCH_INTERPRETATION_SCHEMA = {
 /** Endings of a request or a wondering, not of a statement: `…한지 궁금해`, `알고 싶어`, `알려줘`, `받을 수 있을까`. */
 const QUESTION_PHRASE = /[?？]|궁금|알고\s*싶|알려\s*(?:줘|주세요|달라)|(?:[은는인한된던운른]지|을까|나요|가요)(?:도|를)?[.!]?$/u;
 
+/** Money-claim issue families and the words that show the user raised one of them. */
+const CLAIM_FAMILIES: ReadonlyArray<{ issue: RegExp; cue: RegExp }> = [
+  // Naming wages (임금·월급) raises a wage claim, not a retirement-benefit claim.
+  { issue: /퇴직금|퇴직급여|퇴직연금|퇴직\s*정산|금품\s*청산/u, cue: /퇴직금|퇴직급여|퇴직연금|정산|청산|금품|돈/u },
+  { issue: /임금|월급|급여|수당|체불|상여/u, cue: /임금|월급|급여|급료|봉급|수당|체불|상여|보너스|일당|시급|연봉|돈|페이/u },
+  { issue: /손해배상|배상|위자료/u, cue: /손해|배상|위자료|보상|물어/u },
+];
+
+export function claimIssueGrounded(issue: string, original: string): boolean {
+  return CLAIM_FAMILIES.every(({ issue: family, cue }) => !family.test(issue) || cue.test(original));
+}
+
+/**
+ * Carry explicitly stated applicability facts into retrieval, not into adoption.
+ * The model can shorten "퇴직 뒤 임금" to "임금 지급 기한"; that changes the
+ * search regime before an original is ever fetched. No law or remedy is inferred.
+ */
+export function preserveResearchSearchFacts(original: string, input: string): string {
+  const facts: string[] = [];
+  const retirement = original.match(/(퇴직|퇴사)(?:\s*(?:뒤|후)|한|했|하였)/u)?.[1];
+  if (retirement && /임금|월급|급여|체불/u.test(input)
+    && !/퇴직|퇴사/u.test(input)
+    && !/(?:퇴직|퇴사)(?:을|를|은|는|하지|한\s*것이)?\s*(?:안|않|아니|아닌|아닙|아님|없)/u.test(original)) {
+    facts.push(retirement);
+  }
+  // A contract type ("물품 공급계약") is not injected: measured runs showed it steering general
+  // civil rescission searches away from the 민법 rescission rules (543~548조) toward supply statutes.
+  if (/계약|금액|공사/u.test(input) && original.includes("설계변경")
+    && !/설계변경[^.!?\n]{0,12}(?:아니|아닌|아닙|아님|않|없)/u.test(original) && !input.includes("설계변경")) {
+    facts.push("설계변경");
+  }
+  if (/계약|입찰|조달|제재|부정당/u.test(input)) {
+    const parties = ["국가기관", "지방자치단체"].filter((party) => original.includes(party)
+      && !new RegExp(`${party}[^.!?\\n]{0,12}(?:아니|아닌|아닙|아님|않|없)`, "u").test(original));
+    // A comparison between regimes cannot be assigned to either one.
+    if (parties.length === 1 && !input.includes(parties[0])) facts.push(parties[0]);
+  }
+  return [...facts, input].join(" ");
+}
+
+/**
+ * Structural shadow output ceilings. UNMEASURED in this round (no live provider
+ * key in the implementation environment): chosen from the existing measured
+ * ceilings plus the added JSON. Interpretation: production medium-effort answers
+ * used ~914 of 1,000 tokens and 2,000 is the current ceiling; the FactFrame adds
+ * at most 5 short arrays of spans, so 3,000. Adoption: 3,000 is the current
+ * ceiling for selections alone; profiles + comparisons repeat quotes per
+ * candidate and per pair, so 8,000 to avoid json_validate_failed truncation that
+ * would also fail the legacy selections in staging. Staging logs carry
+ * completionTokens per call; the final values are set from those measurements.
+ */
+export const STRUCTURE_INTERPRETATION_MAX_TOKENS = 3_000;
+export const STRUCTURE_ADOPTION_MAX_TOKENS = 8_000;
+
 /**
  * Interpretation is retrieval guidance, not legal analysis. The user's exact
  * question is attached by the server rather than generated by the model.
@@ -229,9 +299,16 @@ export async function interpretResearchQuery(query: string, context: GroqRequest
       "개념을 유지한다는 것은 일상어를 그대로 검색하라는 뜻이 아닙니다. 같은 단어가 다른 법률관계에서 쓰이면 사용자가 밝힌 관계에 맞는 법령상 용어를 query에 넣으세요. 예를 들어 직원의 퇴사는 사원 지분의 탈퇴가 아니라 근로계약·고용관계 종료의 문제입니다. 해고 통보나 임금·퇴직금 미지급이 진술되지 않았다면 이를 발생 사실이나 독립된 미지급 쟁점으로 만들지 마세요.",
       "결과를 실제로 바꾸는 사실이 빠졌을 때만 followUp에 그 사실만 짧게 한 문장으로 요청하세요(예: '해고 통보를 받은 날짜와 방식, 회사가 밝힌 해고 사유를 알려주면 더 정확하게 확인할 수 있습니다.'). 이미 적힌 사실은 다시 묻지 말고, '자세히 입력하세요' 같은 포괄적 요구는 금지입니다. issues가 비어 있으면 followUp에 어떤 일이 있었는지 구체적으로 묻는 문장을 적으세요(예: '해고, 임금, 근무 조건 등 회사와 어떤 문제가 생겼는지 알려주면 관련 법령을 찾을 수 있습니다.'). 진술이 서로 모순되면 followUp에서 무엇이 명확하지 않은지 밝히고 확인을 요청하세요(예: '해고 통보를 받았는지 명확하지 않습니다. 통보 여부와 시점을 알려주세요.'). 충분하면 followUp과 uncertainty는 null이고, followUp이 있으면 uncertainty는 null입니다.",
       "판단, 법령 현행성, 판례 내용, 결과나 인용을 주장하지 마세요. JSON 객체만 반환하세요.",
+      ...(context.onFactFrame ? [FACT_FRAME_INSTRUCTION] : []),
     ].join(" ") },
     { role: "user", content: `사용자 원문:\n${query}` },
   ];
+  // Shadow mode only: the same single call also returns a FactFrame.
+  const structured = Boolean(context.onFactFrame);
+  const schema = structured ? { ...RESEARCH_INTERPRETATION_SCHEMA,
+    properties: { ...RESEARCH_INTERPRETATION_SCHEMA.properties, factFrame: FACT_FRAME_JSON_SCHEMA },
+    required: [...RESEARCH_INTERPRETATION_SCHEMA.required, "factFrame"] } : RESEARCH_INTERPRETATION_SCHEMA;
+  let rawFactFrame: unknown;
   return observeGroq({ ...context, operation }, operation, async (budget) => {
     // A malformed answer is asked for once more; both layers share the provider-call budget.
     // Groq reports a completion that ran out of tokens before closing its JSON as a
@@ -243,7 +320,7 @@ export async function interpretResearchQuery(query: string, context: GroqRequest
       // varies per question, so the ceiling leaves room for it; the visible JSON is short.
       let completion: GroqCompletion;
       try {
-        completion = await complete(messages, RESEARCH_INTERPRETATION_SCHEMA, "worklens_research_interpretation", 2_000,
+        completion = await complete(messages, schema, "worklens_research_interpretation", structured ? STRUCTURE_INTERPRETATION_MAX_TOKENS : 2_000,
           { ...context, operation }, budget);
       } catch (error) {
         if (budget.rejection?.providerCode !== "json_validate_failed") throw error;
@@ -257,8 +334,17 @@ export async function interpretResearchQuery(query: string, context: GroqRequest
         budget.failure = new ApiError("INVALID_PROVIDER_OUTPUT", "AI 응답 형식이 올바르지 않습니다.", 502);
         continue;
       }
+      // The FactFrame never decides whether the legacy reading is valid; a bad frame is dropped item by item later.
+      rawFactFrame = undefined;
+      if (structured && payload && typeof payload === "object" && !Array.isArray(payload)) {
+        const { factFrame, ...legacy } = payload as Record<string, unknown>;
+        rawFactFrame = factFrame;
+        payload = legacy;
+      }
       const validated = researchInterpretationSchema.safeParse(payload);
-      if (validated.success) {
+      if (validated.success && (!validated.data.issues.length || validated.data.issues.some(
+        (issue) => claimIssueGrounded(`${issue.label} ${issue.query}`, query),
+      ))) {
         value = validated.data;
       } else {
         budget.failure = new ApiError("INVALID_PROVIDER_OUTPUT", "AI 응답 형식이 올바르지 않습니다.", 502);
@@ -273,9 +359,15 @@ export async function interpretResearchQuery(query: string, context: GroqRequest
     const issues: ResearchIssue[] = [];
     for (const issue of value.issues) {
       if (issue.label.length < 2 || issue.query.length < 2) continue;
-      const kept = { label: issue.label.slice(0, MAX_ISSUE_LABEL), query: issue.query.slice(0, MAX_ISSUE_QUERY) };
+      const kept = { label: issue.label.slice(0, MAX_ISSUE_LABEL),
+        query: preserveResearchSearchFacts(query, issue.query.slice(0, MAX_ISSUE_QUERY)) };
       if (!issues.some((other) => key(other.label) === key(kept.label) || key(other.query) === key(kept.query))) issues.push(kept);
     }
+    // Unsupported money claims are neither facts nor safe fallback search issues.
+    // An entirely unsupported interpretation has already failed the bounded validation above.
+    const grounded = issues.filter((issue) => claimIssueGrounded(`${issue.label} ${issue.query}`, query));
+    issues.splice(0, issues.length, ...grounded);
+    if (structured) context.onFactFrame!(validateFactFrame(query, rawFactFrame));
     const note = (text: string | null) => text && !invents(text) ? text.slice(0, MAX_NOTE) : undefined;
     const followUp = note(value.followUp);
     const uncertainty = followUp ? undefined : note(value.uncertainty);
@@ -304,20 +396,10 @@ export async function verifyResearchAdoption(
   context: GroqRequestContext,
 ): Promise<ResearchAdoptionVerdict[]> {
   const operation: GroqOperation = "research-adoption";
-  let remaining = MAX_ANALYZE_EVIDENCE_CHARS;
-  const visible = candidates.flatMap((candidate) => {
-    const limit = Math.min(MAX_EVIDENCE_CHARS, remaining);
-    let text = candidate.text.slice(0, limit);
-    if (text.length < candidate.text.length) {
-      const boundary = Math.max(text.lastIndexOf("\n") + 1, text.lastIndexOf(".") + 1);
-      if (boundary <= 1) return [];
-      text = text.slice(0, boundary);
-    }
-    remaining -= text.length;
-    return text ? [{ ...candidate, text, partial: Boolean(candidate.partial),
-      ...(text.length < candidate.text.length ? { window: { start: 0, end: text.length, total: candidate.text.length } } : {}) }] : [];
-  });
+  const visible = researchCandidateWindows(originalQuery, issues, candidates, MAX_ANALYZE_EVIDENCE_CHARS, MAX_EVIDENCE_CHARS);
+  context.onAdoptionCoverage?.(visible.map(({ id, window }) => ({ id, ...(window ? { window } : {}) })));
   if (!visible.length || !issues.length) return [];
+  const structure = context.adoptionStructure;
   const messages: Message[] = [
     { role: "system", content: [
       "한국 법률 리서치의 최종 근거 관련성 검증입니다. 외부검색·법령생성 없이 제공된 공식원문만 판단하세요.",
@@ -338,21 +420,33 @@ export async function verifyResearchAdoption(
       "partial은 실제 확보 원문 자체가 부족하다는 뜻이므로 선택 금지입니다. 반면 window가 있으면 전체 원문은 서버가 확보했지만 모델에는 표시된 문자 범위만 제공한 것입니다. 그 범위에 실존하는 인용으로 확인되는 규율만 판단하고, 보지 못한 예외나 전체 조문을 검증했다고 쓰지 마세요.",
       "selections는 양성 목록만입니다. issueIndex와 candidateId는 제공한 값만 사용하세요. quote는 해당 candidate.text 안의 실질적인 규율·판시사항을 충분히 인용하세요(공백 외에는 원문 그대로). 한 단어/범용 문구 인용은 금지합니다. reason은 원질문의 행위자·법률관계·쟁점과 이 인용이 어떻게 연결되는지 구체적으로 설명하세요.",
       "관련 근거가 없거나 확인이 불충분하면 빈 selections를 반환하세요. JSON 객체만 반환하세요.",
+      ...(structure ? [ADOPTION_STRUCTURE_INSTRUCTION] : []),
     ].join(" ") },
-    { role: "user", content: JSON.stringify({ originalQuery, issues: issues.map((issue, issueIndex) => ({ issueIndex, ...issue })), candidates: visible }) },
+    { role: "user", content: JSON.stringify({ originalQuery, issues: issues.map((issue, issueIndex) => ({ issueIndex, ...issue })), candidates: visible,
+      ...(structure ? { factFrame: structure.factFrame ?? null } : {}) }) },
   ];
   const row = z.object({ issueIndex: z.number().int().nonnegative(), candidateId: z.string(),
     role: z.enum(["direct", "supporting"]), quote: z.string(), reason: z.string() }).strict();
-  const schema = { type: "object", additionalProperties: false, properties: { selections: {
+  const selectionsSchema = {
     type: "array", maxItems: 100, items: { type: "object", additionalProperties: false,
       properties: { issueIndex: { type: "integer" }, candidateId: { type: "string" },
         role: { type: "string", enum: ["direct", "supporting"] }, quote: { type: "string" }, reason: { type: "string" } },
       required: ["issueIndex", "candidateId", "role", "quote", "reason"] },
-  } }, required: ["selections"] };
+  };
+  const schema = structure
+    ? { type: "object", additionalProperties: false, properties: { selections: selectionsSchema, ...ADOPTION_STRUCTURE_JSON_SCHEMA },
+      required: ["selections", "profiles", "comparisons"] }
+    : { type: "object", additionalProperties: false, properties: { selections: selectionsSchema }, required: ["selections"] };
   return observeGroq({ ...context, operation }, operation, async (budget) => {
-    const completion = await complete(messages, schema, "worklens_research_adoption", 3_000, { ...context, operation }, budget);
+    const completion = await complete(messages, schema, "worklens_research_adoption", structure ? STRUCTURE_ADOPTION_MAX_TOKENS : 3_000, { ...context, operation }, budget);
     let payload: unknown;
     try { payload = JSON.parse(completion.choices[0].message.content); } catch { throw budget.failure; }
+    // Shadow mode: the structural records are handed back raw and never decide the legacy selections.
+    if (structure && payload && typeof payload === "object" && !Array.isArray(payload)) {
+      const { profiles, comparisons, ...legacy } = payload as Record<string, unknown>;
+      structure.onResult({ profiles, comparisons });
+      payload = legacy;
+    }
     const result = z.object({ selections: z.array(row).max(100) }).strict().safeParse(payload);
     if (!result.success) throw budget.failure;
     const originals = new Map(visible.map((candidate) => [candidate.id, candidate]));

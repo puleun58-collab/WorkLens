@@ -74,6 +74,35 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await expect(results.locator(".research-source")).toContainText("원문을 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.");
   });
 
+  test(`적용 요건 확인 필요 쟁점은 미확정 요건과 추가 질문을 표시하고 근거 확인으로 세지 않는다 ${viewport.width}`, async ({ page }) => {
+    // DESIGN §4.5 S3: needs_confirmation is never covered; the overall status keeps the existing rule.
+    // The found issue's article carries a displayable excerpt (the overview only counts shown sources).
+    await page.setViewportSize(viewport);
+    await page.route("**/api/law/research", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: {
+      found: true, task: "full_research", markers: [],
+      text: `═══ 종합 리서치 ═══\n▶ AI 법령검색 결과\n지능형 법령검색 결과 (법령조문, 1건):\n\n근로기준법\n   제0023조 (해고 등의 제한)\n${longExcerpt}\n   시행: 2025.01.01 | 고용노동부`,
+      interpretation: { original: "월급 지급 기한", situation: "", facts: [], issues: [{ label: "임금 지급 기한", query: "임금 지급 기한" }, { label: "해고 제한", query: "해고 제한" }], confidence: "high" },
+      evidence: { status: "partial", articles: [article], precedents: [],
+        issues: [{ label: "임금 지급 기한", status: "needs_confirmation", articles: [], precedents: [], unconfirmed: ["근로자의 퇴직 여부", "지급 사유 발생일"] },
+          { label: "해고 제한", status: "found", articles: [article], precedents: [] }] },
+    } }) }));
+    await page.goto("/");
+    await navigateWorkspace(page, "법령");
+    await page.getByRole("tab", { name: "종합 리서치", exact: true }).click();
+    const form = page.getByRole("form", { name: "종합 리서치 입력" });
+    const results = page.locator(".legal-research .legal-analysis-result");
+    await form.getByLabel("질문 또는 검색어").fill("월급 지급 기한");
+    await form.getByRole("button", { name: "실행", exact: true }).click();
+    const issue = results.locator(".research-issue-evidence[data-status='needs_confirmation']");
+    await expect(issue).toHaveCount(1);
+    await expect(issue.locator(".research-issue-findings .research-issue-status")).toHaveText("적용 요건 확인 필요");
+    await expect(issue.getByRole("list", { name: "미확정 적용 요건" }).getByRole("listitem")).toHaveText(["근로자의 퇴직 여부", "지급 사유 발생일"]);
+    await expect(issue).toContainText("다음 적용 요건에 해당하는 사실을 알려주면 다시 확인할 수 있습니다: 근로자의 퇴직 여부, 지급 사유 발생일.");
+    await expect(issue.locator("[data-evidence-role='direct']")).toHaveCount(0);
+    await expect(results.locator(".research-issues .research-issue-status[data-status='needs_confirmation']")).toHaveText("적용 요건 확인 필요");
+    await expect(results.locator(".research-overview h3")).toHaveText("관련 근거를 일부 확인했습니다");
+  });
+
   test(`보완 조회 부분 실패는 서버 matched를 화면 partial로 강등한다 ${viewport.width}`, async ({ page }) => {
     // F7·F1·F3 (lookupPartial): the server still reports matched (the issue was
     // covered), but one lookup branch failed, so the existing partial notice

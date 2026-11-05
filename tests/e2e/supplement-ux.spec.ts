@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, test, type Page, type Route } from "@playwright/test";
 import { createPptxSlides, createUnicodePdf } from "../fixtures";
@@ -40,7 +40,9 @@ test.beforeAll(async () => {
 
 async function prepare(page: Page, deck = costDeck) {
   await page.goto("/");
-  await page.locator('input[type="file"]').setInputFiles(deck);
+  await expect(page.locator(".app-shell")).toHaveAttribute("data-hydrated", "true");
+  // Upload by buffer like the other specs: path-based setInputFiles leaves no file in some Chromium sandboxes.
+  await page.locator('input[type="file"]').setInputFiles({ name: path.basename(deck), mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation", buffer: await readFile(deck) });
   await expect(page.locator(".file-row").filter({ hasText: path.basename(deck) })).toBeVisible();
   await page.getByRole("checkbox", { name: `${path.basename(deck)} 선택`, exact: true }).check();
   await navigateWorkspace(page, "보완");
