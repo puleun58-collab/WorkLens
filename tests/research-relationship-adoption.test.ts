@@ -186,6 +186,15 @@ describe("source relationship versus the original question", () => {
     expect(directConditionsSupported("고용기간의 약정이 없는 때에는 당사자는 언제든지 계약해지의 통고를 할 수 있다.", labor, "근로계약 해지")).toBe(true);
   });
 
+  it("keeps bidder pre-qualification screening out of the pre-sanction opinion procedure", () => {
+    // Official body retained in law-m-final/procurement-sanction-1 (adopted as direct before this gate).
+    const screening = "국가를 당사자로 하는 계약에 관한 법률 시행규칙 제23조의2(입찰참가자격 사전심사 절차) ③ 각 중앙관서의 장 또는 계약담당공무원은 입찰참가자격 사전심사 신청 서류의 내용이 불명확하거나 누락된 서류가 있는 경우에는 3일 이내의 기간을 정하여 보완을 요구할 수 있다.";
+    const sanction = "국가기관과 체결한 물품계약을 제때 이행하지 못했습니다. 입찰참가자격 제한을 받을 수 있는 요건과 처분 전 의견을 낼 수 있는 절차를 알고 싶습니다.";
+    expect(directConditionsSupported(screening, sanction, "처분 전 의견 제출 절차")).toBe(false);
+    expect(directConditionsSupported(screening, sanction, "국가기관 입찰참가자격 제한 의견제출 절차")).toBe(false);
+    expect(directConditionsSupported(screening, "입찰참가자격 사전심사 서류 보완 절차는?", "사전심사 서류 보완")).toBe(true);
+  });
+
   it("keeps captured counterparty demand, tender-condition and confirmation rules out of direct requirement evidence", () => {
     // Official bodies retained in paced-after/contract-rescission-1 and procurement-sanction-2 and law-direct-after-3.
     const demand = "①해제권의 행사의 기간을 정하지 아니한 때에는 상대방은 상당한 기간을 정하여 해제권행사여부의 확답을 해제권자에게 최고할 수 있다.\n②전항의 기간내에 해제의 통지를 받지 못한 때에는 해제권은 소멸한다.";
