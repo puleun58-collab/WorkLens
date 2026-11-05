@@ -230,18 +230,18 @@ export function preserveResearchSearchFacts(original: string, input: string): st
   const retirement = original.match(/(퇴직|퇴사)(?:\s*(?:뒤|후)|한|했|하였)/u)?.[1];
   if (retirement && /임금|월급|급여|체불/u.test(input)
     && !/퇴직|퇴사/u.test(input)
-    && !/(?:퇴직|퇴사)(?:을|를|은|는|하지|한\s*것이)?\s*(?:안|않|아니|없)/u.test(original)) {
+    && !/(?:퇴직|퇴사)(?:을|를|은|는|하지|한\s*것이)?\s*(?:안|않|아니|아닌|아닙|아님|없)/u.test(original)) {
     facts.push(retirement);
   }
-  if (/계약|해제|이행|대금|반환/u.test(input) && !/계약[^.!?\n]{0,20}(?:아니|아닌|않|없)/u.test(original)) {
+  if (/계약|해제|이행|대금|반환/u.test(input) && !/계약[^.!?\n]{0,20}(?:아니|아닌|아닙|아님|않|없)/u.test(original)) {
     const contract = original.match(/물품\s*공급계약|공사계약|물품계약/u)?.[0];
     if (contract && !input.replace(/\s/gu, "").includes(contract.replace(/\s/gu, ""))) facts.push(contract);
-    if (original.includes("설계변경") && !/설계변경[^.!?\n]{0,12}(?:아니|아닌|않|없)/u.test(original)
+    if (original.includes("설계변경") && !/설계변경[^.!?\n]{0,12}(?:아니|아닌|아닙|아님|않|없)/u.test(original)
       && /계약|금액|공사/u.test(input) && !input.includes("설계변경")) facts.push("설계변경");
   }
   if (/계약|입찰|조달|제재|부정당/u.test(input)) {
     const parties = ["국가기관", "지방자치단체"].filter((party) => original.includes(party)
-      && !new RegExp(`${party}[^.!?\\n]{0,12}(?:아니|아닌|않|없)`, "u").test(original));
+      && !new RegExp(`${party}[^.!?\\n]{0,12}(?:아니|아닌|아닙|아님|않|없)`, "u").test(original));
     // A comparison between regimes cannot be assigned to either one.
     if (parties.length === 1 && !input.includes(parties[0])) facts.push(parties[0]);
   }

@@ -152,13 +152,22 @@ async function issueSources(
     if (hit.excerpt) relevance[hit.id] = { ...relevance[hit.id], rank: "unknown" };
   }
   const supplement = [...(chain.enrichment?.supplement?.articles ?? []), ...(lookup?.articles ?? [])];
-  return researchEvidenceSources(chain.text, issueQuery, {
+  const directCoverage = new Set<string>();
+  const requestedIdentities = originalQuery ? parseExplicitIdentities(originalQuery) : [];
+  const adopted = researchEvidenceSources(chain.text, issueQuery, {
     ...chain.enrichment,
     precedents: relevance,
     // Citation is judged on the summaries actually read for this issue, not on term lists alone.
     precedentExcerpts: Object.fromEntries(summaries),
     supplement: { status: supplement.length ? "found" : "none", articles: supplement },
   }, requestTerms, { fallback, originalQuery, review: (review) => {
+    for (const article of review.articles) {
+      if (article.adopted && (!originalQuery || requestedIdentities.some(
+        (identity) => identity.law === article.law && identity.jo === article.jo,
+      ) || directConditionsSupported(`${article.law} ${article.excerpt}`, originalQuery, issueQuery))) {
+        directCoverage.add(`${article.law}\0${article.jo}`);
+      }
+    }
     if (!review.articles.length && !review.precedents.length) return;
     const previous = chain.reviews.get(issueQuery);
     chain.reviews.set(issueQuery, { query: issueQuery,
@@ -166,6 +175,10 @@ async function issueSources(
         .map((article) => [`${article.law}\0${article.jo}\0${article.stage}`, article])).values()],
       precedents: [...new Map([...(previous?.precedents ?? []), ...review.precedents].map((entry) => [entry.id, entry])).values()] });
   } });
+  // A lexical match that the existing direct-scope gate already excludes must
+  // not suppress retrieval of the missing substantive rule. Keep it in the
+  // review/candidate pool for supporting/identity assessment by the final model.
+  return { ...adopted, articles: adopted.articles.filter((article) => directCoverage.has(`${article.law}\0${article.jo}`)) };
 }
 
 async function fullResearch(

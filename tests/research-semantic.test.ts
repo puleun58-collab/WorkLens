@@ -63,6 +63,26 @@ afterEach(() => {
 });
 
 describe("full_research issue-by-issue retrieval", () => {
+  it("does not let the observed rescission-right confirmation candidate suppress the missing rule lookup", async () => {
+    const query = "물품 공급계약의 납품기한이 지났습니다. 계약을 해제하려면 먼저 상당한 기간을 정해 이행을 요구해야 하나요?";
+    vi.mocked(interpretResearchQuery).mockResolvedValueOnce({ original: query, situation: query, facts: [],
+      issues: [{ label: "계약 해제 요건", query: "계약 해제 요건" }], confidence: "high" });
+    const quote = "당사자 일방이 그 채무를 이행하지 아니하는 때에는 상대방은 상당한 기간을 정하여 그 이행을 최고하고 그 기간 내에 이행하지 아니한 때에는 계약을 해제할 수 있다.";
+    const calls = upstream({
+      legal_research: () => "═══ 종합 리서치 ═══\n▶ AI 법령검색 결과\n지능형 법령검색 결과 (법령조문, 1건):\n\n민법\n   제552조 (해제권행사여부의 최고권)\n   제552조(해제권행사여부의 최고권)\n계약의 해제권의 행사기간의 정함이 없는 때에는 상대방은 상당한 기간을 정하여 해제권 행사여부의 확답을 해제권자에게 최고할 수 있다.\n   시행: 2026.03.17 | 법무부",
+      search_law: ({ query: term }) => term === "민법"
+        ? "검색 결과 (총 1건):\n\n1. 민법 [현행]\n   - 법령ID: 001706\n   - MST: 1\n   - 공포일: 20250317 / 시행일: 20260317\n   - 구분: 법률" : "[NOT_FOUND] 없음",
+      get_law_text: ({ jo }) => jo
+        ? `법령명: 민법\n공포일: 20250317\n시행일: 20260317\n제544조 이행지체와 해제\n제544조(이행지체와 해제)\n${quote}`
+        : "법령명: 민법\n목차 (총 2개 조문)\n제544조 이행지체와 해제\n제552조 해제권행사여부의 최고권",
+    });
+    await runLegalResearch({ task: "full_research", query }, ctx);
+    expect(calls("search_law")).toContain("민법");
+    expect(vi.mocked(verifyResearchAdoption).mock.calls[0]?.[2]).toEqual(expect.arrayContaining([
+      expect.objectContaining({ law: "민법", jo: "제544조", text: expect.stringContaining(quote) }),
+    ]));
+  });
+
   it.each([
     { partial: false, chain: false }, { partial: true, chain: false },
     { partial: false, chain: true }, { partial: true, chain: true },
