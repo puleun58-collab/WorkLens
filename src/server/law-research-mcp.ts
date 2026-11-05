@@ -51,14 +51,15 @@ async function withCurrency(articles: Array<{ law: string; jo: string }>, text: 
   context: ResearchContext): Promise<EvidenceArticle[]> {
   if (!articles.length) return [];
   const effective = new Map<string, string>();
-  for (const article of researchResult(text).sections.flatMap((section) => section.articles ?? [])) {
+  // One parse of the chain text serves both the version map and the chain identity set.
+  const chainArticles = researchResult(text).sections.flatMap((section) => section.articles ?? []);
+  for (const article of chainArticles) {
     if (article.effective) effective.set(`${article.law}\0${article.jo}`, article.effective.replace(/\D/gu, ""));
   }
   for (const article of enrichment?.supplement?.articles ?? []) {
     if (article.effectiveDate) effective.set(`${article.law}\0${article.jo}`, article.effectiveDate);
   }
-  const chainKeys = new Set(researchResult(text).sections.flatMap((section) => section.articles ?? [])
-    .map((article) => `${article.law}\0${article.jo}`));
+  const chainKeys = new Set(chainArticles.map((article) => `${article.law}\0${article.jo}`));
   const supplementStage = new Map<string, "supplement" | "issue" | "reread" | "retry">((enrichment?.supplement?.articles ?? [])
     .map((article) => [`${article.law}\0${article.jo}`, article.stage ?? "supplement"] as const));
   // Version/stage metadata must belong to the exact selected original, not
