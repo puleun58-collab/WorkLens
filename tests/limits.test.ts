@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { assertResultWithinLimit, OPERATION_LEASE_MS, readBoundedJson, runBoundedOperation } from "@/server/http";
+import { ok, OPERATION_LEASE_MS, readBoundedJson, runBoundedOperation } from "@/server/http";
 
 const jsonRequest = (body: string, headers: Record<string, string> = {}): Request =>
   new Request("https://worklens.internal/api/check", {
@@ -51,7 +51,7 @@ describe("bounded request bodies", () => {
 
 describe("operation result ceiling", () => {
   it("allows a normal result", () => {
-    expect(() => assertResultWithinLimit({ findings: [{ code: "empty-cell" }] })).not.toThrow();
+    expect(() => ok({ findings: [{ code: "empty-cell" }] })).not.toThrow();
   });
 
   it("refuses a result that would amplify beyond the response ceiling", () => {
@@ -59,7 +59,36 @@ describe("operation result ceiling", () => {
       code: "duplicate-value",
       message: `finding ${index} with enough text to exceed the serialization ceiling`,
     })) };
-    expect(() => assertResultWithinLimit(huge)).toThrow(/RESULT_TOO_LARGE|결과가 너무/);
+    expect(() => ok(huge)).toThrow(/RESULT_TOO_LARGE|결과가 너무/);
+  });
+
+  it.each(["a", "한", "😀", "\ud800"])("preserves the exact UTF-8 ceiling for %j", (unit) => {
+    const limit = 4 * 1024 * 1024;
+    const encodedUnit = JSON.stringify(unit).slice(1, -1);
+    const unitBytes = new TextEncoder().encode(encodedUnit).byteLength;
+    const count = Math.floor((limit - 2) / unitBytes);
+    const padding = "a".repeat(limit - 2 - count * unitBytes);
+    const exact = unit.repeat(count) + padding;
+    expect(new TextEncoder().encode(JSON.stringify(exact)).byteLength).toBe(limit);
+    expect(() => ok(exact)).not.toThrow();
+    expect(() => ok(exact + "a")).toThrow(/결과가 너무/);
+  });
+
+  it("preserves the consumer JSON, evidence fields and response headers", async () => {
+    const data = {
+      text: "공식 본문 😀",
+      evidence: { status: "partial", articles: [{ law: "민법", jo: "제544조", currency: "current", stage: "chain" }] },
+      optional: undefined,
+      exceptional: Number.NaN,
+    };
+    const result = await runBoundedOperation(() => data);
+    const response = ok(result, 201, "cpu-contract");
+    expect(response.status).toBe(201);
+    expect(response.headers.get("content-type")).toBe("application/json");
+    expect(response.headers.get("cache-control")).toBe("private, no-store, max-age=0");
+    expect(response.headers.get("pragma")).toBe("no-cache");
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(await response.text()).toBe(JSON.stringify({ data, requestId: "cpu-contract" }));
   });
 
   it("admits at most four concurrent derived operations", async () => {
@@ -92,6 +121,26 @@ describe("operation result ceiling", () => {
       await expect(runBoundedOperation(async () => "too early")).rejects.toMatchObject({ code: "OPERATION_CAPACITY", status: 429 });
       clock.mockReturnValue(started + OPERATION_LEASE_MS);
       await expect(runBoundedOperation(async () => "recovered")).resolves.toBe("recovered");
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("does not replay a terminated operation when reclaiming its lease or retrying capacity", async () => {
+    const started = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(started);
+    const terminated = vi.fn(() => new Promise<never>(() => undefined));
+    const retry = vi.fn(async () => "recovered");
+    try {
+      for (let index = 0; index < 4; index += 1) void runBoundedOperation(terminated);
+      await expect(runBoundedOperation(retry)).rejects.toMatchObject({ code: "OPERATION_CAPACITY" });
+      expect(retry).not.toHaveBeenCalled();
+      clock.mockReturnValue(started + OPERATION_LEASE_MS);
+      await expect(runBoundedOperation(retry)).resolves.toBe("recovered");
+      expect(terminated).toHaveBeenCalledTimes(4);
+      expect(retry).toHaveBeenCalledTimes(1);
+      await expect(runBoundedOperation(async () => { throw new Error("upstream failure"); })).rejects.toThrow("upstream failure");
+      await expect(runBoundedOperation(async () => "healthy")).resolves.toBe("healthy");
     } finally {
       clock.mockRestore();
     }

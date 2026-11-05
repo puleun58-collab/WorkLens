@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 
@@ -87,10 +88,12 @@ const MAX_CONCURRENT_OPERATIONS = 4;
 export const OPERATION_LEASE_MS = 180_000;
 const operationLeases = new Set<{ readonly started: number }>();
 
-export async function runBoundedOperation<T>(
-  operation: () => Promise<T> | T,
-  validateResult = true,
-): Promise<T> {
+/**
+ * The result-size ceiling is enforced once, by `ok()`, on the exact bytes sent:
+ * every bounded route returns its result through `ok()`, so checking here too
+ * only serialized the same (often several hundred KB) payload a second time.
+ */
+export async function runBoundedOperation<T>(operation: () => Promise<T> | T): Promise<T> {
   const now = Date.now();
   for (const lease of operationLeases) if (now - lease.started >= OPERATION_LEASE_MS) operationLeases.delete(lease);
   if (operationLeases.size >= MAX_CONCURRENT_OPERATIONS) {
@@ -99,24 +102,25 @@ export async function runBoundedOperation<T>(
   const lease = { started: now };
   operationLeases.add(lease);
   try {
-    const result = await operation();
-    if (validateResult) assertResultWithinLimit(result);
-    return result;
+    return await operation();
   } finally {
     operationLeases.delete(lease);
   }
 }
 
-export function assertResultWithinLimit(result: unknown): void {
-  const size = new TextEncoder().encode(JSON.stringify(result) ?? "").byteLength;
-  if (size > MAX_RESULT_BYTES) {
+function serializedWithinLimit(data: unknown): string | undefined {
+  const json = JSON.stringify(data);
+  if (Buffer.byteLength(json ?? "", "utf8") > MAX_RESULT_BYTES) {
     throw new ApiError("RESULT_TOO_LARGE", "결과가 너무 커서 반환할 수 없습니다. 파일 수를 줄여 다시 시도하세요.", 413);
   }
+  return json;
 }
 
-export function ok<T>(data: T, status = 200, requestId = randomUUID()): NextResponse {
-  assertResultWithinLimit(data);
-  return NextResponse.json({ data, requestId }, { status, headers: NO_STORE_HEADERS });
+/** Serializes the payload once: the size check and the response body share the same string. */
+export function ok<T>(data: T, status = 200, requestId: string = randomUUID()): NextResponse {
+  const json = serializedWithinLimit(data);
+  const body = json === undefined ? JSON.stringify({ requestId }) : `{"data":${json},"requestId":${JSON.stringify(requestId)}}`;
+  return new NextResponse(body, { status, headers: { ...NO_STORE_HEADERS, "content-type": "application/json" } });
 }
 
 export function apiError(error: unknown, requestId = randomUUID()): NextResponse {

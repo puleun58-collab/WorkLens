@@ -34,9 +34,35 @@ Cloudflare Workers Logs (`wrangler tail` 또는 대시보드 → Workers → Log
 3. **timeout 증가** — `LAW_UPSTREAM_TIMEOUT`, `OPERATION_CAPACITY` 코드 추이
 4. **p95 응답 시간 급증** — 배포 직후 악화 시 롤백 검토
 5. **partial 증가** — 일부 근거 조회 실패, 정상 근거는 유지되는지 확인
-6. **Cloudflare 1102(HTML 503) 뒤 `OPERATION_CAPACITY` 연속** — 플랫폼이 종료한 요청은 `finally`가 실행되지 않는다.
-   동시 작업 슬롯은 `OPERATION_LEASE_MS`(180초) 임대라 그 뒤 회수된다. 1102 자체는 Worker 앱 오류 본문이 없으므로
-   GraphQL `workersInvocationsAdaptive`의 `status=exceededResources`로 발생 시각·버전을 확인한다.
+6. **Cloudflare 1102(HTML 503) 뒤 `OPERATION_CAPACITY` 연속** — 플랫폼 종료는 앱의 `apiError()` 응답과 구분한다.
+   플랫폼이 invocation을 강제 종료하면 `finally` 정리를 보장할 수 없다. 동시 작업 슬롯 4개는
+   `OPERATION_LEASE_MS`(180초) 임대이며, 다음 요청이 들어올 때 만료 슬롯을 회수한다(180초 타이머가 아니다).
+   따라서 lease 회수는 후속 429의 영구 고착을 막지만 최초 1102나 CPU 초과 자체를 해결하지 않는다.
+   `OPERATION_CAPACITY` 429는 작업 콜백을 실행하지 않으며 내부 재시도도 하지 않는다. lease 회수 역시
+   종료된 작업을 재실행하지 않는다. 클라이언트 재시도나 외부 서비스에서 이미 수행한 작업의 중복 방지까지
+   보장하는 것은 아니다.
+   GraphQL `workersInvocationsAdaptive`의 `status=exceededResources`로 발생 시각·버전·preview 여부와 CPU를 확인한다.
+   GraphQL CPU 수치는 마이크로초이므로 ms와 혼합하지 않는다. CPU와 wall time(외부 대기 포함)은 별개이며,
+   CPU 경계값만으로 요금제·설정된 한도를 확정하지 않는다. 단기 preview에서 0건이어도 완전 해결로 판정하지 않는다.
+
+   2026-11-05 UTC 확인(2026-10-29 01:27:28 ~ 2026-11-05 01:27:28, 최근 7일):
+   `exceededResources` 38건은 모두 운영 요청이며 CPU 범위는 10~124.623ms였다.
+   정상(`status=success`) 5,320건의 CPU P50/P90/P99는 각각 18.138/158.138/274.315ms였다.
+   사용자 대시보드의 34건·P90 161ms와 집계 시점·필터가 같다는 근거는 없으므로 차이를 회귀로 단정하지 않는다.
+   실패 버전별 건수는 `12037b19` 17, `c9ee8742` 4, `3d730c3e` 5, `53cb49b1` 4,
+   `299e890d` 4, `33ea1ff0` 4였다. 분 단위 집계의 최솟값/최댓값이지 개별 요청 CPU의 전체 분포는 아니다.
+   Worker settings API는 `usage_model=standard`, 명시적 `limits` 없음만 확인했다.
+   계정 subscriptions API는 인증 오류로 조회하지 못했으므로 플랜·실제 CPU 한도·유료 전환 비용은 미확정이다.
+   설정·요금제·CPU 한도를 변경하지 않았다. GraphQL 계정 예산 소진 응답이 있으면 병렬 재시도하지 말고
+   다른 작업자와 조회를 조율한다.
+
+   응답 경계 최적화(결과 동일): `ok()`가 결과를 한 번만 직렬화해 크기 검사와 응답 본문에 같은 문자열을 쓰고,
+   `runBoundedOperation`의 중복 크기 검사를 제거했다. `withCurrency()`는 같은 원문을 한 번만 파싱한다.
+   실제 종합 리서치 응답 캡처 3건(135~161KB, 같은 머신 교차 측정 중앙값)에서 응답 직렬화는 0.76~0.89ms → 0.22~0.26ms,
+   현행성 파싱은 0.30~0.99ms → 0.15~0.50ms였고 응답 본문은 바이트 단위로 동일했다.
+   반면 preview `wrangler tail`의 종합 리서치 1건은 CPU 331ms(wall 55초)였으므로 요청당 약 1~1.5ms 절감은
+   CPU 초과의 주원인을 해소하지 않는다. 정상 요청 P50이 18ms로 10ms보다 크고 실패가 10ms 경계에서도
+   발생하는 분포는 요청당 10ms 한도(버스트 허용) 요금제와 부합하지만 플랜·한도 확인 전까지 확정하지 않는다.
 
 ## 임계치 설정 원칙
 
