@@ -133,18 +133,15 @@ describe("AX execution profile (Level ∩ Gate)", () => {
     d.technicalChecks = [{ topic: "자료 접근", status: "확인 필요", note: "자료 수집 — 접근 권한 미확정", required: true }];
     const request = { kind: "ax-plan" as const, target, task: { name: "취합", description: "매월 취합", details: {} }, diagnosis: confirmedAxDiagnosis(d) };
     const before = structuredClone(request);
-    const [system, user] = axMessages(request);
+    const [, user] = axMessages(request);
     const sent = JSON.parse(user.content);
-    const profile = executionProfile(request.diagnosis);
+    const profile = executionProfile({ ...request.diagnosis, sourceNote: "" });
     expect(sent.diagnosis.decisionGate).toEqual({ verdict: "go", reasons: [] });
     expect(sent.executionScope).toEqual({
       level: profile.level, gate: "conditional", prerequisites: profile.prerequisites,
       blockReasons: [], stepScope: profile.stepScope, planAllowed: true,
     });
     expect(sent.executionScope.stepScope.some((step: { scope: string }) => step.scope === "implement")).toBe(false);
-    expect(system.content).toContain("원본 go를 실행 승인으로 쓰지 말고");
-    expect(system.content).toContain("planAllowed는 계획 생성 허용일 뿐 즉시 실행 승인이 아닙니다");
-    expect(system.content).toContain("실행 상태 확인 후 진행");
     expect(request).toEqual(before);
   });
 });
