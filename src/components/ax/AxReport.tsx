@@ -355,6 +355,9 @@ export function AxProcess({ diagnosis: d, reviewProps }: { diagnosis: AxDiagnosi
       {d.asIs.systems.length ? <div className="ax-process-systems"><MonitorCog aria-hidden="true" /><p><strong>사용 시스템</strong><span aria-hidden="true"> · </span>{uiText(d.asIs.systems.join(" · "))}</p></div> : null}
     </section>
     <AxStepTable key={reviewProps?.taskId ?? "static"} diagnosis={d} headers={["업무 단계", "판정", "담당", "판단 근거"]} reviewProps={reviewProps} />
+    {!d.risks.length ? <section className="ax-section ax-panel" aria-label="위험 평가 상태"><h3>위험 평가 상태</h3><p className="ax-muted" role="status">{d.asIs?.steps?.length
+      ? "위험 평가 결과가 생성되지 않았습니다. 위험이 없다는 뜻이 아닙니다. 업무 다시 진단으로 다시 생성하세요."
+      : "현재 업무 절차가 확인되지 않아 위험을 평가하지 못했습니다. 위험이 없다는 뜻이 아닙니다."}</p></section> : null}
     {reviewProps ? <AxRiskReview key={reviewProps.taskId} diagnosis={d} reviewProps={reviewProps} /> : null}
     <AxToBe diagnosis={d} />
   </>;
@@ -594,7 +597,10 @@ function AxToBe({ diagnosis: d }: { diagnosis: AxDiagnosis }) {
     {d.toBe.length ? <ol className="ax-tobe-flow">{d.toBe.map((s, i) => { const Icon = icons[s.owner]; return <li className="ax-tobe-item" data-owner={s.owner} key={i}>
       <span className="ax-tobe-icon"><Icon aria-hidden="true" /></span><strong>{uiText(s.step)}</strong><span>{OWNER_LABELS[s.owner]}</span>
       {i < d.toBe.length - 1 ? <ArrowRight className="ax-tobe-arrow" aria-hidden="true" /> : null}
-    </li>; })}</ol> : <p className="ax-muted">기재된 목표 업무 단계 없음</p>}
+    </li>; })}</ol> : <p className="ax-muted">{d.asIs?.steps?.length
+      // A confirmed procedure with no target flow is a generation gap, not "no change needed".
+      ? "목표 흐름이 생성되지 않았습니다. 업무 다시 진단으로 다시 생성하세요."
+      : "현재 업무 절차가 확인되면 목표 흐름을 작성할 수 있습니다."}</p>}
   </section>;
 }
 

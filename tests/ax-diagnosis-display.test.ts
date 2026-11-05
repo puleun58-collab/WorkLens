@@ -1,5 +1,7 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, test } from "vitest";
-import { diagnosisCheckItems, diagnosisSummaryParts, diagnosisSummarySentences, matrixRationaleBullets, visibleDiagnosisCheckItems } from "../src/components/ax/AxReport";
+import { AxProcess, diagnosisCheckItems, diagnosisSummaryParts, diagnosisSummarySentences, matrixRationaleBullets, visibleDiagnosisCheckItems } from "../src/components/ax/AxReport";
 import { LEVEL_DESCRIPTIONS, LEVEL_LABELS, levelDescription, levelDisplayLabel } from "../src/lib/ax/policy";
 import { uiText } from "../src/lib/ax/display-text";
 import { outputFixture } from "./fixtures/ax";
@@ -192,5 +194,29 @@ describe("level display label and tooltip descriptions", () => {
     expect(single.verdict).toBe("전체 1개 업무 단계 중 자동화 적합 1개");
     const empty = diagnosisSummaryParts({ ...d, stepAssessments: [] });
     expect(empty.verdict).toBeUndefined();
+  });
+});
+
+describe("empty diagnosis consumer states", () => {
+  test("empty risks remain an incomplete assessment, never a risk-free finding, without fake review items", () => {
+    const d = { ...outputFixture(), sourceNote: "test", toBe: [], risks: [], technicalChecks: [] };
+    const before = structuredClone(d);
+    const reviewProps = { taskId: "empty-risk", reviews: [], onSaveReview: () => ({ saved: true }) };
+    for (const props of [{ diagnosis: d }, { diagnosis: d, reviewProps }]) {
+      const html = renderToStaticMarkup(createElement(AxProcess, props));
+      expect(html).toContain("위험 평가 결과가 생성되지 않았습니다");
+      expect(html).toContain("위험이 없다는 뜻이 아닙니다");
+      expect(html).toContain("목표 흐름이 생성되지 않았습니다");
+      expect(html).not.toContain("위험·확인사항 검토");
+    }
+    expect(d).toEqual(before);
+    const noProcedure = { ...d, asIs: { ...d.asIs, steps: [] } };
+    const html = renderToStaticMarkup(createElement(AxProcess, { diagnosis: noProcedure }));
+    expect(html).toContain("현재 업무 절차가 확인되지 않아 위험을 평가하지 못했습니다");
+    expect(html).not.toContain("위험 평가 결과가 생성되지 않았습니다");
+  });
+  test("an existing risk is not relabelled as an incomplete assessment", () => {
+    const d = { ...outputFixture(), sourceNote: "test" };
+    expect(renderToStaticMarkup(createElement(AxProcess, { diagnosis: d }))).not.toContain("위험 평가 상태");
   });
 });
