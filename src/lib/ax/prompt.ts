@@ -54,7 +54,10 @@ AS-IS와 TO-BE의 시간·근거 경계를 먼저 구분하세요:
 - 파일 첨부 사실·파일명·형식·읽기 성공은 내용 확인 또는 업무 정보 충족과 다릅니다. attachmentSummary 안의 실제 추출 내용만 근거로 쓰고, 파일명·메타데이터·읽기 실패/미지원/잘림 표시만으로 현재 절차·시스템·산출물 내용을 만들지 마세요. 읽힌 내용도 현재 업무 사실인지 목표·예시·템플릿인지 구분하고 사용자 답변·등록 정보와 충돌하면 확정하지 말고 확인 질문으로 남기세요.
 - 확인되지 않은 asIs 문자열은 "확인 필요"로, 목록은 확인된 항목만 작성하고 없으면 빈 배열로 두세요. 미확인을 "없음"이나 "수동"으로 단정하지 마세요. 입력에 명시된 현재 예외 상황과 그 현재 대응(예: 누락 값이 있으면 담당자가 원본을 확인)은 exceptions에 그대로 포함하세요. 입력에 없는 실패 유형(파일 부재·형식 오류·읽기 실패 등)과 새 예외 대응은 exceptions가 아니라 risks·operation·toBe에 두세요. 빈칸을 채우려 새 절차·시스템·승인·알림을 생성하지 마세요.
 - 출력 전 asIs의 각 항목과 현재 사실에 대한 근거를 위 입력에서 다시 대조하세요. 미래 제안만으로 뒷받침된 항목은 미래 제안으로 분리하고, 근거가 부족한 현재 항목은 확인 필요로 남기세요. 부족한 정보는 기존 informationSufficiency 기준과 핵심 추가 질문으로 드러내세요. 추정으로 충분성을 높이지 말고, 핵심 정보가 이미 있는데 시작 방식·세부 절차 같은 일부 미확인만으로 needs-check로 낮추지도 마세요.
-- 아래 배열 개수 지침은 확인된 AS-IS 근거가 없는 목록을 채우라는 뜻이 아닙니다. 이 경우 위 빈 배열 원칙을 우선하세요.
+- 아래 배열 개수 지침은 확인된 근거가 없는 asIs 목록을 채우라는 뜻이 아닙니다. 빈 배열 원칙은 asIs(현재 사실) 목록에만 적용됩니다.
+- stepAssessments·toBe·risks는 확인된 AS-IS를 바탕으로 한 진단 결과입니다. asIs.steps에 확인된 현재 절차가 있으면 각 절차에 대한 stepAssessments와 개선 또는 사람 유지 목표 흐름 toBe를 작성하세요. 입력에 없는 시스템·API·알림·자동 실행을 현재 기능처럼 쓰지 말고 도입이 필요한 것은 미래 조건으로 표시하세요.
+- risks는 실제 입력·산출물·담당자 판단·주기 또는 기술 확인 항목과 어떤 관계인지 근거를 함께 쓰세요. 위험 유형을 채우려고 법적 위험을 만들지 마세요. 법령명·법 위반·저작권·공정거래·개인정보·인허가 같은 법적 위험은 입력에 해당 규제·권리·의무가 명시된 경우에만 쓰고, 그 외 민감정보·접근 제한·장애·보안 정책도 입력에 없는 것을 전제로 만들지 마세요. 향후 제안의 위험이면 현재 업무의 결함으로 쓰지 말고 도입 시 검증할 조건임을 밝히세요. 정보 미기재는 실제 제도·절차가 없다는 사실이 아닙니다.
+- 위험 개수를 채우기 위한 일반 위험은 금지입니다. 실제 연결 근거를 확보하지 못했으면 risks를 빈 배열로 두세요. 빈 배열은 위험 없음의 확정이 아니며 소비자가 평가 미완료로 구분합니다. 현재 절차가 전혀 확인되지 않았으면 toBe도 빈 배열입니다.
 Factor는 repetition, regularity, dataStructure, systemAccess, humanJudgment, operationalRisk를 각각 한 번 포함하고 1~5점과 근거를 제시하세요. 사람판단과 위험은 높을수록 의존도·위험이 높습니다.
 Factor 점수 기준 (동일한 사실에는 동일한 점수):
 - repetition (반복성): 1=연 1~2회 비정기, 2=분기 1회, 3=월 1~2회, 4=주 1회 이상, 5=매일 반복
@@ -85,13 +88,34 @@ function alignedPlanRequest(request: AxPlanRequest): AxPlanRequest {
   const profile = executionProfile({ ...request.diagnosis, sourceNote: "" });
   return { ...request, diagnosis: { ...request.diagnosis, roadmap: profile.roadmap, poc: profile.poc, nextAction: profile.nextAction } };
 }
-function strictJson(schema: typeof axDiagnosisJsonSchema | typeof axPlanJsonSchema): Record<string, unknown> {
+function strictJson(schema: z.ZodType): Record<string, unknown> {
   const json = z.toJSONSchema(schema);
   delete json.$schema;
   return json;
 }
 export const AX_DIAGNOSIS_RESPONSE_SCHEMA = strictJson(axDiagnosisJsonSchema);
 export const AX_PLAN_RESPONSE_SCHEMA = strictJson(axPlanJsonSchema);
+export const axDiagnosisGapSchema = axDiagnosisJsonSchema.pick({ toBe: true, risks: true });
+export const AX_DIAGNOSIS_GAP_RESPONSE_SCHEMA = strictJson(axDiagnosisGapSchema);
+/**
+ * A focused second pass for a diagnosis whose confirmed current procedure came back without a
+ * target flow or risks. Only the confirmed AS-IS and the existing judgements are input; nothing
+ * else of the first answer is rewritten. The caller must share the original request's remaining
+ * provider-call budget; this prompt never grants an extra attempt or a new retry allowance.
+ */
+export function axDiagnosisGapMessages(
+  request: AxDiagnosisRequest,
+  diagnosis: Pick<z.infer<typeof axDiagnosisJsonSchema>, "asIs" | "stepAssessments" | "humanInLoop" | "technicalChecks">,
+  missing: readonly ("toBe" | "risks")[],
+): { role: "system" | "user"; content: string }[] {
+  return [{ role: "system", content: `${SAFETY}
+서버가 원문 인용으로 확정한 현재 업무(asIs)와 기존 단계별 판정을 바탕으로 비어 있는 ${missing.join("·")}만 작성합니다.
+- toBe: asIs.steps의 순서를 따르는 자동화 후 목표 흐름입니다. 각 단계의 owner는 stepAssessments의 판정·owner와 맞추고 '사람 유지' 단계는 사용자로 두세요. 입력에 없는 시스템·API·알림·자동 실행은 현재 기능처럼 쓰지 말고 "도입 시 확인 필요"처럼 미래 조건으로 쓰세요.
+- risks: 이 업무의 실제 입력·산출물·담당자 판단·주기 또는 technicalChecks와의 연결 근거를 명시한 위험만 최대 4개 쓰세요. 법령명·법 위반·저작권·공정거래·개인정보·인허가 같은 법적 위험은 입력에 해당 규제·권리·의무가 명시된 경우에만 쓰고, 입력에 없는 민감정보·접근 제한·장애·보안 정책을 전제로 만들지 마세요. 미래 제안의 위험은 도입 시 검증 조건임을 밝히고 현재 결함으로 단정하지 마세요. 근거를 댈 수 없으면 빈 배열로 두며 이는 위험 없음의 판정이 아닙니다.
+- 요청받지 않은 항목은 빈 배열로 두세요. 수치 목표·절감률을 만들지 마세요. 각 설명은 100자 이내입니다.` },
+  { role: "user", content: JSON.stringify({ task: { name: request.name, description: request.description, details: request.details },
+    asIs: diagnosis.asIs, stepAssessments: diagnosis.stepAssessments, humanInLoop: diagnosis.humanInLoop, technicalChecks: diagnosis.technicalChecks, missing }) }];
+}
 /** Reject long copies from session-only attachment text before persisting a diagnosis. */
 export function copiesAttachment(value: unknown, summary?: string): boolean {
   if (!summary) return false;

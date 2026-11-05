@@ -1,4 +1,4 @@
-import { axMessages, AX_DIAGNOSIS_RESPONSE_SCHEMA, AX_PLAN_RESPONSE_SCHEMA, copiesAttachment } from "@/lib/ax/prompt";
+import { axDiagnosisGapMessages, axDiagnosisGapSchema, axMessages, AX_DIAGNOSIS_GAP_RESPONSE_SCHEMA, AX_DIAGNOSIS_RESPONSE_SCHEMA, AX_PLAN_RESPONSE_SCHEMA, copiesAttachment } from "@/lib/ax/prompt";
 import { axDiagnosisOutputSchema, axPlanSchema } from "@/lib/ax/schema";
 import { unconfirmedPlanMetrics } from "@/lib/ax/guide";
 import { applyCurrentFacts, currentFactAssessment, currentFactMessages, CURRENT_FACT_RESPONSE_SCHEMA, resolveCurrentFacts } from "@/lib/ax/current-facts";
@@ -442,10 +442,27 @@ export async function runGroqAi(
       return result;
     }
     if (request.kind !== "ax-diagnosis" || result.kind !== "ax-diagnosis") return result;
-    // A grounded procedure always has step judgements, a target flow and risks. An answer that leaves them
-    // empty would read as "nothing to check"; it gets the same single correction as an unsupported metric.
+    // A grounded procedure needs step judgements and a target flow. Empty risks cannot establish
+    // that the procedure is risk-free; the consumer keeps an explicit assessment-incomplete notice.
+    const groundedSteps = grounding?.facts.some(fact => fact.field === "steps") ?? false;
+    // Keep the existing whole-answer correction first. Focused repair may use only its remaining
+    // request budget, including provider retries; usage and attempts stay in the boundary's one log.
+    const completeGaps = async (value: Extract<AiApiResult, { kind: "ax-diagnosis" }>): Promise<AiApiResult> => {
+      const gaps = groundedSteps ? (["toBe", "risks"] as const).filter(key => !value.diagnosis[key].length) : [];
+      if (!gaps.length || budget.attempt >= budget.maxAttempts) return value;
+      try {
+        const raw = await complete(axDiagnosisGapMessages(request, value.diagnosis, gaps), AX_DIAGNOSIS_GAP_RESPONSE_SCHEMA,
+          "worklens_ax_diagnosis_gaps", 1_500, { ...context, operation }, budget);
+        const filled = axDiagnosisGapSchema.parse(JSON.parse(raw.choices[0].message.content));
+        const diagnosis = { ...value.diagnosis, ...Object.fromEntries(gaps.map(key => [key, filled[key]])) };
+        if (copiesAttachment(diagnosis, request.attachmentSummary) || validateAxSemantics(diagnosis, request).length) return value;
+        return { ...value, diagnosis };
+      } catch {
+        return value;
+      }
+    };
     let violations = validateAxSemantics(result.diagnosis, request);
-    const missing = grounding?.facts.some(fact => fact.field === "steps")
+    const missing = groundedSteps
       ? (["stepAssessments", "toBe", "risks"] as const).filter(key => !result.diagnosis[key].length) : [];
     if (!violations.length && !missing.length) return result;
     if (violations.length) budget.semantic = { categories: [...new Set(violations.map(violation => violation.category))], corrected: false };
@@ -472,12 +489,12 @@ export async function runGroqAi(
         const correctedViolations = validateAxSemantics(corrected.diagnosis, request);
         if (!correctedViolations.length) {
           if (budget.semantic) budget.semantic.corrected = true;
-          return corrected;
+          return completeGaps(corrected);
         }
         if (violations.length) violations = correctedViolations;
       }
     }
-    if (!violations.length) return result;
+    if (!violations.length) return completeGaps(result);
     budget.semantic!.categories = [...new Set(violations.map(violation => violation.category))];
     throw new ApiError("INVALID_PROVIDER_OUTPUT", "AI 진단 결과를 검증하지 못했습니다. 다시 시도하세요.", 502);
   });

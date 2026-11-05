@@ -186,6 +186,14 @@ describe("AX 명세 전달 정확성 P0 — 충돌·외부 행위·출력 미확
     const c01Summary = planSummary(c01Diagnosis(), { ...planFixture, exceptions: [] }, "", {});
     expect(c01Summary.checks.some(check => check.topic === "출력 컬럼 미확정")).toBe(false);
   });
+
+  it.each(["월간 보고서", "보고서.txt", "메일 파일", "체크리스트 파일", "검토결과.json"])("비표형 산출물 %s에 컬럼을 강제하지 않는다", output => {
+    const diagnosis = withAsIs(readyDiagnosis(), { outputs: [output] });
+    diagnosis.poc.outputs = [output];
+    expect(detectUndeterminedOutputs([output])).toEqual([]);
+    expect(planSummary(diagnosis).checks.some(check => check.topic === "출력 컬럼 미확정")).toBe(false);
+    expect(promptFor(diagnosis)).not.toContain("출력 컬럼 미확정");
+  });
 });
 
 describe("AX 명세 전달 정확성 P0 — 내용 미확정·도구 대칭·전후 비교", () => {

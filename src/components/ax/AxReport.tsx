@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useId, useRef, useState } from "react";
-import { AlertTriangle, ArrowRight, BarChart3, Bot, BrainCircuit, Check, CheckCircle2, CircleCheck, Clipboard, ClipboardList, CloudUpload, Copy, Database, Download, FileCode2, FileOutput, FilePlus2, FileSpreadsheet, FileText, Flag, Folder, GitBranch, GitMerge, GitPullRequest, Globe, Info, ListChecks, Monitor, MonitorCog, Play, Plug, Rocket, Settings2, ShieldAlert, ShieldCheck, Sparkles, Target, Terminal, UserCheck, UserRound, Zap } from "lucide-react";
+import { AlertTriangle, ArrowRight, BarChart3, Bot, BrainCircuit, CheckCircle2, CircleCheck, Clipboard, ClipboardList, CloudUpload, Database, Download, FileCode2, FileOutput, FilePlus2, FileSpreadsheet, FileText, Flag, Folder, GitBranch, GitMerge, GitPullRequest, Globe, Info, ListChecks, Monitor, MonitorCog, Play, Plug, Rocket, Settings2, ShieldAlert, ShieldCheck, Sparkles, Target, Terminal, UserCheck, UserRound, Zap } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { AxDiagnosis, AxPlan, AxTask, AxTaskV2, HitlReview, VerificationResult } from "@/lib/ax/types";
 import { automationLevel, axes, executionGate, executionProfile, factorEffectiveValue, GATE_LABELS, gateBlockReasons, levelDescription, levelDisplayLabel, nextAction, prerequisiteTopicKey, splitGatePrerequisites } from "@/lib/ax/policy";
@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
 import { Accordion, AccordionItem, AccordionPanel, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
+import { CommandCodeBlock, CopyButton } from "@/components/ui/command-code-block";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { HitlReviewPanel } from "./HitlReview";
 import { extractReviewableItems, extractPlanReviewableItems, findReview, getValidConfirmedReviews, type ReviewableItem } from "@/lib/ax/hitl";
@@ -354,6 +355,9 @@ export function AxProcess({ diagnosis: d, reviewProps }: { diagnosis: AxDiagnosi
       {d.asIs.systems.length ? <div className="ax-process-systems"><MonitorCog aria-hidden="true" /><p><strong>사용 시스템</strong><span aria-hidden="true"> · </span>{uiText(d.asIs.systems.join(" · "))}</p></div> : null}
     </section>
     <AxStepTable key={reviewProps?.taskId ?? "static"} diagnosis={d} headers={["업무 단계", "판정", "담당", "판단 근거"]} reviewProps={reviewProps} />
+    {!d.risks.length ? <section className="ax-section ax-panel" aria-label="위험 평가 상태"><h3>위험 평가 상태</h3><p className="ax-muted" role="status">{d.asIs?.steps?.length
+      ? "위험 평가 결과가 생성되지 않았습니다. 위험이 없다는 뜻이 아닙니다. 업무 다시 진단으로 다시 생성하세요."
+      : "현재 업무 절차가 확인되지 않아 위험을 평가하지 못했습니다. 위험이 없다는 뜻이 아닙니다."}</p></section> : null}
     {reviewProps ? <AxRiskReview key={reviewProps.taskId} diagnosis={d} reviewProps={reviewProps} /> : null}
     <AxToBe diagnosis={d} />
   </>;
@@ -593,42 +597,11 @@ function AxToBe({ diagnosis: d }: { diagnosis: AxDiagnosis }) {
     {d.toBe.length ? <ol className="ax-tobe-flow">{d.toBe.map((s, i) => { const Icon = icons[s.owner]; return <li className="ax-tobe-item" data-owner={s.owner} key={i}>
       <span className="ax-tobe-icon"><Icon aria-hidden="true" /></span><strong>{uiText(s.step)}</strong><span>{OWNER_LABELS[s.owner]}</span>
       {i < d.toBe.length - 1 ? <ArrowRight className="ax-tobe-arrow" aria-hidden="true" /> : null}
-    </li>; })}</ol> : <p className="ax-muted">기재된 목표 업무 단계 없음</p>}
+    </li>; })}</ol> : <p className="ax-muted">{d.asIs?.steps?.length
+      // A confirmed procedure with no target flow is a generation gap, not "no change needed".
+      ? "목표 흐름이 생성되지 않았습니다. 업무 다시 진단으로 다시 생성하세요."
+      : "현재 업무 절차가 확인되면 목표 흐름을 작성할 수 있습니다."}</p>}
   </section>;
-}
-export function AxCopyButton({ text, label, iconOnly = false }: { text: string; label: string; iconOnly?: boolean }) {
-  const [copied, setCopied] = useState(false);
-  const [failed, setFailed] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
-  async function copy() {
-    if (timer.current) clearTimeout(timer.current);
-    setCopied(false);
-    let success = false;
-    try {
-      await navigator.clipboard.writeText(text);
-      success = true;
-    } catch {
-      const holder = document.createElement("textarea");
-      holder.value = text;
-      holder.setAttribute("readonly", "");
-      holder.style.position = "fixed";
-      holder.style.opacity = "0";
-      document.body.append(holder);
-      holder.select();
-      try { success = document.execCommand("copy"); } catch { success = false; } finally { holder.remove(); }
-    }
-    setFailed(!success);
-    if (success) {
-      setCopied(true);
-      timer.current = setTimeout(() => setCopied(false), 1_600);
-    }
-  }
-  return <>
-    <span className="sr-only" aria-live="polite">{copied ? "복사 완료" : ""}</span>
-    <Button type="button" variant={iconOnly ? "ghost" : "default"} size={iconOnly ? "icon-xs" : "default"} className={iconOnly ? "ax-guide-copy-button" : "ax-copy-button"} data-copied={copied ? "true" : undefined} aria-label={label} onClick={() => void copy()}>{copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}{iconOnly ? null : "복사"}</Button>
-    {failed ? <p className="ax-copy-error" role="status">복사하지 못했습니다. 직접 선택해 복사해주세요</p> : null}
-  </>;
 }
 
 // Guide strings use backticks to mark commands without introducing HTML into data.
@@ -651,7 +624,7 @@ function AxGuideBlockView({ block, listStyle }: { block: AxGuideBlock; listStyle
     const label = block.label ?? "PowerShell";
     const ariaLabel = label === "PowerShell" ? "PowerShell 명령" : label === ".gitignore" ? ".gitignore 예시" : "예시";
     return <>
-      <div className="ax-guide-code-wrap"><pre className={block.singleLine ? "ax-guide-code ax-guide-code--single-line" : "ax-guide-code"} aria-label={ariaLabel}><span className="ax-guide-code-label" aria-hidden="true">{label}</span><code>{block.prose ? uiText(guideProseDisplayText(block.lines)) : guideCodeDisplayText(block.lines)}</code></pre><AxCopyButton key={block.lines.join("\n")} text={block.lines.join("\n")} label={`${ariaLabel} 복사`} iconOnly /></div>
+      <CommandCodeBlock command={block.lines.join("\n")} label={label} ariaLabel={ariaLabel} copyLabel={`${ariaLabel} 복사`} displayText={block.prose ? uiText(guideProseDisplayText(block.lines)) : guideCodeDisplayText(block.lines)} variant="ax" singleLine={block.singleLine} />
       {block.notes?.length ? <ul className="ax-guide-code-notes ax-guide-list" role="list">{block.notes.map((note, i) => <li key={i}><span className="ax-guide-marker" aria-hidden="true">•</span><span className="ax-guide-text"><AxGuideText text={note} /></span></li>)}</ul> : null}
     </>;
   }
@@ -1043,7 +1016,7 @@ function AxPrompt({ prompt, name, copySuffix = "올인원 지시문" }: { prompt
     <pre id={contentId} className="ax-prompt" hidden={!expanded} data-expanded={expanded ? "true" : "false"}>{prompt}</pre>
     <div className="ax-prompt-actions">
       <Button type="button" variant="outline" className="ax-prompt-toggle" aria-expanded={expanded} aria-controls={contentId} onClick={() => setExpanded(value => !value)}>{expanded ? "전체 접기" : "전체 보기"}</Button>
-      <AxCopyButton text={prompt} label={`${name}용 ${copySuffix} 복사`} />
+      <CopyButton text={prompt} label={`${name}용 ${copySuffix} 복사`} className="ax-copy-button" errorClassName="ax-copy-error" />
     </div>
   </>;
 }
@@ -1102,7 +1075,7 @@ const emptyAxFixDraftFailure = (): AxFixDraftFailure => ({ feature: "", expected
  * 버튼(AxVerificationEntry)과 그 배선은 제거됐다. 저장된 verificationResults 데이터·스키마와
  * 지시문 생성(buildFixPrompt)은 그대로 보존되며, 다시 렌더링할 때는 저장 핸들러를
  * onSaveVerificationResults로 다시 연결해야 한다. 보기·복사는 올인원 지시문과
- * 같은 AxPrompt + AxCopyButton 패턴을 재사용하고, 지시문 본문은 렌더 시
+ * 같은 AxPrompt + CopyButton 패턴을 재사용하고, 지시문 본문은 렌더 시
  * buildFixPrompt()로 생성한다 (저장하지 않음).
  * Gate blocked면 올인원 지시문과 동일하게 생성하지 않고 차단 안내만 표시한다. */
 export function AxFixPromptSection({ diagnosis, plan, taskName, taskContext, prerequisites, hitlReviews, hitlTool, genericRules, gate, verificationResults, onSaveVerificationResults }: {

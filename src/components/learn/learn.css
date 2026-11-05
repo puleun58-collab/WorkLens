@@ -139,9 +139,6 @@
 .learn-diagnostic-area-label { font-weight: 600; font-size: 14px; }
 
 .learn-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0; }
-.learn-command-row { display: flex; align-items: center; gap: 8px; margin: 0; min-width: 0; }
-.learn-command-row code { flex: 1; min-width: 0; background: color-mix(in srgb, var(--muted) 25%, var(--card)); border-radius: 6px; padding: 4px 8px; font-family: ui-monospace, Consolas, monospace; font-size: 13px; overflow-x: auto; white-space: nowrap; }
-.learn-command-row button { flex: none; height: 30px; min-width: 52px; padding: 0 8px; }
 .learn-kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 16px 0; }
 .learn-kv-item { padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; }
 .learn-kv-item strong { display: block; font-size: 20px; }
@@ -203,22 +200,22 @@
 .learn-check { flex: none; width: 19px; height: 19px; border-radius: 50%; background: color-mix(in srgb, #16a34a 12%, transparent); color: #16a34a; display: inline-flex; align-items: center; justify-content: center; margin-top: 2px; }
 .learn-check svg { width: 11px; height: 11px; }
 
-/* 자주 발생하는 실수 — 차분한 앰버 배경, 헤더 띠 없이 균일 구성 (상하 블루 섹션과 명도·채도 조화) */
-.learn-card-danger { background: #fff0d9; border-color: #e8cfab; }
-.learn-card-danger .learn-card-title { background: transparent; border-bottom: 0; color: #78350f; padding: 12px 18px 0; }
+/* 실수 패널은 핵심 요약과 같은 외곽·간격을 사용하고 헤더만 앰버로 구분한다. */
+.learn-card-danger .learn-card-title { background: #fff0d9; border-bottom-color: #e8cfab; color: #78350f; }
 .learn-card-danger .learn-card-title svg { color: #b45309; }
-.learn-card-danger .learn-card-body { padding-top: 10px; }
-.learn-mistake-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.learn-mistake-card { background: #ffffff; border: 1px solid var(--border); border-radius: 8px; padding: 13px 15px; }
-.learn-mistake-card p { margin: 6px 0; }
-.learn-mistake-title { font-weight: 700; color: #78350f; }
+.learn-card-danger .learn-card-body { background: #ffffff; }
+.learn-card-body .learn-mistake-list { list-style: none; margin: 0; padding: 0; }
+.learn-mistake-list > .learn-mistake-item { margin: 0; padding: 12px 0; border-bottom: 1px solid var(--border); }
+.learn-mistake-list > .learn-mistake-item:first-child { padding-top: 0; }
+.learn-mistake-list > .learn-mistake-item:last-child { padding-bottom: 0; border-bottom: 0; }
+.learn-mistake-item > p { margin: 0; }
+.learn-mistake-item > p + p { margin-top: 8px; }
 
 
 .learn-case-block { padding: 2px 0; margin: 12px 0; }
 .learn-case-block:first-child { margin-top: 0; }
 .learn-case-block:last-child { margin-bottom: 0; }
-.learn-command-box { display: grid; gap: 6px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; margin: 10px 0; min-width: 0; }
-.learn-command-box > p { margin: 0 0 2px; }
+.learn-command-list { display: grid; gap: 10px; margin: 12px 0; min-width: 0; }
 
 /* 학습 상세 하단 이동 버튼 — 레퍼런스처럼 카드 아래 여백만 (구분선 없음) */
 .learn-lesson .learn-quiz-nav { border-top: 0; margin-top: 18px; padding-top: 0; }
@@ -317,5 +314,4 @@
   .learn-unit-btn { font-size: 13px; padding: 7px 12px; }
   .learn-card-body { padding: 12px 14px; }
   .learn-card-body .learn-bullet-list { margin-left: 4px; }
-  .learn-mistake-grid { grid-template-columns: 1fr; }
 }
