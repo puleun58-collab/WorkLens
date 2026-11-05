@@ -116,6 +116,10 @@ describe("research query interpretation", () => {
     ["민간 회사와 계약했습니다", "계약 해제", "계약 해제"],
     ["국가기관과 공사계약을 체결했고 설계변경이 있었습니다", "계약금액 변경", "공사계약 설계변경 국가기관 계약금액 변경"],
     ["물품 공급계약의 납품기한이 지났습니다", "계약 해제", "물품 공급계약 계약 해제"],
+    ["퇴직 전에 임금이 밀렸습니다", "임금 지급", "임금 지급"],
+    ["공사계약이 아닌 물품매매입니다", "계약 해제", "계약 해제"],
+    ["설계변경이 없었습니다", "계약금액 변경", "계약금액 변경"],
+    ["상대방은 국가기관이 아닙니다", "계약 변경", "계약 변경"],
   ])("keeps only explicit applicable search facts: %s", (original, input, expected) => {
     expect(preserveResearchSearchFacts(original, input)).toBe(expected);
   });
