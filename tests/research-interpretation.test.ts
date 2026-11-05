@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { interpretResearchQuery } from "@/server/groq";
+import { interpretResearchQuery, preserveResearchSearchFacts } from "@/server/groq";
 
 const query = "전세금을 아직 받지 못했습니다";
 const proposal = {
@@ -92,6 +92,32 @@ describe("research query interpretation", () => {
     ] })));
     const answer = await interpretResearchQuery("퇴사한 지 한 달인데 마지막 달 임금을 못 받았어", context);
     expect(answer.issues.map((issue) => issue.label)).toEqual(["퇴직 후 임금 지급"]);
+  });
+
+  it("preserves the observed retirement fact when the model drops it from a wage search", async () => {
+    process.env.GROQ_API_KEY = "test-provider-key";
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(completion({ ...proposal, issues: [
+      { label: "임금 지급 기한", query: "임금 지급 기한" },
+      { label: "임금 청구 절차", query: "임금 청구 절차" },
+    ] })));
+    const answer = await interpretResearchQuery("회사를 그만둔 지 한 달이 지났는데 마지막 달에 일한 임금을 받지 못했습니다. 퇴직 뒤 임금을 언제까지 지급해야 하는지와 받기 위한 절차를 알고 싶습니다.", context);
+    expect(answer.issues.map((issue) => issue.query)).toEqual(["퇴직 임금 지급 기한", "퇴직 임금 청구 절차"]);
+  });
+
+  it.each([
+    ["매달 임금을 못 받았습니다", "임금 지급", "임금 지급"],
+    ["퇴직하지 않았는데 임금을 못 받았습니다", "임금 지급", "임금 지급"],
+    ["퇴직금 지급이 궁금합니다", "임금 지급", "임금 지급"],
+    ["퇴사 후 월급을 못 받았습니다", "퇴직 임금 지급", "퇴직 임금 지급"],
+    ["퇴사와 해고의 차이는?", "해고 효력", "해고 효력"],
+    ["국가기관과 계약변경을 협의 중입니다", "계약 변경", "국가기관 계약 변경"],
+    ["지방자치단체 입찰제재가 궁금합니다", "부정당 제재", "지방자치단체 부정당 제재"],
+    ["국가기관과 지방자치단체 계약 차이는?", "계약 변경", "계약 변경"],
+    ["민간 회사와 계약했습니다", "계약 해제", "계약 해제"],
+    ["국가기관과 공사계약을 체결했고 설계변경이 있었습니다", "계약금액 변경", "공사계약 설계변경 국가기관 계약금액 변경"],
+    ["물품 공급계약의 납품기한이 지났습니다", "계약 해제", "물품 공급계약 계약 해제"],
+  ])("keeps only explicit applicable search facts: %s", (original, input, expected) => {
+    expect(preserveResearchSearchFacts(original, input)).toBe(expected);
   });
 
   it("rejects an entirely invented claim instead of searching it as the user's issue", async () => {
