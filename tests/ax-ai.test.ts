@@ -125,7 +125,9 @@ describe("AX invalid numerical requirements", () => {
     await expect(runGroqAi(request)).rejects.toMatchObject({ code: "INVALID_PROVIDER_OUTPUT" });
   });
   it("repairs only missing target flow and risks without regenerating a valid diagnosis", async () => {
-    const empty = { ...outputFixture(), toBe: [], risks: [], technicalChecks: [] };
+    // Keep the fixture's open required check: an empty list would (correctly) receive the
+    // server-derived system-access check, which is not what this case exercises.
+    const empty = { ...outputFixture(), toBe: [], risks: [] };
     const gaps = { toBe: outputFixture().toBe, risks: ["입력 표 대조가 필요함"] };
     const fetcher = respond(facts, empty, gaps);
     await expect(runGroqAi(request)).resolves.toMatchObject({ diagnosis: { asIs: { inputs: ["입력 표"] }, toBe: gaps.toBe, risks: gaps.risks, technicalChecks: empty.technicalChecks, decisionGate: empty.decisionGate } });
