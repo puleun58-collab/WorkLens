@@ -524,6 +524,8 @@ const RESTRICTED_RELATIONSHIPS: ReadonlyArray<{ source: RegExp; request: RegExp;
   { source: /민사집행법/u, request: /집행|경매|압류|가처분|가압류|강제|배당/u },
   // 행정조사 대상자의 의견제출은 조사·점검을 묻지 않은 처분 전 의견제출 절차가 아니다.
   { source: /조사대상자|행정조사/u, request: /조사|점검|검사|출입/u },
+  // 입찰참가자격 사전심사(서류 보완·심사 결과)는 사전심사를 묻지 않은 부정당 제재·처분 전 의견 절차가 아니다.
+  { source: /입찰참가자격\s*사전심사/u, request: /사전심사|PQ|적격심사/u },
 ];
 
 export function relationshipSupported(content: string, originalQuery: string): boolean {
@@ -600,12 +602,6 @@ export function directConditionsSupported(content: string, originalQuery: string
   // writes tender conditions, not the sanction of a contractor's default.
   if (/입찰참가|참가자격/u.test(issue) && /입찰참가를제한하여서는아니|부당한제한금지|부당하게제한/u.test(source)
     && !/부당|입찰조건|참가자격요건|공고/u.test(request)) return false;
-
-  // Pre-qualification screening of bidders (document supplements, screening
-  // results) is a tender-entry procedure, not the hearing or opinion procedure
-  // before sanctioning a contractor, unless the question asks about screening.
-  if (/의견|청문|소명|처분|제재|제한/u.test(issue) && /입찰참가자격사전심사/u.test(source)
-    && !/사전심사|PQ|적격심사/u.test(request)) return false;
 
   // A replacement fine can support the question but is not itself the
   // independent power to suspend. Keep mixed provisions with an actual

@@ -233,11 +233,11 @@ export function preserveResearchSearchFacts(original: string, input: string): st
     && !/(?:퇴직|퇴사)(?:을|를|은|는|하지|한\s*것이)?\s*(?:안|않|아니|아닌|아닙|아님|없)/u.test(original)) {
     facts.push(retirement);
   }
-  if (/계약|해제|이행|대금|반환/u.test(input) && !/계약[^.!?\n]{0,20}(?:아니|아닌|아닙|아님|않|없)/u.test(original)) {
-    const contract = original.match(/물품\s*공급계약|공사계약|물품계약/u)?.[0];
-    if (contract && !input.replace(/\s/gu, "").includes(contract.replace(/\s/gu, ""))) facts.push(contract);
-    if (original.includes("설계변경") && !/설계변경[^.!?\n]{0,12}(?:아니|아닌|아닙|아님|않|없)/u.test(original)
-      && /계약|금액|공사/u.test(input) && !input.includes("설계변경")) facts.push("설계변경");
+  // A contract type ("물품 공급계약") is not injected: measured runs showed it steering general
+  // civil rescission searches away from the 민법 rescission rules (543~548조) toward supply statutes.
+  if (/계약|금액|공사/u.test(input) && original.includes("설계변경")
+    && !/설계변경[^.!?\n]{0,12}(?:아니|아닌|아닙|아님|않|없)/u.test(original) && !input.includes("설계변경")) {
+    facts.push("설계변경");
   }
   if (/계약|입찰|조달|제재|부정당/u.test(input)) {
     const parties = ["국가기관", "지방자치단체"].filter((party) => original.includes(party)
