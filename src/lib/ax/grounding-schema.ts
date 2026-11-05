@@ -1,5 +1,9 @@
 import { z } from "zod";
 
+// Imported before schema.ts is evaluated: configure Zod before the first object
+// schema, otherwise its caught Function probe still violates production CSP.
+z.config({ jitless: true });
+
 export const CURRENT_FACT_FIELDS = ["purpose", "trigger", "inputs", "steps", "outputs", "exceptions", "humanDecisions", "systems", "cycle"] as const;
 const field = z.enum(CURRENT_FACT_FIELDS);
 const quote = z.object({
