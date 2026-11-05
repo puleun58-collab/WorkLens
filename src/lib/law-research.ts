@@ -5,7 +5,7 @@ import { normalizeAnalysisDate, normalizeAnalysisJo } from "@/lib/law-analysis";
 import type { ContractReview } from "@/lib/contract-review";
 import type { ProcedureEvidence } from "@/lib/procedure-evidence";
 import type { ResearchEnrichment } from "@/lib/research-relevance";
-import type { FactFrame, S5Reason, ShadowIssueStatus, StructureComparison, StructureState } from "@/lib/research-structure";
+import type { FactFrame, S5Reason, ScreenBasis, ShadowIssueStatus, StructureComparison, StructureState } from "@/lib/research-structure";
 import type { TaskEvidence } from "@/lib/task-evidence";
 
 /**
@@ -306,6 +306,8 @@ export interface StructureShadowDecision {
   signals: string[];
   unconfirmed: string[];
   comparison?: StructureComparison | { malformed: string };
+  /** The model's explicit out-of-scope record for a pair without a comparison. */
+  screen?: ScreenBasis;
   effectType?: string;
   legacy: { adopted: boolean; role?: "direct" | "supporting" | "identity" };
   /** Structural direct-ness differs from the legacy direct/identity adoption. */

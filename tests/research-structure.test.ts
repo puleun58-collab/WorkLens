@@ -86,6 +86,37 @@ describe("comparison format checks (decision rule ③)", () => {
     const result = validateAdoptionStructure({ profiles: [bad], comparisons: [pair] }, frame(), candidates, 1);
     expect(result?.comparisons.get("0\0c1")).toEqual({ malformed: "profile.requirements" });
   });
+  // §6 fix round: descriptive fields no decision rule reads are dropped per item, not allowed to void the pair.
+  it("drops an unquoted regulated party or act without voiding the pair, and records the drop", () => {
+    const loose = { ...good, regulatedParties: [{ role: "사용자", quote: "회사는" }, { role: "근로자", quote: "근로자에게" }],
+      regulatedAct: { act: "임금 지급", quote: "월급을 줘야 한다" } };
+    const result = validateAdoptionStructure({ profiles: [loose], comparisons: [pair] }, frame(), candidates, 1);
+    expect(result?.profiles.get("c1")).toMatchObject({ regulatedParties: [{ role: "근로자", quote: "근로자에게" }], regulatedAct: null,
+      dropped: ["regulatedParties", "regulatedAct"] });
+    expect(result?.comparisons.get("0\0c1")).toMatchObject({ A: { value: "same" } });
+    // The drop is an info note, never a contradiction: the pair can still reach S1.
+    const decision = decideStructure({ candidate: candidates.get("c1")!, evidence: verified, comparison: result!.comparisons.get("0\0c1") as StructureComparison,
+      profile: result!.profiles.get("c1"), frame: frame(), originalQuery: "회사가 임금을 지급하지 않습니다" });
+    expect(decision).toMatchObject({ state: "direct", signals: ["info.profile.regulatedParties_dropped", "info.profile.regulatedAct_dropped"] });
+  });
+  it("still rejects a structurally invalid descriptive field and keeps A/B quotes strict", () => {
+    const notArray = { ...good, regulatedParties: "사용자" };
+    expect(validateAdoptionStructure({ profiles: [notArray], comparisons: [pair] }, frame(), candidates, 1)?.comparisons.get("0\0c1"))
+      .toEqual({ malformed: "profile.regulatedParties" });
+    expect(validateAdoptionStructure({ profiles: [good], comparisons: [{ ...pair, A: { ...pair.A, quote: "회사는" } }] }, frame(), candidates, 1)
+      ?.comparisons.get("0\0c1")).toEqual({ malformed: "A.quote" });
+  });
+  it("reads screens per issue and ignores invalid rows", () => {
+    const two = new Map([["c1", candidate(text)], ["c2", candidate("다른 조문", { id: "c2" })]]);
+    const result = validateAdoptionStructure({ profiles: [], comparisons: [], screens: [
+      { candidateId: "c2", issueIndexes: [0, 1, 7], basis: "party" },
+      { candidateId: "c1", issueIndexes: [0], basis: "similar" },
+      { candidateId: "c9", issueIndexes: [0], basis: "act" },
+    ] }, frame(), two, 2);
+    expect([...result!.screens.entries()]).toEqual([["0\0c2", "party"], ["1\0c2", "party"]]);
+    // A payload without screens is still usable (no screens → omitted pairs become not_compared).
+    expect(validateAdoptionStructure({ profiles: [], comparisons: [] }, frame(), two, 2)?.screens.size).toBe(0);
+  });
   it("rejects a wholly unusable payload and ignores unknown candidates or issue indexes", () => {
     expect(validateAdoptionStructure({ comparisons: [] }, frame(), candidates, 1)).toBeUndefined();
     const result = validateAdoptionStructure({ profiles: [good], comparisons: [{ ...pair, candidateId: "c9" }, { ...pair, issueIndex: 3 }] }, frame(), candidates, 1);
@@ -104,8 +135,21 @@ describe("decision table (first match)", () => {
     expect(decide(duty, compare(), profile("duty"), query, frame(), {}, { verification: "verified", shown: false })).toMatchObject({ state: "unverified", subReason: "out_of_budget" });
     expect(decide(duty, compare(), profile("duty"), query, frame(), { window: { start: 10, end: 20, total: 40 } })).toMatchObject({ state: "unverified", subReason: "window_incomplete" });
   });
-  it("② a fully delivered original without a record is S4", () => {
-    expect(decide(duty, undefined, undefined, query)).toMatchObject({ state: "not_relevant", rule: 2 });
+  // §6 fix round (DESIGN §4.2 ②): S4 needs the model's explicit screen; an omitted pair is S5
+  // not_compared, so "not reviewed" can no longer read as "not relevant".
+  it("② a fully delivered original is S4 only when screened out; without any record it is S5 not_compared", () => {
+    expect(decideStructure({ candidate: candidate(duty), evidence: verified, screen: "party", frame: frame(), originalQuery: query }))
+      .toMatchObject({ state: "not_relevant", rule: 2, signals: ["screen.party"] });
+    expect(decide(duty, undefined, undefined, query)).toMatchObject({ state: "unverified", subReason: "not_compared", rule: 2 });
+    // A comparison wins over a screen for the same pair.
+    expect(decideStructure({ candidate: candidate(duty), evidence: verified, comparison: compare({ D: [] }), screen: "act",
+      profile: profile("duty"), frame: frame(), originalQuery: query })).toMatchObject({ state: "direct", rule: 8 });
+    // E still comes first: a screened but windowed original stays S5.
+    expect(decideStructure({ candidate: candidate(duty, { window: { start: 5, end: 20, total: 40 } }), evidence: verified, screen: "party",
+      frame: frame(), originalQuery: query })).toMatchObject({ state: "unverified", subReason: "window_incomplete", rule: 1 });
+  });
+  it("a not_compared-only issue is unverified, never none", () => {
+    expect(structureIssueStatus([{ state: "unverified", subReason: "not_compared", unconfirmed: [] }], "none").status).toBe("unverified");
   });
   it("③ a malformed pair or payload is S5 malformed", () => {
     expect(decide(duty, { malformed: "B.quote" }, profile("duty"), query)).toMatchObject({ state: "unverified", subReason: "malformed", rule: 3 });

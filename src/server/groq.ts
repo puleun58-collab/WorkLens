@@ -272,8 +272,10 @@ export function preserveResearchSearchFacts(original: string, input: string): st
  * at most 5 short arrays of spans, so 3,000. Adoption: 3,000 is the current
  * ceiling for selections alone; profiles + comparisons repeat quotes per
  * candidate and per pair, so 8,000 to avoid json_validate_failed truncation that
- * would also fail the legacy selections in staging. Staging logs carry
- * completionTokens per call; the final values are set from those measurements.
+ * would also fail the legacy selections in staging. Screens (one compact row
+ * per out-of-scope candidate, §6 fix round) stay inside the same ceiling.
+ * Still UNMEASURED: staging logs carry completionTokens per call; the final
+ * values are set from those measurements.
  */
 export const STRUCTURE_INTERPRETATION_MAX_TOKENS = 3_000;
 export const STRUCTURE_ADOPTION_MAX_TOKENS = 8_000;
@@ -435,7 +437,7 @@ export async function verifyResearchAdoption(
   };
   const schema = structure
     ? { type: "object", additionalProperties: false, properties: { selections: selectionsSchema, ...ADOPTION_STRUCTURE_JSON_SCHEMA },
-      required: ["selections", "profiles", "comparisons"] }
+      required: ["selections", "profiles", "comparisons", "screens"] }
     : { type: "object", additionalProperties: false, properties: { selections: selectionsSchema }, required: ["selections"] };
   return observeGroq({ ...context, operation }, operation, async (budget) => {
     const completion = await complete(messages, schema, "worklens_research_adoption", structure ? STRUCTURE_ADOPTION_MAX_TOKENS : 3_000, { ...context, operation }, budget);
@@ -443,8 +445,8 @@ export async function verifyResearchAdoption(
     try { payload = JSON.parse(completion.choices[0].message.content); } catch { throw budget.failure; }
     // Shadow mode: the structural records are handed back raw and never decide the legacy selections.
     if (structure && payload && typeof payload === "object" && !Array.isArray(payload)) {
-      const { profiles, comparisons, ...legacy } = payload as Record<string, unknown>;
-      structure.onResult({ profiles, comparisons });
+      const { profiles, comparisons, screens, ...legacy } = payload as Record<string, unknown>;
+      structure.onResult({ profiles, comparisons, screens });
       payload = legacy;
     }
     const result = z.object({ selections: z.array(row).max(100) }).strict().safeParse(payload);

@@ -251,6 +251,33 @@ describe("final official-source adoption verifier", () => {
     expect(payload.candidates.reduce((count, candidate) => count + candidate.text.length, 0)).toBeLessThanOrEqual(MAX_ANALYZE_EVIDENCE_CHARS);
   });
 
+  it("serves complete originals max-min fairly before partial previews within the same budget", async () => {
+    // Two long originals first, then a 3,001-char article, then a preview. Sequential equal shares
+    // (2,500 each) would have cut the article; max-min fair allocation leaves it whole.
+    const long = (id: string) => ({ ...candidates[2], id, partial: false, text: "판결 이유\n".repeat(1_400) });
+    const medium = { ...candidates[0], id: "article-medium", text: `${"중".repeat(2_000)}\n${wageQuote}${"말".repeat(1_000 - wageQuote.length)}` };
+    const preview = { ...candidates[1], id: "article-preview", partial: true, text: `${"미".repeat(3_000)}…` };
+    const fetcher = provider([]);
+    await verifyResearchAdoption(originalQuery, issues, [long("precedent-1"), long("precedent-2"), medium, preview], context);
+    const payload = JSON.parse(requestPayload(fetcher).messages.find((entry) => entry.role === "user")!.content) as {
+      candidates: Array<ResearchAdoptionCandidate & { window?: ResearchAdoptionVerdict["window"] }>;
+    };
+    const shown = new Map(payload.candidates.map((candidate) => [candidate.id, candidate]));
+    expect(medium.text.length).toBe(3_001);
+    expect(shown.get("article-medium")!.text).toBe(medium.text);
+    expect(shown.get("article-medium")!.window).toBeUndefined();
+    // The long originals split what the complete article left; each stays a bounded window.
+    for (const id of ["precedent-1", "precedent-2"]) {
+      expect(shown.get(id)!.window).toMatchObject({ total: "판결 이유\n".length * 1_400 });
+      expect(shown.get(id)!.text.length).toBeGreaterThan(3_000);
+    }
+    // A preview (never adoptable) only gets what complete originals left — here less than the 80-char floor.
+    expect(shown.has("article-preview")).toBe(false);
+    // The caller's order is kept and the shared budget is unchanged.
+    expect(payload.candidates.map((candidate) => candidate.id)).toEqual(["precedent-1", "precedent-2", "article-medium"]);
+    expect(payload.candidates.reduce((count, candidate) => count + candidate.text.length, 0)).toBeLessThanOrEqual(MAX_ANALYZE_EVIDENCE_CHARS);
+  });
+
   it("can adopt the operative quote before or after a long irrelevant original", async () => {
     const irrelevant = { ...candidates[1], text: "관련 없는 내용\n".repeat(MAX_EVIDENCE_CHARS) };
     const operative = { ...candidates[0], text: `${"배경 설명\n".repeat(MAX_EVIDENCE_CHARS)}${wageQuote}\n시행일 확인` };
@@ -276,7 +303,8 @@ describe("final official-source adoption verifier", () => {
     const body = requestPayload(fetcher) as ReturnType<typeof requestPayload> & { response_format: { json_schema: { schema: { required: string[] } } } };
     expect(fetcher).toHaveBeenCalledOnce();
     expect(body.max_completion_tokens).toBe(8_000);
-    expect(body.response_format.json_schema.schema.required).toEqual(["selections", "profiles", "comparisons"]);
+    // §6 fix round: screens (explicit out-of-scope rows) are part of the shadow record.
+    expect(body.response_format.json_schema.schema.required).toEqual(["selections", "profiles", "comparisons", "screens"]);
     expect(JSON.parse(body.messages.find((entry) => entry.role === "user")!.content)).toHaveProperty("factFrame", null);
   });
 

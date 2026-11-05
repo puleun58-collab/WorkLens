@@ -54,12 +54,13 @@ export function buildStructureShadow(input: {
       const shaped = structural.get(candidate.id)!;
       const key = `${issueIndex}\0${candidate.id}`;
       const comparison = validated?.comparisons.get(key);
+      const screen = comparison ? undefined : validated?.screens.get(key);
       const profile = validated?.profiles.get(candidate.id);
       const decision = decideStructure({
         candidate: shaped,
         evidence: { verification: adoption === "unavailable" ? "unavailable" : adoption === "malformed" ? "malformed" : "verified",
           shown: Boolean(evaluated?.has(candidate.id)) },
-        comparison, profile, frame, originalQuery: query,
+        comparison, screen, profile, frame, originalQuery: query,
       });
       const legacy = legacyOutcomes.get(key) ?? { adopted: false, identity: false };
       // §4.4: identity needs a complete official original; its comparison is still shown.
@@ -76,6 +77,7 @@ export function buildStructureShadow(input: {
         ...(decision.subReason ? { subReason: decision.subReason } : {}),
         rule: decision.rule, signals: decision.signals, unconfirmed: decision.unconfirmed,
         ...(comparison ? { comparison } : {}),
+        ...(screen ? { screen } : {}),
         ...(profile ? { effectType: profile.effectType } : {}),
         legacy: { adopted: legacy.adopted, ...(legacy.role ? { role: legacy.role } : {}) },
         differs: legacyClass(legacy) !== shadowClass(decision.state, identity),

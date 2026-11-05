@@ -93,8 +93,21 @@ function fileRow(page: Page, filePath: string) {
   return page.locator(".file-row").filter({ hasText: path.basename(filePath) });
 }
 
+const MIME_TYPES: Record<string, string> = {
+  ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ".pdf": "application/pdf",
+  ".csv": "text/csv",
+  ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+};
+
 async function sendFile(page: Page, filePath: string) {
-  await page.locator('input[type="file"]').setInputFiles(filePath);
+  // Upload by buffer like the other specs: path-based setInputFiles leaves no file in some Chromium sandboxes.
+  await page.locator('input[type="file"]').setInputFiles({
+    name: path.basename(filePath),
+    mimeType: MIME_TYPES[path.extname(filePath).toLowerCase()] ?? "application/octet-stream",
+    buffer: await readFile(filePath),
+  });
 }
 
 async function upload(page: Page, filePath: string) {
