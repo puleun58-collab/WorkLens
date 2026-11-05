@@ -194,6 +194,22 @@ describe("source relationship versus the original question", () => {
     expect(relationshipSupported(screening, "국가기관 공사 입찰참가자격 사전심사 서류 보완 절차는?")).toBe(true);
   });
 
+  it("rejects the dismissal, term-conditioned and public-enterprise rules observed as wrong direct evidence", () => {
+    // Official bodies retained in law-m-final3/labor-absence-2 and procurement-sanction-2.
+    const dismissal = "근로기준법 ① 사용자는 근로자를 해고하려면 해고사유와 해고시기를 서면으로 통지하여야 한다. ② 근로자에 대한 해고는 제1항에 따라 서면으로 통지하여야 효력이 있다.";
+    expect(directConditionsSupported(dismissal, labor, "근로계약 해지")).toBe(false);
+    expect(directConditionsSupported(dismissal, "문자로 해고 통보를 받았는데 효력이 있나요?", "해고 서면통지")).toBe(true);
+    const term = "민법 ①고용의 약정기간이 3년을 넘거나 당사자의 일방 또는 제삼자의 종신까지로 된 때에는 각 당사자는 3년을 경과한 후 언제든지 계약해지의 통고를 할 수 있다.";
+    expect(directConditionsSupported(term, labor, "근로계약 해지")).toBe(false);
+    expect(directConditionsSupported(term, "고용 약정기간이 5년인데 3년 지나서 그만둘 수 있나요?", "고용 해지통고")).toBe(true);
+    const enterprise = "공기업ㆍ준정부기관 계약사무규칙 제16조(의견 청취 및 심의 절차) ① 기관장은 제15조에 따라 입찰참가자격을 제한하려면 미리 해당 처분의 상대방 또는 그 대리인에게 의견을 진술할 기회를 주어야 하며";
+    const sanction = "국가기관과 체결한 물품계약을 제때 이행하지 못했습니다. 입찰참가자격 제한을 받을 수 있는 요건과 처분 전 의견을 낼 수 있는 절차를 알고 싶습니다.";
+    expect(relationshipSupported(enterprise, sanction)).toBe(false);
+    expect(relationshipSupported(enterprise, "준정부기관과 계약했는데 입찰참가자격 제한 전 의견 절차는?")).toBe(true);
+    const tender = "국가를 당사자로 하는 계약에 관한 법률 시행규칙 각 중앙관서의 장 또는 계약담당공무원은 영 제12조의 규정에 의한 경쟁입찰참가자격외의 요건을 정하여 입찰참가를 제한하여서는 아니된다.";
+    expect(directConditionsSupported(tender, sanction, "국가기관 입찰자격 제한 요건")).toBe(false);
+  });
+
   it("keeps captured counterparty demand, tender-condition and confirmation rules out of direct requirement evidence", () => {
     // Official bodies retained in paced-after/contract-rescission-1 and procurement-sanction-2 and law-direct-after-3.
     const demand = "①해제권의 행사의 기간을 정하지 아니한 때에는 상대방은 상당한 기간을 정하여 해제권행사여부의 확답을 해제권자에게 최고할 수 있다.\n②전항의 기간내에 해제의 통지를 받지 못한 때에는 해제권은 소멸한다.";

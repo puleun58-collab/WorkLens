@@ -526,6 +526,8 @@ const RESTRICTED_RELATIONSHIPS: ReadonlyArray<{ source: RegExp; request: RegExp;
   { source: /조사대상자|행정조사/u, request: /조사|점검|검사|출입/u },
   // 입찰참가자격 사전심사(서류 보완·심사 결과)는 사전심사를 묻지 않은 부정당 제재·처분 전 의견 절차가 아니다.
   { source: /입찰참가자격\s*사전심사/u, request: /사전심사|PQ|적격심사/u },
+  // 공기업·준정부기관 계약사무규칙은 그 기관을 묻지 않은 국가기관·지방자치단체 계약 관계의 근거가 아니다.
+  { source: /공기업|준정부기관/u, request: /공기업|준정부기관|공공기관/u },
 ];
 
 export function relationshipSupported(content: string, originalQuery: string): boolean {
@@ -587,6 +589,15 @@ export function directConditionsSupported(content: string, originalQuery: string
     && /무단결근|무단퇴사|퇴사|퇴직|근로관계종료|고용관계종료/u.test(request)
     && !/근로계약|고용/u.test(source)) return false;
 
+  // An employer's dismissal rule (notice of dismissal grounds, dismissal limits)
+  // does not govern an employee who quits, unless the question raises dismissal.
+  if (/해고/u.test(source) && !/해고|잘리|잘렸|자르|자른|권고사직/u.test(request)) return false;
+
+  // A rule that applies only after an N-year term (or a lifetime engagement) cannot be the
+  // direct rule when the question states no term; the unstated condition stays unconfirmed.
+  if (/[0-9일이삼사오육칠팔구십]+년을(?:넘|경과)|종신까지/u.test(source)
+    && !/[0-9일이삼사오육칠팔구십]+년|종신|약정기간|계약기간/u.test(request)) return false;
+
   // Exercising an existing right does not establish a right to terminate.
   if (/해제|해지/u.test(issue) && !/행사|방법|절차|통지|의사표시/u.test(issue)
     && /(?:해제|해지)는상대방에대한의사표시|(?:해제권|해지권)의행사/u.test(source)
@@ -600,7 +611,7 @@ export function directConditionsSupported(content: string, originalQuery: string
 
   // A ban on adding unlawful bidding qualifications governs how an authority
   // writes tender conditions, not the sanction of a contractor's default.
-  if (/입찰참가|참가자격/u.test(issue) && /입찰참가를제한하여서는아니|부당한제한금지|부당하게제한/u.test(source)
+  if (/입찰(?:참가)?자격|참가자격/u.test(issue) && /입찰참가를제한하여서는아니|부당한제한금지|부당하게제한/u.test(source)
     && !/부당|입찰조건|참가자격요건|공고/u.test(request)) return false;
 
   // A replacement fine can support the question but is not itself the
