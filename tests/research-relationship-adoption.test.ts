@@ -191,7 +191,7 @@ describe("source relationship versus the original question", () => {
     const screening = "국가를 당사자로 하는 계약에 관한 법률 시행규칙 제23조의2(입찰참가자격 사전심사 절차) ③ 각 중앙관서의 장 또는 계약담당공무원은 입찰참가자격 사전심사 신청 서류의 내용이 불명확하거나 누락된 서류가 있는 경우에는 3일 이내의 기간을 정하여 보완을 요구할 수 있다.";
     const sanction = "국가기관과 체결한 물품계약을 제때 이행하지 못했습니다. 입찰참가자격 제한을 받을 수 있는 요건과 처분 전 의견을 낼 수 있는 절차를 알고 싶습니다.";
     expect(relationshipSupported(screening, sanction)).toBe(false);
-    expect(relationshipSupported(screening, "입찰참가자격 사전심사 서류 보완 절차는?")).toBe(true);
+    expect(relationshipSupported(screening, "국가기관 공사 입찰참가자격 사전심사 서류 보완 절차는?")).toBe(true);
   });
 
   it("keeps captured counterparty demand, tender-condition and confirmation rules out of direct requirement evidence", () => {
