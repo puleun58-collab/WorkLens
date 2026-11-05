@@ -445,8 +445,8 @@ export async function runGroqAi(
     // A grounded procedure needs step judgements and a target flow. Empty risks cannot establish
     // that the procedure is risk-free; the consumer keeps an explicit assessment-incomplete notice.
     const groundedSteps = grounding?.facts.some(fact => fact.field === "steps") ?? false;
-    // Keep the existing whole-answer correction first. Focused repair may use only its remaining
-    // request budget, including provider retries; usage and attempts stay in the boundary's one log.
+    // Missing narrative fields do not justify replacing valid scores, judgements or conditions.
+    // Reserve whole-answer correction for semantic violations or missing step judgements.
     const completeGaps = async (value: Extract<AiApiResult, { kind: "ax-diagnosis" }>): Promise<AiApiResult> => {
       const gaps = groundedSteps ? (["toBe", "risks"] as const).filter(key => !value.diagnosis[key].length) : [];
       if (!gaps.length || budget.attempt >= budget.maxAttempts) {
@@ -458,10 +458,14 @@ export async function runGroqAi(
         const raw = await complete(axDiagnosisGapMessages(request, value.diagnosis, gaps), AX_DIAGNOSIS_GAP_RESPONSE_SCHEMA,
           "worklens_ax_diagnosis_gaps", 1_500, { ...context, operation }, budget);
         const filled = axDiagnosisGapSchema.parse(JSON.parse(raw.choices[0].message.content));
-        const diagnosis = { ...value.diagnosis, ...Object.fromEntries(gaps.map(key => [key, filled[key]])) };
-        if (copiesAttachment(diagnosis, request.attachmentSummary) || validateAxSemantics(diagnosis, request).length) {
-          axStage("focused-rejected", value.diagnosis, "validation");
-          return value;
+        let diagnosis = value.diagnosis;
+        for (const key of gaps) {
+          const candidate = { ...diagnosis, [key]: filled[key] };
+          if (copiesAttachment(candidate, request.attachmentSummary) || validateAxSemantics(candidate, request).length) {
+            axStage("focused-rejected", diagnosis, key);
+            continue;
+          }
+          diagnosis = candidate;
         }
         axStage("focused-applied", diagnosis);
         return { ...value, diagnosis };
@@ -477,6 +481,7 @@ export async function runGroqAi(
       axStage("completed", result.diagnosis);
       return result;
     }
+    if (!violations.length && result.diagnosis.stepAssessments.length) return completeGaps(result);
     if (violations.length) budget.semantic = { categories: [...new Set(violations.map(violation => violation.category))], corrected: false };
     if (budget.attempt < budget.maxAttempts) {
       axStage("whole-correction-start", result.diagnosis, violations.length ? "semantic-violation" : missing.join(","));
