@@ -11,7 +11,7 @@ vi.mock("@/server/research-enrichment", async (importOriginal) => {
     mcpEnrichmentSources: () => ({}),
     sharedSources: (sources: unknown) => sources,
     enrichResearch: () => Promise.reject(new Error("enrichment disabled in route tests")),
-    lookupIssue: () => Promise.reject(new Error("issue lookups disabled in route tests")),
+    lookupIssue: () => Promise.resolve({ status: "none", articles: [], precedents: [] }),
     rereadShownArticles: () => Promise.resolve([]),
     // Pure term→pair mapping used by the follow-up path; everything else stays mocked.
     explicitArticlePairs: original.explicitArticlePairs,
