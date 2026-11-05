@@ -88,6 +88,33 @@ describe("follow-up: named-law supplement and citation follow-up", () => {
   });
 });
 
+describe("observed lawless rescission issue candidate lookup", () => {
+  it("uses a chain candidate's official law to find a missing substantive title without injecting a citation", async () => {
+    const queries: string[] = [];
+    const sources = baseSources({
+      async laws(query) {
+        queries.push(query);
+        return query === "민법" ? [{ name: "민법", mst: "C" }] : [];
+      },
+      async toc() { return [
+        { jo: "제544조", title: "이행지체와 해제" },
+        { jo: "제552조", title: "해제권행사여부의 최고권" },
+      ]; },
+      async article(_mst, jo) {
+        return jo === "제544조" ? { text: "제544조(이행지체와 해제)\n당사자 일방이 그 채무를 이행하지 아니하는 때에는 상대방은 상당한 기간을 정하여 그 이행을 최고하고 그 기간 내에 이행하지 아니한 때에는 계약을 해제할 수 있다." } : undefined;
+      },
+    });
+    const unseen = await lookupIssue("계약 해제 요건", [], sources, () => false);
+    expect(unseen.articles).toEqual([]);
+    queries.length = 0;
+    const lookup = await lookupIssue("계약 해제 요건", [{ law: "민법", jo: "제552조" }], sources, () => false);
+    expect(queries[0]).toBe("민법");
+    expect(lookup.articles.map(({ law, jo }) => ({ law, jo }))).toEqual([{ law: "민법", jo: "제544조" }]);
+    expect(lookup.articles[0].original).toContain("상당한 기간");
+    expect(lookup.articles[0]).not.toHaveProperty("adopted");
+  });
+});
+
 describe("follow-up: explicit-pair gate for relation issues", () => {
   it("qualifies the question's own 제38조 for a 법령 위계 issue when its text states the delegation", async () => {
     const sources = baseSources({
