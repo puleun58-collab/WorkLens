@@ -1,7 +1,7 @@
 import type { IssueEvidence, StructureShadowDecision, StructureShadowRecord } from "@/lib/law-research";
 import type { ResearchAdoptionCandidate, ResearchAdoptionVerdict } from "@/lib/research-relevance";
 import {
-  decideStructure, structureFollowUp, structureIssueStatus, validateAdoptionStructure,
+  decideStructure, structureFollowUp, structureIssueStatus, structureRawCounts, validateAdoptionStructure,
   type FactFrame, type StructureCandidate, type StructureState,
 } from "@/lib/research-structure";
 import { workerEnv } from "@/server/cf-env";
@@ -107,6 +107,8 @@ export function buildStructureShadow(input: {
     factFrameDropped: factFrame?.dropped ?? 0,
     adoption, decisions, issues: issueRecords, articles: [...articles.values()],
     differences: decisions.filter((decision) => decision.differs).length + issueRecords.filter((issue) => issue.differs).length,
+    ...(verification === "verified" && candidates.length
+      ? { recording: { raw: structureRawCounts(structureRaw), ...(validated ? { ignored: validated.ignored } : {}) } } : {}),
   };
 }
 
@@ -117,9 +119,15 @@ export function logStructureShadow(requestId: string, record: StructureShadowRec
     const key = decision.subReason ? `${decision.state}:${decision.subReason}` : decision.state;
     byState[key] = (byState[key] ?? 0) + 1;
   }
+  // §9 fix2: pre-validation row counts and discarded rows by reason (never the samples, which carry quotes).
+  const ignored = record.recording?.ignored;
+  const recording = record.recording ? { raw: record.recording.raw,
+    ...(ignored ? { ignored: { profiles: ignored.profiles, comparisons: ignored.comparisons, screens: ignored.screens,
+      requirementQuotesUnverified: ignored.requirementQuotesUnverified } } : {}) } : undefined;
   console.info("[law][structure-shadow]", {
     requestId, adoption: record.adoption, factFrameDropped: record.factFrameDropped,
     decisions: record.decisions.length, byState, differences: record.differences,
+    ...(recording ? { recording } : {}),
     issues: record.issues.map(({ issueIndex, legacyStatus, status }) => ({ issueIndex, legacyStatus, status })),
   });
 }

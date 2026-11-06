@@ -299,13 +299,23 @@ describe("final official-source adoption verifier", () => {
     const result = await verifyResearchAdoption(originalQuery, issues, candidates, { ...context,
       adoptionStructure: { factFrame: undefined, onResult: (value) => { raw = value; } } });
     expect(result).toEqual([direct]);
-    expect(raw).toEqual({ profiles: [{ candidateId: direct.candidateId }], comparisons: "broken" });
-    const body = requestPayload(fetcher) as ReturnType<typeof requestPayload> & { response_format: { json_schema: { schema: { required: string[] } } } };
+    // §9 fix2: selections ride along for the pre-validation row counts only.
+    expect(raw).toEqual({ profiles: [{ candidateId: direct.candidateId }], comparisons: "broken", selections: [direct] });
+    const body = requestPayload(fetcher) as ReturnType<typeof requestPayload> & { response_format: { json_schema: { schema: {
+      required: string[]; properties: Record<string, unknown> } } } };
     expect(fetcher).toHaveBeenCalledOnce();
-    expect(body.max_completion_tokens).toBe(8_000);
-    // §6 fix round: screens (explicit out-of-scope rows) are part of the shadow record.
-    expect(body.response_format.json_schema.schema.required).toEqual(["selections", "profiles", "comparisons", "screens"]);
+    // §9 fix2: ceiling set from the §6 re-run measurement (one call hit 8,000), bounded by the 30 s timeout.
+    expect(body.max_completion_tokens).toBe(10_000);
+    // §9 fix2: the records come before selections, so the comparison is written before the choice.
+    expect(body.response_format.json_schema.schema.required).toEqual(["profiles", "comparisons", "screens", "selections"]);
+    expect(Object.keys(body.response_format.json_schema.schema.properties)).toEqual(["profiles", "comparisons", "screens", "selections"]);
     expect(JSON.parse(body.messages.find((entry) => entry.role === "user")!.content)).toHaveProperty("factFrame", null);
+    // §9 fix2: "empty" is scoped to selections and the record duty precedes the closing line.
+    const system = body.messages.find((entry) => entry.role === "system")!.content;
+    expect(system).not.toContain("빈 selections를 반환하세요");
+    expect(system.indexOf("selections만 빈 배열로 두세요")).toBeLessThan(system.indexOf("기록 의무는 selections와 별개입니다"));
+    expect(system.indexOf("기록 의무는 selections와 별개입니다")).toBeLessThan(system.indexOf("JSON 객체만 반환하세요."));
+    expect(system.endsWith("JSON 객체만 반환하세요.")).toBe(true);
   });
 
   it("leaves the adoption call unchanged outside shadow mode", async () => {
@@ -314,6 +324,7 @@ describe("final official-source adoption verifier", () => {
     const body = requestPayload(fetcher) as ReturnType<typeof requestPayload> & { response_format: { json_schema: { schema: { required: string[] } } } };
     expect(body.max_completion_tokens).toBe(3_000);
     expect(body.response_format.json_schema.schema.required).toEqual(["selections"]);
+    expect(body.messages.find((entry) => entry.role === "system")!.content.endsWith("관련 근거가 없거나 확인이 불충분하면 빈 selections를 반환하세요. JSON 객체만 반환하세요.")).toBe(true);
     expect(JSON.parse(requestPayload(fetcher).messages.find((entry) => entry.role === "user")!.content)).not.toHaveProperty("factFrame");
   });
 

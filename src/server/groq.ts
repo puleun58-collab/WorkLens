@@ -77,6 +77,8 @@ interface GroqAttemptBudget {
   attempt: number;
   failure: ApiError;
   usage?: GroqCompletion["usage"];
+  /** Provider finish_reason of the last successful call ("length" = cut off at the ceiling). */
+  finishReason?: string;
   cumulativeUsage: NonNullable<GroqCompletion["usage"]>;
   rejection?: ProviderErrorMetadata & { status: number };
   semantic?: { categories: string[]; corrected: boolean };
@@ -110,6 +112,7 @@ async function observeGroq<T>(
     promptTokens: budget.usage?.prompt_tokens,
     completionTokens: budget.usage?.completion_tokens,
     totalTokens: budget.usage?.total_tokens,
+    ...(budget.finishReason ? { finishReason: budget.finishReason } : {}),
     cumulativePromptTokens: budget.cumulativeUsage.prompt_tokens,
     cumulativeCompletionTokens: budget.cumulativeUsage.completion_tokens,
     cumulativeTotalTokens: budget.cumulativeUsage.total_tokens,
@@ -265,20 +268,23 @@ export function preserveResearchSearchFacts(original: string, input: string): st
 }
 
 /**
- * Structural shadow output ceilings. UNMEASURED in this round (no live provider
- * key in the implementation environment): chosen from the existing measured
- * ceilings plus the added JSON. Interpretation: production medium-effort answers
- * used ~914 of 1,000 tokens and 2,000 is the current ceiling; the FactFrame adds
- * at most 5 short arrays of spans, so 3,000. Adoption: 3,000 is the current
- * ceiling for selections alone; profiles + comparisons repeat quotes per
- * candidate and per pair, so 8,000 to avoid json_validate_failed truncation that
- * would also fail the legacy selections in staging. Screens (one compact row
- * per out-of-scope candidate, §6 fix round) stay inside the same ceiling.
- * Still UNMEASURED: staging logs carry completionTokens per call; the final
- * values are set from those measurements.
+ * Structural shadow output ceilings (shadow mode only; the operational 2,000 /
+ * 3,000 are unchanged). Measured on staging 3645084 (§6 re-run, n=33 calls,
+ * completionTokens include hidden reasoning; REPORT §14 item 2):
+ * - Interpretation: max 2,794 (93% of 3,000), P95 2,457, P50 1,787. The FactFrame
+ *   output is not changed by this round, so the ceiling only needs tail room:
+ *   3,600 ≈ observed max × 1.3. A cut-off answer costs a full retry.
+ * - Adoption: one call hit 8,000 exactly (P95 6,670, P50 3,546). Fitted over 32
+ *   runs: ≈1,490 + 934 per comparison + 16 per screened pair (residual SD 702).
+ *   The record duty now asks for at most 6 comparisons (§9 fix2): 1,490 + 6×934
+ *   + ~40 screened pairs ≈ 7,730, P95 ≈ 8,890. The binding limit is the 30 s
+ *   request timeout, not the ceiling: at the slowest observed 335 tokens/s,
+ *   30 s ≈ 10,050 tokens, so a higher ceiling would turn truncation into a
+ *   timeout (which also fails the legacy selections). Hence 10,000.
+ * A ceiling is not a spend: tokens are billed as generated.
  */
-export const STRUCTURE_INTERPRETATION_MAX_TOKENS = 3_000;
-export const STRUCTURE_ADOPTION_MAX_TOKENS = 8_000;
+export const STRUCTURE_INTERPRETATION_MAX_TOKENS = 3_600;
+export const STRUCTURE_ADOPTION_MAX_TOKENS = 10_000;
 
 /**
  * Interpretation is retrieval guidance, not legal analysis. The user's exact
@@ -421,8 +427,11 @@ export async function verifyResearchAdoption(
       "판례 제목이나 전문 opening만으로 선택하지 마세요. partial=true인 잘린 원문/판시사항은 선택하지 마세요. 원문에 없는 결론·인용·시행일을 만들지 마세요.",
       "partial은 실제 확보 원문 자체가 부족하다는 뜻이므로 선택 금지입니다. 반면 window가 있으면 전체 원문은 서버가 확보했지만 모델에는 표시된 문자 범위만 제공한 것입니다. 그 범위에 실존하는 인용으로 확인되는 규율만 판단하고, 보지 못한 예외나 전체 조문을 검증했다고 쓰지 마세요.",
       "selections는 양성 목록만입니다. issueIndex와 candidateId는 제공한 값만 사용하세요. quote는 해당 candidate.text 안의 실질적인 규율·판시사항을 충분히 인용하세요(공백 외에는 원문 그대로). 한 단어/범용 문구 인용은 금지합니다. reason은 원질문의 행위자·법률관계·쟁점과 이 인용이 어떻게 연결되는지 구체적으로 설명하세요.",
-      "관련 근거가 없거나 확인이 불충분하면 빈 selections를 반환하세요. JSON 객체만 반환하세요.",
-      ...(structure ? [ADOPTION_STRUCTURE_INSTRUCTION] : []),
+      // Shadow mode (§9 fix2): the "empty" instruction is scoped to selections and the record duty comes
+      // before the closing line, so it cannot be read as "return an empty object". The legacy text is unchanged.
+      ...(structure
+        ? ["관련 근거가 없거나 확인이 불충분하면 selections만 빈 배열로 두세요(아래 기록은 그대로 작성합니다).", ADOPTION_STRUCTURE_INSTRUCTION, "JSON 객체만 반환하세요."]
+        : ["관련 근거가 없거나 확인이 불충분하면 빈 selections를 반환하세요. JSON 객체만 반환하세요."]),
     ].join(" ") },
     { role: "user", content: JSON.stringify({ originalQuery, issues: issues.map((issue, issueIndex) => ({ issueIndex, ...issue })), candidates: visible,
       ...(structure ? { factFrame: structure.factFrame ?? null } : {}) }) },
@@ -435,9 +444,11 @@ export async function verifyResearchAdoption(
         role: { type: "string", enum: ["direct", "supporting"] }, quote: { type: "string" }, reason: { type: "string" } },
       required: ["issueIndex", "candidateId", "role", "quote", "reason"] },
   };
+  // Shadow mode (§9 fix2): the records come before selections so the comparison is written before the
+  // choice instead of as its justification (§6 re-run: every selected pair was compared, 37 others in 35 runs).
   const schema = structure
-    ? { type: "object", additionalProperties: false, properties: { selections: selectionsSchema, ...ADOPTION_STRUCTURE_JSON_SCHEMA },
-      required: ["selections", "profiles", "comparisons", "screens"] }
+    ? { type: "object", additionalProperties: false, properties: { ...ADOPTION_STRUCTURE_JSON_SCHEMA, selections: selectionsSchema },
+      required: ["profiles", "comparisons", "screens", "selections"] }
     : { type: "object", additionalProperties: false, properties: { selections: selectionsSchema }, required: ["selections"] };
   return observeGroq({ ...context, operation }, operation, async (budget) => {
     const completion = await complete(messages, schema, "worklens_research_adoption", structure ? STRUCTURE_ADOPTION_MAX_TOKENS : 3_000, { ...context, operation }, budget);
@@ -446,7 +457,8 @@ export async function verifyResearchAdoption(
     // Shadow mode: the structural records are handed back raw and never decide the legacy selections.
     if (structure && payload && typeof payload === "object" && !Array.isArray(payload)) {
       const { profiles, comparisons, screens, ...legacy } = payload as Record<string, unknown>;
-      structure.onResult({ profiles, comparisons, screens });
+      // `selections` rides along for the pre-validation row counts only (structureRawCounts); it is never re-read.
+      structure.onResult({ profiles, comparisons, screens, selections: legacy.selections });
       payload = legacy;
     }
     const result = z.object({ selections: z.array(row).max(100) }).strict().safeParse(payload);
@@ -768,6 +780,7 @@ async function complete(
       promptTokens: undefined as number | undefined, completionTokens: undefined as number | undefined } : undefined;
     if (axCall) budget.axStages!.push(axCall);
     budget.usage = undefined;
+    budget.finishReason = undefined;
     budget.rejection = undefined;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -799,6 +812,8 @@ async function complete(
         }
         const completion = parseCompletion(payload);
         budget.usage = completion.usage;
+        const finishReason = completion.choices[0].finish_reason;
+        budget.finishReason = typeof finishReason === "string" ? finishReason.slice(0, 40) : undefined;
         if (axCall) {
           axCall.promptTokens = completion.usage?.prompt_tokens;
           axCall.completionTokens = completion.usage?.completion_tokens;
@@ -854,6 +869,8 @@ const groqUsageSchema = z.object({
 const groqCompletionSchema = z.object({
   choices: z.array(z.object({
     message: z.object({ content: z.string() }),
+    // Logged only (truncation diagnosis, §6 re-run); never validated, so an odd value cannot fail a call.
+    finish_reason: z.unknown().optional(),
   })).min(1),
   usage: groqUsageSchema.optional(),
 });

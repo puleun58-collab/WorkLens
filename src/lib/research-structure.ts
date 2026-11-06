@@ -46,8 +46,12 @@ export interface ProvisionProfile {
   /** Descriptive only (not a decision-table input; B carries its own verified quote). */
   regulatedAct: { act: string; quote: string } | null;
   effectType: EffectType;
-  /** Applicability conditions only (facts the provision needs), never the provision's own effect. */
-  requirements: Array<{ id: string; text: string; quote: string }>;
+  /**
+   * Applicability conditions only (facts the provision needs), never the provision's own effect.
+   * `unverifiedQuote`: the requirement's quote is not in the original. It is kept, never trusted:
+   * the decision table treats it as an unconfirmed core requirement (at most S3).
+   */
+  requirements: Array<{ id: string; text: string; quote: string; unverifiedQuote?: true }>;
   /** Descriptive fields whose quote was not in the original and were dropped (recorded as info signals). */
   dropped?: Array<"regulatedParties" | "regulatedAct">;
 }
@@ -129,7 +133,13 @@ export const FACT_FRAME_INSTRUCTION = "factFrame에는 사용자 원문에서 �
  */
 export const ADOPTION_STRUCTURE_INSTRUCTION = [
   // Record duty (cause 2: an omitted pair is no longer read as "not relevant").
-  "기록 의무: selections에 넣은 모든 (issueIndex, candidateId) 쌍은 comparisons에 반드시 기록하세요. window가 없고 partial=false인 나머지 후보도 쟁점마다 comparisons 또는 screens 중 한 곳에 반드시 기록하세요(생략 금지). screens는 당사자(party)·행위(act)·질문 유형(ask)이 분명히 다르거나 사용자 사실과 양립할 수 없는 요건(requirement)이 있는 후보를 후보당 한 줄 {candidateId, issueIndexes, basis}로 적습니다. 애매하면 screens가 아니라 comparisons에 unknown으로 적으세요.",
+  // §9 (fix2): in the §6 re-run comparisons were 69 of 2,612 pairs: all 32 selected pairs plus 37 others
+  // (median 2 per run); the model compared what it selected and screened the rest. The duty is now stated
+  // independently of selections, records come before selections, and comparisons are asked for the most likely
+  // candidates of each issue within a count the token ceiling can carry (≈934 tokens per comparison measured).
+  "기록 의무는 selections와 별개입니다. selections가 비어 있어도 아래 기록을 생략하지 마세요. profiles·comparisons·screens를 먼저 작성하고, 그 비교를 근거로 selections를 마지막에 작성하세요.",
+  "comparisons: 쟁점마다 window가 없고 partial=false인 후보 중 그 쟁점의 직접 근거가 될 가능성이 가장 높은 후보를 최대 3개(관련될 수 있는 후보가 하나라도 있으면 최소 1개) 골라 기록하세요. selections에 넣지 않을 후보도 비교 대상입니다. selections에 넣는 모든 (issueIndex, candidateId) 쌍은 반드시 comparisons에도 있어야 합니다. comparisons는 전체 6개 이내로 하되, selections 쌍이 그보다 많으면 selections 쌍을 모두 적으세요.",
+  "screens: comparisons에 적지 않은 window 없는 partial=false 후보 중 당사자(party)·행위(act)·질문 유형(ask)이 분명히 다르거나 사용자 사실과 양립할 수 없는 요건(requirement)이 있는 후보는 쟁점마다 빠짐없이 screens에 후보당 한 줄 {candidateId, issueIndexes: 해당 issueIndex 정수 배열, basis: party|act|ask|requirement 중 하나}로 적습니다(필드 이름 그대로). 관련될 수 있으나 개수 한도 때문에 비교하지 못한 후보는 screens에 넣지 마세요(screens는 분명히 관련 없는 후보만).",
   "profiles에는 comparisons에 적은 후보마다 한 건(같은 후보를 여러 쟁점과 비교해도 한 건)씩 수범자(regulatedParties), 규율 행위(regulatedAct), 효과 유형(effectType), 적용 요건(requirements: id r1…)을 적으세요.",
   // Verbatim quotes (cause 3).
   "모든 quote는 그 candidateId의 candidate.text에서 그대로 복사한 연속 구간입니다. 조사·어미·숫자·괄호·기호까지 원문 그대로 쓰고, 요약·바꿔 쓰기·생략부호·떨어진 구간 이어 붙이기를 하지 말며, 사용자 원문·factFrame·issue·다른 후보의 표현을 쓰지 마세요. 한 구절(80자 이내)로 짧게 인용하세요. 예: 원문 '임차인은 임대차가 종료한 때에는 목적물을 반환하여야 한다'라면 regulatedParties는 [{role:'임차인', quote:'임차인은'}]입니다. 조문에 수범자가 쓰여 있지 않으면 regulatedParties는 빈 배열, 규율 행위 문구가 없으면 regulatedAct는 null입니다.",
@@ -221,7 +231,34 @@ export type ValidatedStructure = {
   comparisons: Map<string, StructureComparison | { malformed: string }>;
   /** Keyed like comparisons: the model's explicit "plainly out of scope" record for a pair. */
   screens: Map<string, ScreenBasis>;
+  /** What validation discarded silently (rows that never reached a pair), by reason. */
+  ignored: StructureIgnored;
 };
+
+/**
+ * Rows the validator discarded without marking any pair malformed (§9 fix2: the
+ * §6 re-run could not tell an empty `screens` array from invalid rows). Counts
+ * by reason; `samples` keep a few rows' field names and failing quotes for the
+ * private staging record only — never logged.
+ */
+export interface StructureIgnored {
+  profiles: Record<string, number>;
+  comparisons: Record<string, number>;
+  screens: Record<string, number>;
+  /** Requirements kept with an unverified quote (not dropped; at most S3). */
+  requirementQuotesUnverified: number;
+  samples: Array<{ kind: "profile" | "comparison" | "screen" | "requirement"; reason: string; candidateId?: string;
+    issueIndex?: number; keys?: string[]; quote?: string }>;
+}
+
+const MAX_IGNORED_SAMPLES = 20;
+
+/** Pre-validation row counts of the model's structural payload (-1: field missing or not an array). */
+export function structureRawCounts(raw: unknown): { profiles: number; comparisons: number; screens: number; selections: number } {
+  const input = record(raw);
+  const length = (value: unknown) => Array.isArray(value) ? value.length : -1;
+  return { profiles: length(input?.profiles), comparisons: length(input?.comparisons), screens: length(input?.screens), selections: length(input?.selections) };
+}
 
 /**
  * Format checks (decision rule ③): a quote must exist in the model-visible
@@ -232,19 +269,36 @@ export type ValidatedStructure = {
  * regulatedParties/regulatedAct are descriptive: no decision-table rule reads
  * them (A and B carry their own quotes, which stay strict). An item whose quote
  * is not in the original is dropped and recorded, not allowed to void the
- * pair (§6: 28 of 41 malformed pairs failed only here). Requirement quotes stay
- * strict: dropping a requirement could hide an unconfirmed condition.
+ * pair (§6: 28 of 41 malformed pairs failed only here). A requirement whose
+ * quote is not in the original is never dropped (that could hide an
+ * unconfirmed condition) and never voids the other pairs' records either
+ * (§9 fix2: 27 of 39 malformed pairs, all on long articles — median 2,115
+ * chars, 시행령 제65조 in 5/5 runs — where a requirement quote missing from the
+ * original voided the whole profile): it is kept as `unverifiedQuote` and the
+ * decision table holds the pair at S3 at best. Structural requirement errors
+ * (missing/duplicate id, non-string fields) still mark the profile malformed.
  */
 export function validateAdoptionStructure(raw: unknown, frame: FactFrame | undefined, candidates: ReadonlyMap<string, StructureCandidate>,
   issueCount: number): ValidatedStructure | undefined {
   const input = record(raw);
   if (!input || !Array.isArray(input.profiles) || !Array.isArray(input.comparisons)) return undefined;
+  const ignored: StructureIgnored = { profiles: {}, comparisons: {}, screens: {}, requirementQuotesUnverified: 0, samples: [] };
+  const skip = (kind: "profiles" | "comparisons" | "screens", reason: string, entry: unknown, extra: { candidateId?: unknown; issueIndex?: unknown } = {}) => {
+    ignored[kind][reason] = (ignored[kind][reason] ?? 0) + 1;
+    if (ignored.samples.length < MAX_IGNORED_SAMPLES) {
+      const item = record(entry);
+      ignored.samples.push({ kind: kind === "profiles" ? "profile" : kind === "comparisons" ? "comparison" : "screen", reason,
+        ...(isString(extra.candidateId) ? { candidateId: extra.candidateId.slice(0, 20) } : {}),
+        ...(typeof extra.issueIndex === "number" ? { issueIndex: extra.issueIndex } : {}),
+        keys: item ? Object.keys(item).slice(0, 12).map((key) => key.slice(0, 30)) : [typeof entry] });
+    }
+  };
   const profiles = new Map<string, ProvisionProfile>();
   const badProfiles = new Map<string, string>();
   for (const entry of input.profiles) {
     const item = record(entry);
     const candidate = item && isString(item.candidateId) ? candidates.get(item.candidateId) : undefined;
-    if (!item || !candidate) continue;
+    if (!item || !candidate) { skip("profiles", !item ? "not_object" : "unknown_candidate", entry, { candidateId: item?.candidateId }); continue; }
     const fail = (why: string) => { badProfiles.set(candidate.id, why); };
     if (!Array.isArray(item.regulatedParties)) { fail("profile.regulatedParties"); continue; }
     if (item.regulatedAct !== null && !record(item.regulatedAct)) { fail("profile.regulatedAct"); continue; }
@@ -258,27 +312,43 @@ export function validateAdoptionStructure(raw: unknown, frame: FactFrame | undef
     const requirements = Array.isArray(item.requirements) ? item.requirements.map(record) : undefined;
     const reqIds = new Set<string>();
     if (!requirements || requirements.some((req) => !req || !isString(req.id) || !req.id.trim() || reqIds.has(req.id) || (reqIds.add(req.id), false)
-      || !isString(req.text) || !isString(req.quote) || !contains(candidate.visibleText, req.quote))) { fail("profile.requirements"); continue; }
+      || !isString(req.text) || !isString(req.quote))) { fail("profile.requirements"); continue; }
     profiles.set(candidate.id, {
       candidateId: candidate.id,
       regulatedParties: parties.map((party) => ({ role: party.role, quote: party.quote })),
       regulatedAct: act ? { act: act.act as string, quote: act.quote as string } : null,
       effectType: item.effectType,
-      requirements: requirements.map((req) => ({ id: req!.id as string, text: req!.text as string, quote: req!.quote as string })),
+      requirements: requirements.map((req) => {
+        const quote = req!.quote as string;
+        if (contains(candidate.visibleText, quote)) return { id: req!.id as string, text: req!.text as string, quote };
+        ignored.requirementQuotesUnverified += 1;
+        if (ignored.samples.length < MAX_IGNORED_SAMPLES) {
+          ignored.samples.push({ kind: "requirement", reason: "quote_not_in_original", candidateId: candidate.id, quote: quote.slice(0, 120) });
+        }
+        return { id: req!.id as string, text: req!.text as string, quote, unverifiedQuote: true as const };
+      }),
       ...(dropped.length ? { dropped } : {}),
     });
   }
   // Screens are negative-only records: an invalid row is ignored (the pair then has no record → S5 not_compared).
   const screens: ValidatedStructure["screens"] = new Map();
+  if (input.screens !== undefined && !Array.isArray(input.screens)) skip("screens", "not_array", input.screens);
   for (const entry of Array.isArray(input.screens) ? input.screens : []) {
     const item = record(entry);
     const candidate = item && isString(item.candidateId) ? candidates.get(item.candidateId) : undefined;
-    if (!item || !candidate || !member(SCREEN_BASES, item.basis) || !Array.isArray(item.issueIndexes)) continue;
+    const why = !item ? "not_object" : !candidate ? "unknown_candidate" : !member(SCREEN_BASES, item.basis) ? "basis"
+      : !Array.isArray(item.issueIndexes) ? "issueIndexes" : undefined;
+    if (why || !item || !candidate || !Array.isArray(item.issueIndexes)) { skip("screens", why ?? "issueIndexes", entry, { candidateId: item?.candidateId }); continue; }
+    let kept = 0;
     for (const issueIndex of item.issueIndexes) {
       if (typeof issueIndex === "number" && Number.isInteger(issueIndex) && issueIndex >= 0 && issueIndex < issueCount) {
-        screens.set(`${issueIndex}\0${candidate.id}`, item.basis);
+        screens.set(`${issueIndex}\0${candidate.id}`, item.basis as ScreenBasis);
+        kept += 1;
+      } else {
+        ignored.screens.issueIndex = (ignored.screens.issueIndex ?? 0) + 1;
       }
     }
+    if (!kept) skip("screens", "no_valid_issue", entry, { candidateId: candidate.id });
   }
   const partyIds = new Set(frame?.parties.map((party) => party.id));
   const actIds = new Set(frame?.acts.map((act) => act.id));
@@ -287,10 +357,15 @@ export function validateAdoptionStructure(raw: unknown, frame: FactFrame | undef
   const comparisons: ValidatedStructure["comparisons"] = new Map();
   for (const entry of input.comparisons) {
     const item = record(entry);
-    if (!item || typeof item.issueIndex !== "number" || !Number.isInteger(item.issueIndex) || !isString(item.candidateId)) continue;
+    if (!item) { skip("comparisons", "not_object", entry); continue; }
+    if (typeof item.issueIndex !== "number" || !Number.isInteger(item.issueIndex)) { skip("comparisons", "issueIndex", entry, item); continue; }
+    if (!isString(item.candidateId)) { skip("comparisons", "candidateId", entry, item); continue; }
     const candidate = candidates.get(item.candidateId);
-    if (!candidate || item.issueIndex < 0 || item.issueIndex >= issueCount) continue;
+    if (!candidate) { skip("comparisons", "unknown_candidate", entry, item); continue; }
+    if (item.issueIndex < 0 || item.issueIndex >= issueCount) { skip("comparisons", "issueIndex_range", entry, item); continue; }
     const key = `${item.issueIndex}\0${candidate.id}`;
+    // Counted only: the later row still replaces the earlier one, as before.
+    if (comparisons.has(key)) ignored.comparisons.duplicate_pair = (ignored.comparisons.duplicate_pair ?? 0) + 1;
     const fail = (why: string) => { comparisons.set(key, { malformed: why }); };
     if (badProfiles.has(candidate.id)) { fail(badProfiles.get(candidate.id)!); continue; }
     const profile = profiles.get(candidate.id);
@@ -325,7 +400,7 @@ export function validateAdoptionStructure(raw: unknown, frame: FactFrame | undef
       D: d,
     });
   }
-  return { profiles, comparisons, screens };
+  return { profiles, comparisons, screens, ignored };
 }
 
 /** E (official source) inputs, all server-owned. */
@@ -413,6 +488,9 @@ export function decideStructure(input: {
     let value = row.value;
     if ((value === "satisfied" || value === "conflicting") && !row.factIds.length) { value = "unconfirmed"; signals.push(`D.${row.reqId}.no_fact`); }
     const req = requirementText.get(row.reqId);
+    // A requirement whose quote is not in the original is never trusted either way (not satisfied, not
+    // conflicting, not general): it stays an unconfirmed core requirement, so the pair is S3 at best.
+    if (req?.unverifiedQuote) { signals.push(`D.${row.reqId}.quote_unverified`); return { ...row, value: "unconfirmed" as const, general: undefined }; }
     if (value === "satisfied" && req && NUMERIC.test(`${req.text}${req.quote}`) && !row.factIds.some((id) => NUMERIC.test(spanOf(id)))) {
       value = "unconfirmed"; signals.push(`D.${row.reqId}.numeric_unverified`);
     }
@@ -421,7 +499,9 @@ export function decideStructure(input: {
   });
   // Requirements the profile lists but the comparison never addressed stay unconfirmed.
   for (const req of profile.requirements) {
-    if (!requirements.some((row) => row.reqId === req.id)) requirements.push({ reqId: req.id, value: "unconfirmed", factIds: [] });
+    if (requirements.some((row) => row.reqId === req.id)) continue;
+    if (req.unverifiedQuote) signals.push(`D.${req.id}.quote_unverified`);
+    requirements.push({ reqId: req.id, value: "unconfirmed", factIds: [] });
   }
   // ④ Clear mismatch.
   if (comparison.A.value === "different" || comparison.B.value === "different" || !comparison.C.addressesAsk

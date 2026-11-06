@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  askCoversEffect, decideStructure, structureFollowUp, structureIssueStatus, validateAdoptionStructure, validateFactFrame,
+  askCoversEffect, decideStructure, structureFollowUp, structureIssueStatus, structureRawCounts, validateAdoptionStructure, validateFactFrame,
   type EvidenceCheck, type FactFrame, type ProvisionProfile, type StructureCandidate, type StructureComparison,
 } from "@/lib/research-structure";
 
@@ -81,10 +81,37 @@ describe("comparison format checks (decision rule ③)", () => {
     const result = validateAdoptionStructure({ profiles: [good], comparisons: [comparison] }, frame(), candidates, 1);
     expect(result?.comparisons.get("0\0c1")).toEqual({ malformed: why });
   });
-  it("marks pairs of a profile with an invented requirement quote malformed", () => {
+  // §9 fix2 (intended change): an unquoted requirement no longer voids the profile (27 of 39 malformed pairs in the
+  // §6 re-run). It is kept, flagged, and can never be trusted: satisfied, conflicting or general, the pair stays S3.
+  it.each([
+    ["satisfied", false],
+    ["satisfied", true],
+    ["conflicting", false],
+  ] as const)("keeps an invented requirement quote as unverified and holds a %s (general=%s) row at S3", (value, general) => {
     const bad = { ...good, requirements: [{ id: "r1", text: "x", quote: "원문에 없는 요건" }] };
-    const result = validateAdoptionStructure({ profiles: [bad], comparisons: [pair] }, frame(), candidates, 1);
-    expect(result?.comparisons.get("0\0c1")).toEqual({ malformed: "profile.requirements" });
+    const row = { ...pair, D: [{ reqId: "r1", value, factIds: ["a1"], general }] };
+    const result = validateAdoptionStructure({ profiles: [bad], comparisons: [row] }, frame(), candidates, 1);
+    expect(result?.profiles.get("c1")?.requirements).toEqual([{ id: "r1", text: "x", quote: "원문에 없는 요건", unverifiedQuote: true }]);
+    expect(result?.ignored.requirementQuotesUnverified).toBe(1);
+    expect(result?.ignored.samples).toEqual([{ kind: "requirement", reason: "quote_not_in_original", candidateId: "c1", quote: "원문에 없는 요건" }]);
+    const decision = decideStructure({ candidate: candidates.get("c1")!, evidence: verified, comparison: result!.comparisons.get("0\0c1"),
+      profile: result!.profiles.get("c1"), frame: frame(), originalQuery: "회사가 임금을 지급하지 않습니다" });
+    expect(decision).toMatchObject({ state: "needs_condition", rule: 5, unconfirmed: ["x"] });
+    expect(decision.signals).toContain("D.r1.quote_unverified");
+  });
+  it("holds an unverified requirement the comparison never addressed at S3", () => {
+    const bad = { ...good, requirements: [{ id: "r1", text: "x", quote: "원문에 없는 요건" }] };
+    const result = validateAdoptionStructure({ profiles: [bad], comparisons: [{ ...pair, D: [] }] }, frame(), candidates, 1);
+    const decision = decideStructure({ candidate: candidates.get("c1")!, evidence: verified, comparison: result!.comparisons.get("0\0c1"),
+      profile: result!.profiles.get("c1"), frame: frame(), originalQuery: "회사가 임금을 지급하지 않습니다" });
+    expect(decision).toMatchObject({ state: "needs_condition", rule: 5, unconfirmed: ["x"], signals: ["D.r1.quote_unverified"] });
+  });
+  it("still marks a structurally broken requirement list malformed", () => {
+    for (const requirements of [[{ id: "", text: "x", quote: "임금은 통화로" }], [{ id: "r1", text: "x", quote: "임금은 통화로" }, { id: "r1", text: "y", quote: "임금은 통화로" }],
+      [{ id: "r1", text: 3, quote: "임금은 통화로" }], "r1"]) {
+      const result = validateAdoptionStructure({ profiles: [{ ...good, requirements }], comparisons: [pair] }, frame(), candidates, 1);
+      expect(result?.comparisons.get("0\0c1")).toEqual({ malformed: "profile.requirements" });
+    }
   });
   // §6 fix round: descriptive fields no decision rule reads are dropped per item, not allowed to void the pair.
   it("drops an unquoted regulated party or act without voiding the pair, and records the drop", () => {
@@ -116,6 +143,31 @@ describe("comparison format checks (decision rule ③)", () => {
     expect([...result!.screens.entries()]).toEqual([["0\0c2", "party"], ["1\0c2", "party"]]);
     // A payload without screens is still usable (no screens → omitted pairs become not_compared).
     expect(validateAdoptionStructure({ profiles: [], comparisons: [] }, frame(), two, 2)?.screens.size).toBe(0);
+  });
+  // §9 fix2: discarded rows are counted by reason so an empty array can be told apart from invalid rows.
+  it("counts every row validation discards, by reason, without changing what is kept", () => {
+    const two = new Map([["c1", candidate(text)], ["c2", candidate("다른 조문", { id: "c2" })]]);
+    const result = validateAdoptionStructure({
+      profiles: [good, "x", { ...good, candidateId: "c9" }],
+      comparisons: [pair, pair, 3, { ...pair, issueIndex: "0" }, { ...pair, candidateId: 5 }, { ...pair, candidateId: "c9" }, { ...pair, issueIndex: 4 }],
+      screens: [{ candidateId: "c2", issueIndexes: [0, 7], basis: "party" }, { candidateId: "c1", issueIndexes: [0], basis: "similar" },
+        { candidateId: "c9", issueIndexes: [0], basis: "act" }, { candidateId: "c2", issueIndexes: ["0"], basis: "act" },
+        { candidateId: "c2", issueIndexes: 0, basis: "act" }, null],
+    }, frame(), two, 2);
+    expect(result?.comparisons.get("0\0c1")).toMatchObject({ A: { value: "same" } });
+    expect([...result!.screens.entries()]).toEqual([["0\0c2", "party"]]);
+    expect(result?.ignored).toMatchObject({
+      profiles: { not_object: 1, unknown_candidate: 1 },
+      comparisons: { duplicate_pair: 1, not_object: 1, issueIndex: 1, candidateId: 1, unknown_candidate: 1, issueIndex_range: 1 },
+      screens: { issueIndex: 2, basis: 1, unknown_candidate: 1, no_valid_issue: 1, issueIndexes: 1, not_object: 1 },
+      requirementQuotesUnverified: 0,
+    });
+    expect(validateAdoptionStructure({ profiles: [], comparisons: [], screens: "none" }, frame(), two, 2)?.ignored.screens).toEqual({ not_array: 1 });
+  });
+  it("counts the model's rows before validation (-1 when a field is missing or not an array)", () => {
+    expect(structureRawCounts({ profiles: [1, 2], comparisons: [], screens: "x", selections: [1] }))
+      .toEqual({ profiles: 2, comparisons: 0, screens: -1, selections: 1 });
+    expect(structureRawCounts(undefined)).toEqual({ profiles: -1, comparisons: -1, screens: -1, selections: -1 });
   });
   it("rejects a wholly unusable payload and ignores unknown candidates or issue indexes", () => {
     expect(validateAdoptionStructure({ comparisons: [] }, frame(), candidates, 1)).toBeUndefined();

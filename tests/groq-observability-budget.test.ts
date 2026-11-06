@@ -282,6 +282,18 @@ describe("Groq final failure observability", () => {
 });
 
 describe("research interpretation shared provider attempt budget", () => {
+  // §9 fix2: truncation at the ceiling is visible in the log (finish_reason), never as content.
+  it("logs the provider finish_reason when present and tolerates an odd or missing one", async () => {
+    for (const [finish, logged] of [["length", "length"], [42, undefined], [undefined, undefined]] as const) {
+      vi.mocked(console.info).mockClear();
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({
+        choices: [{ message: { content: JSON.stringify(proposal) }, ...(finish === undefined ? {} : { finish_reason: finish }) }], usage })));
+      await expect(interpretResearchQuery(query, context)).resolves.toMatchObject({ original: query });
+      const [, metadata] = vi.mocked(console.info).mock.calls.find(([label]) => label === "[AI][Groq]")!;
+      expect((metadata as Record<string, unknown>).finishReason).toBe(logged);
+    }
+  });
+
   it.each([
     { steps: ["ok"], calls: 1 },
     { steps: ["malformed", "ok"], calls: 2 },

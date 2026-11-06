@@ -5,7 +5,7 @@ import { normalizeAnalysisDate, normalizeAnalysisJo } from "@/lib/law-analysis";
 import type { ContractReview } from "@/lib/contract-review";
 import type { ProcedureEvidence } from "@/lib/procedure-evidence";
 import type { ResearchEnrichment } from "@/lib/research-relevance";
-import type { FactFrame, S5Reason, ScreenBasis, ShadowIssueStatus, StructureComparison, StructureState } from "@/lib/research-structure";
+import type { FactFrame, S5Reason, ScreenBasis, ShadowIssueStatus, StructureComparison, StructureIgnored, StructureState } from "@/lib/research-structure";
 import type { TaskEvidence } from "@/lib/task-evidence";
 
 /**
@@ -325,6 +325,11 @@ export interface StructureShadowRecord {
   /** What `evidence.articles` would carry with structural states (F8). */
   articles: Array<{ law: string; jo: string; state: "direct" | "supporting" }>;
   differences: number;
+  /**
+   * §9 fix2: the model's record before validation (row counts, -1 = field missing) and what validation
+   * discarded, so an empty array can be told apart from invalid rows. Absent when the verifier was not reached.
+   */
+  recording?: { raw: { profiles: number; comparisons: number; screens: number; selections: number }; ignored?: StructureIgnored };
 }
 
 export interface OrdinanceRegionResult {

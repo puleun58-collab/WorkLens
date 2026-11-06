@@ -158,7 +158,8 @@ describe("research query interpretation", () => {
     expect(fetcher).toHaveBeenCalledOnce();
     expect(received).toMatchObject({ dropped: 1, frame: { parties: [{ id: "p1" }], acts: [{ id: "a1" }], asks: [{ id: "q1" }] } });
     const request = JSON.parse(String((fetcher.mock.calls[0] as [string, RequestInit])[1].body));
-    expect(request.max_completion_tokens).toBe(3_000);
+    // §9 fix2: ceiling set from the §6 re-run measurement (max 2,794 of 3,000).
+    expect(request.max_completion_tokens).toBe(3_600);
     expect(request.response_format.json_schema.schema.required).toContain("factFrame");
   });
 

@@ -518,6 +518,10 @@ describe("structural shadow mode (staging only)", () => {
     const logged = vi.mocked(console.info).mock.calls.find(([label]) => label === "[law][structure-shadow]");
     expect(logged).toBeDefined();
     expect(JSON.stringify(logged)).not.toContain("월급");
+    // §9 fix2: pre-validation row counts and discarded rows by reason are recorded and logged; samples stay out of the log.
+    expect(structureShadow!.recording?.raw).toEqual(expect.objectContaining({ profiles: expect.any(Number), comparisons: expect.any(Number) }));
+    expect(logged![1]).toHaveProperty("recording.raw", structureShadow!.recording!.raw);
+    expect(JSON.stringify(logged)).not.toContain("samples");
   });
 
   it("marks every pair verifier_unavailable when the single adoption call fails", async () => {
