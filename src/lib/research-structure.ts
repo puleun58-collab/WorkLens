@@ -133,7 +133,13 @@ export const ADOPTION_STRUCTURE_JSON_SCHEMA = {
 // §10 (fix3): in the §6 re-run the frame left out a stated status change in 3 of 5 runs of one question (the
 // requirement it would satisfy stayed unconfirmed) and wrote a non-performance as a denied performance in 2 pairs
 // (denied facts can never satisfy a requirement). Examples use a lease, outside the §6 question set.
-export const FACT_FRAME_INSTRUCTION = "factFrame에는 사용자 원문에서 확인되는 당사자(parties: id p1…, 역할), 당사자 관계(relation, 없으면 null), 행위(acts: id a1…, 행위자 id 또는 역할, polarity는 실제로 있었으면 affirmed·없었다고 했으면 denied·묻기만 했으면 asked), 조건(conditions: id k1…, 기간·금액·횟수·재직/퇴직·국가/지방 등), 질문 유형(asks: id q1…, 의무|권리|요건|절차|구제|제재)을 적으세요. 사용자가 쓴 당사자 표현(회사·직원·거래처·기관 등)은 parties에, 질문이 전제로 삼는 행위(예: '해지하려면', '돌려받을 수 있나요')도 acts에 polarity asked로 적으세요. 사용자가 이미 겪은 상태 변화(퇴직·퇴사, 계약 종료, 기한 경과 등)는 질문 문장 안에 있더라도 conditions에 affirmed로 적으세요(예: '이사 나온 지 두 달이 지났는데' → 임대차 종료, affirmed). 상대방이 의무를 이행하지 않은 사실은 불이행 행위 자체를 affirmed로 적으세요(예: '보증금을 돌려주지 않습니다' → act '보증금 미반환', affirmed). denied는 사용자가 어떤 일이 없었다고 부정할 때만 씁니다(예: '계약서를 쓴 적은 없습니다'). 모든 span은 사용자 원문을 한 글자도 바꾸지 않은 실제 부분 문자열이어야 하며, 원문에 없는 사실은 적지 마세요.";
+// §11 (fix4): after fix3 the status change was a condition of its own in 0 of 5 runs: twice it survived only as the
+// kind label of the elapsed-time condition (span = the time phrase only), twice it was missing, once it was an act
+// with the wrong actor. The fix3 example itself mapped one combined phrase to the status change, so the example now
+// splits the change and the elapsed time. One question named no party at all but stated its contract type, and the
+// frame left both parties and relation empty in 5 of 5 runs: relation is now asked for from the stated legal
+// relationship, while parties stay limited to party expressions the user actually wrote.
+export const FACT_FRAME_INSTRUCTION = "factFrame에는 사용자 원문에서 확인되는 당사자(parties: id p1…, 역할), 당사자 관계(relation, 없으면 null), 행위(acts: id a1…, 행위자 id 또는 역할, polarity는 실제로 있었으면 affirmed·없었다고 했으면 denied·묻기만 했으면 asked), 조건(conditions: id k1…, 기간·금액·횟수·재직/퇴직·국가/지방 등), 질문 유형(asks: id q1…, 의무|권리|요건|절차|구제|제재)을 적으세요. 사용자가 쓴 당사자 표현(회사·직원·거래처·기관 등)은 parties에, 질문이 전제로 삼는 행위(예: '해지하려면', '돌려받을 수 있나요')도 acts에 polarity asked로 적으세요. 원문에 당사자를 가리키는 표현이 없으면 parties를 지어내지 말되, 원문이 계약·고용 같은 법률관계를 밝히면 relation에 그 구절을 span으로 적으세요(예: '임대차계약의 기간이 끝났습니다' → relation {type:'임대차계약', span:'임대차계약'}). acts의 actor는 그 행위를 실제로 한 당사자의 parties id이고, parties에 없으면 원문의 행위자 표현을 씁니다(예: '집주인이 보증금을 돌려주지 않습니다'의 행위자는 집주인). 사용자가 이미 겪은 상태 변화(퇴직·퇴사, 계약 종료, 기한 경과 등)는 질문 문장 안에 있더라도 conditions에 affirmed로 따로 적고, span에는 그 상태 변화를 말한 원문 표현을 넣으세요. 상태 변화와 그 뒤 지난 기간은 서로 다른 조건 두 개입니다(예: '이사 나온 지 두 달이 지났는데' → {kind:'임대차 종료', span:'이사 나온'}, {kind:'종료 후 경과 기간', value:'2개월', span:'두 달이 지났는데'}, 둘 다 affirmed). 상태 변화를 기간 조건의 kind 이름에만 담지 마세요. 상대방이 의무를 이행하지 않은 사실은 불이행 행위 자체를 affirmed로 적으세요(예: '보증금을 돌려주지 않습니다' → act '보증금 미반환', affirmed). denied는 사용자가 어떤 일이 없었다고 부정할 때만 씁니다(예: '계약서를 쓴 적은 없습니다'). 모든 span은 사용자 원문을 한 글자도 바꾸지 않은 실제 부분 문자열이어야 하며, 원문에 없는 사실은 적지 마세요.";
 
 /**
  * Shadow-only addition to the single adoption call. Examples deliberately use
@@ -161,6 +167,10 @@ export const ADOPTION_STRUCTURE_INSTRUCTION = [
   "requirements에는 그 조문이 적용되기 위해 사실로 갖춰져야 하는 조건만 적습니다: 조문이 전제로 삼는 당사자·행위·상황('…한 때', '…한 경우', '…로 인하여'), 예: '임대차가 종료한 때'. 조문 자체가 정하는 효과—의무·권리·금지의 내용, 기한·금액·횟수·이자·방법(예: '목적물을 반환하여야 한다', '1개월 이내에 지급하여야 한다')—는 requirements가 아니며 effectType과 C로 나타냅니다. 질문이 '언제까지'나 '얼마'를 묻더라도 조문이 정한 기한·금액은 효과입니다. 예: '임대인은 임대차가 종료한 날부터 1개월 이내에 보증금을 반환하여야 한다'의 requirement는 '임대차가 종료한' 하나이고, '종료한 날부터 1개월 이내'는 기한(효과)이라 requirements에 적지 않습니다. 전제 조건 없이 적용되는 조문은 requirements를 빈 배열로 두세요. requirement quote는 그 조건 구절만 인용하세요. 단서·예외('다만, …한 경우에는 그러하지 아니하다')는 적용 요건이 아니라 예외입니다. 적는다면 D에서 general=true로 두고, 사용자 사실이 그 예외에 해당할 때만 그 사실 id로 conflicting을 쓰세요.",
   "comparisons에는 쟁점×후보마다 A(당사자: same|compatible|different|unknown, 대응 factFrame party id), B(행위: same|directly_related|different|unknown, 대응 act id), C(질문 유형 대응 여부와 ask id, effectType), D를 적으세요. B=same은 조문이 사용자가 말한 바로 그 행위나 그 행위의 불이행(예: 보증금 미반환 ↔ 보증금 반환 의무)을 규율할 때, directly_related는 그 앞뒤의 부수 행위(신청·확인·통지 등)를 규율할 때입니다. A·B의 quote도 candidate.text 그대로이며 unknown일 때만 빈 문자열을 씁니다. A quote는 조문 속 수범자·당사자 표현(예: '임대인은'), B quote는 조문 속 규율 행위 구절(예: '보증금을 반환하여야')이며 사용자 원문의 표현이 아닙니다.",
   "D는 같은 candidateId의 profiles requirements id만 써서 요건마다 한 행입니다. satisfied는 그 조건을 진술한 factFrame 사실 id(질문이 전제로 묻는 행위는 polarity asked 사실)가 있을 때, conflicting은 사실이 그 조건과 양립할 수 없을 때만 씁니다(예: 임대차가 계속 중이라는 사실 ↔ '임대차가 종료한 때'). 사실이 조건을 뒷받침하면 conflicting이 아닙니다. 확인할 사실이 없으면 unconfirmed이고, 손해 발생·고의과실처럼 그 조문의 일반 성립요건과 단서·예외는 general=true입니다.",
+  // §11 (fix4): in the §6 re-run one requirement made of an act and its result ("…으로 …이 발생한 때") stayed
+  // unconfirmed with no fact id in 3 of 5 runs although both parts were affirmed facts in the frame, and was marked
+  // general in another. The server still checks every id, polarity and number; this only says how to link.
+  "한 요건이 여러 사실로 나뉘어 진술되었으면 그 사실 id를 모두 factIds에 적고 satisfied로 씁니다(예: 요건 '임대인이 수선하지 아니하여 사용할 수 없게 된 때' ↔ a1 '수선 미이행' affirmed, k1 '사용 불가' affirmed → factIds [a1, k1]). 사실의 표현이 조문과 달라도 같은 상황을 말하면 그 사실입니다(예: k1 '이사 나온' ↔ '임대차가 종료한'). 요건의 일부만 사실로 확인되면 unconfirmed이고, 요건과 관계없는 사실은 적지 마세요. 조문이 '…한 때'·'…한 경우'로 직접 정한 적용 요건은 general이 아닙니다.",
   "판정 결론을 쓰지 말고 비교만 기록하세요. 확인되지 않으면 unknown·unconfirmed로 두고 fact id 없이 satisfied·conflicting을 쓰지 마세요.",
 ].join(" ");
 
@@ -181,12 +191,30 @@ const stringList = (value: unknown): string[] | undefined =>
   Array.isArray(value) && value.every(isString) ? value : undefined;
 const member = <T extends string>(values: readonly T[], value: unknown): value is T => isString(value) && (values as readonly string[]).includes(value);
 
+/** §11 (fix4) FactFrame id normalisation counts, recorded next to `dropped`. */
+export interface FactFrameIdRepairs {
+  /** Kept items whose id the server renumbered to the kind prefix (p/a/k/q). */
+  renamed: number;
+  /** Act actors written as an id-like token that names no kept party; the actor is recorded as unknown ("미상"). */
+  unresolvedActors: number;
+}
+
+const ID_LIKE = /^[A-Za-z]{1,3}_?\d+$/u;
+
 /**
  * Keep only FactFrame items whose span is an actual substring of the original
  * (whitespace-insensitive, the same rule as quote checks) and whose enums and
  * ids are valid. Invalid items are dropped, never repaired.
+ *
+ * §11 (fix4): kept items are then renumbered per kind (parties p1…, acts a1…,
+ * conditions k1…, asks q1…) and act actors that named a kept party follow the
+ * new id. In the §6 re-run 4 of 35 frames numbered conditions c1… — the same
+ * form as the adoption call's candidate ids (c1…) in the same model input —
+ * and one act named a party id that did not exist. Renumbering changes no
+ * content, span or polarity and creates no item; an actor id that resolves to
+ * no party is recorded as unknown rather than left as a dangling reference.
  */
-export function validateFactFrame(original: string, raw: unknown): { frame?: FactFrame; dropped: number } {
+export function validateFactFrame(original: string, raw: unknown): { frame?: FactFrame; dropped: number; repairs?: FactFrameIdRepairs } {
   const input = record(raw);
   if (!input) return { dropped: 0 };
   let dropped = 0;
@@ -228,8 +256,27 @@ export function validateFactFrame(original: string, raw: unknown): { frame?: Fac
     if (isString(relationInput.type) && span(relationInput.span)) relation = { type: relationInput.type, span: relationInput.span as string };
     else dropped += 1;
   }
-  return { frame: { parties, relation, acts, conditions, asks }, dropped };
+  const repairs: FactFrameIdRepairs = { renamed: 0, unresolvedActors: 0 };
+  const renumber = <T extends { id: string }>(items: T[], prefix: string): T[] => items.map((item, index) => {
+    const id = `${prefix}${index + 1}`;
+    if (id !== item.id) repairs.renamed += 1;
+    return { ...item, id };
+  });
+  const partyIds = new Map(parties.map((party, index) => [party.id, `p${index + 1}`]));
+  const actsRenumbered = renumber(acts, "a").map((act) => {
+    const actor = act.actor.trim();
+    if (partyIds.has(actor)) return { ...act, actor: partyIds.get(actor)! };
+    if (ID_LIKE.test(actor)) { repairs.unresolvedActors += 1; return { ...act, actor: "미상" }; }
+    return act;
+  });
+  return {
+    frame: { parties: renumber(parties, "p"), relation, acts: actsRenumbered, conditions: renumber(conditions, "k"), asks: renumber(asks, "q") },
+    dropped, repairs,
+  };
 }
+
+/** The server-validated FactFrame handed from the interpretation call to the shadow (frame, drop and id-repair counts). */
+export type ValidatedFactFrame = ReturnType<typeof validateFactFrame>;
 
 export interface StructureCandidate {
   id: string;
@@ -425,7 +472,8 @@ export function validateAdoptionStructure(raw: unknown, frame: FactFrame | undef
       if (!row || !isString(row.reqId) || !member(REQUIREMENT_MATCH, row.value) || !ids) { bad = "D.format"; break; }
       if (!requirements.has(row.reqId)) { bad = "D.reqId"; break; }
       if (ids.some((id) => !factIds.has(id))) { bad = "D.factIds"; break; }
-      d.push({ reqId: row.reqId, value: row.value, factIds: ids, ...(row.general === true ? { general: true } : {}) });
+      // §11 (fix4): a fact listed twice for one requirement is one link.
+      d.push({ reqId: row.reqId, value: row.value, factIds: [...new Set(ids)], ...(row.general === true ? { general: true } : {}) });
     }
     if (bad) { fail(bad); continue; }
     for (const [field, failed, quote] of [["A", aUnverified, a.quote], ["B", bUnverified, b.quote]] as const) {
@@ -435,8 +483,8 @@ export function validateAdoptionStructure(raw: unknown, frame: FactFrame | undef
     }
     comparisons.set(key, {
       issueIndex: item.issueIndex, candidateId: candidate.id,
-      A: { value: a.value, factPartyIds: aIds, quote: a.quote, ...(aUnverified ? { unverifiedQuote: true as const } : {}) },
-      B: { value: b.value, factActIds: bIds, quote: b.quote, ...(bUnverified ? { unverifiedQuote: true as const } : {}) },
+      A: { value: a.value, factPartyIds: [...new Set(aIds)], quote: a.quote, ...(aUnverified ? { unverifiedQuote: true as const } : {}) },
+      B: { value: b.value, factActIds: [...new Set(bIds)], quote: b.quote, ...(bUnverified ? { unverifiedQuote: true as const } : {}) },
       C: { addressesAsk: c.addressesAsk, askId: isString(c.askId) ? c.askId : null, effectType: c.effectType },
       D: d,
     });

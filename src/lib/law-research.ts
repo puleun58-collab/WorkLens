@@ -5,7 +5,7 @@ import { normalizeAnalysisDate, normalizeAnalysisJo } from "@/lib/law-analysis";
 import type { ContractReview } from "@/lib/contract-review";
 import type { ProcedureEvidence } from "@/lib/procedure-evidence";
 import type { ResearchEnrichment } from "@/lib/research-relevance";
-import type { FactFrame, S5Reason, ScreenBasis, ShadowIssueStatus, StructureComparison, StructureIgnored, StructureState } from "@/lib/research-structure";
+import type { FactFrame, FactFrameIdRepairs, S5Reason, ScreenBasis, ShadowIssueStatus, StructureComparison, StructureIgnored, StructureState } from "@/lib/research-structure";
 import type { TaskEvidence } from "@/lib/task-evidence";
 
 /**
@@ -318,6 +318,8 @@ export interface StructureShadowRecord {
   mode: "shadow";
   factFrame?: FactFrame;
   factFrameDropped: number;
+  /** §11 fix4: FactFrame ids renumbered to their kind prefix, and act actors naming no kept party (counts only). */
+  factFrameRepairs?: FactFrameIdRepairs;
   adoption: "verified" | "unavailable" | "malformed" | "not_run";
   decisions: StructureShadowDecision[];
   issues: Array<{ issueIndex: number; label?: string; legacyStatus: IssueEvidence["status"]; status: ShadowIssueStatus;

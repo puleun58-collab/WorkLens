@@ -56,6 +56,47 @@ describe("FactFrame server checks", () => {
     expect(validateFactFrame(original, "x")).toEqual({ dropped: 0 });
     expect(validateFactFrame(original, null)).toEqual({ dropped: 0 });
   });
+  // §11 fix4: 4 of 35 frames in the §6 re-run numbered conditions c1… (the candidate id form in the same adoption
+  // input) and one act named a party id that did not exist.
+  it("renumbers kept items per kind and follows party ids in actors, without changing any content", () => {
+    const { frame: kept, dropped, repairs } = validateFactFrame(original, {
+      parties: [{ id: "x", role: "근로자", span: "직원" }, { id: "p7", role: "없는 당사자", span: "대표이사" }],
+      relation: null,
+      acts: [{ id: "a5", actor: "x", act: "퇴사", polarity: "affirmed", span: "퇴사한" }],
+      conditions: [{ id: "c1", kind: "퇴직", value: "퇴사", polarity: "affirmed", span: "퇴사한 뒤" },
+        { id: "c2", kind: "기간", value: "마지막 달", polarity: "affirmed", span: "마지막 달" }],
+      asks: [{ id: "ask1", kind: "의무", span: "언제까지 지급해야" }],
+    });
+    expect(dropped).toBe(1);
+    expect(kept).toEqual({
+      parties: [{ id: "p1", role: "근로자", span: "직원" }],
+      relation: null,
+      acts: [{ id: "a1", actor: "p1", act: "퇴사", polarity: "affirmed", span: "퇴사한" }],
+      conditions: [{ id: "k1", kind: "퇴직", value: "퇴사", polarity: "affirmed", span: "퇴사한 뒤" },
+        { id: "k2", kind: "기간", value: "마지막 달", polarity: "affirmed", span: "마지막 달" }],
+      asks: [{ id: "q1", kind: "의무", span: "언제까지 지급해야" }],
+    });
+    expect(repairs).toEqual({ renamed: 5, unresolvedActors: 0 });
+  });
+  it("records an actor id that names no kept party as unknown instead of a dangling reference; role words stay", () => {
+    const { frame: kept, repairs } = validateFactFrame(original, {
+      parties: [{ id: "p1", role: "근로자", span: "직원" }], relation: null,
+      acts: [{ id: "a1", actor: "p2", act: "퇴사", polarity: "affirmed", span: "퇴사한" },
+        { id: "a2", actor: "사용자", act: "임금 미지급", polarity: "affirmed", span: "임금을 못 받았" }],
+      conditions: [], asks: [],
+    });
+    expect(kept?.acts.map((act) => act.actor)).toEqual(["미상", "사용자"]);
+    expect(repairs).toEqual({ renamed: 0, unresolvedActors: 1 });
+  });
+  it("keeps polarity and never adds an item: a frame without the stated status change stays without it", () => {
+    const { frame: kept } = validateFactFrame(original, {
+      parties: [], relation: null, acts: [],
+      conditions: [{ id: "k1", kind: "퇴직 후 경과 기간", value: "1개월", polarity: "affirmed", span: "마지막 달" }],
+      asks: [{ id: "q1", kind: "의무", span: "언제까지 지급해야" }],
+    });
+    expect(kept?.conditions).toEqual([{ id: "k1", kind: "퇴직 후 경과 기간", value: "1개월", polarity: "affirmed", span: "마지막 달" }]);
+    expect(kept?.acts).toEqual([]);
+  });
 });
 
 describe("comparison format checks (decision rule ③)", () => {
@@ -507,5 +548,76 @@ describe("RM2 structural positives (제36·43·65·390·546·548·660조)", () =
       profile: profile(effect, req), frame: facts, originalQuery: query });
     expect(result).toMatchObject({ state: "direct", rule: 8 });
     expect(result.signals).toEqual([]);
+  });
+});
+
+/**
+ * §11 fix4 (A-1): one requirement stated by two facts. In the §6 re-run the frame held both parts as affirmed facts
+ * (설계변경 act, 공사량 증가 condition) while the comparison left the requirement unconfirmed without fact ids in
+ * 3 of 5 runs. The server's checks are unchanged; these pin what each way of linking leads to.
+ */
+describe("fact linking for a requirement stated by several facts (fix4)", () => {
+  const law = "국가를 당사자로 하는 계약에 관한 법률 시행령";
+  const text = "각 중앙관서의 장 또는 계약담당공무원은 공사계약에 있어서 설계변경으로 인하여 공사량의 증감이 발생한 때에는 법 제19조의 규정에 의하여 당해 계약금액을 조정한다.";
+  const query = "국가기관과 공사계약을 체결한 업체입니다. 발주기관의 설계변경으로 공사량이 늘었는데 계약금액을 조정할 수 있는 요건과 절차를 알고 싶습니다.";
+  const facts = frame({
+    parties: [{ id: "p1", role: "수급인", span: "업체" }, { id: "p2", role: "발주기관", span: "국가기관" }],
+    relation: { type: "공사계약", span: "공사계약" },
+    acts: [{ id: "a1", actor: "p2", act: "설계변경", polarity: "affirmed", span: "설계변경" },
+      { id: "a2", actor: "p1", act: "계약금액 조정", polarity: "asked", span: "계약금액을 조정" }],
+    conditions: [{ id: "k1", kind: "공사량 증가", value: "증가", polarity: "affirmed", span: "공사량이 늘었" }],
+    asks: [{ id: "q1", kind: "요건", span: "요건" }],
+  });
+  const req: ProvisionProfile["requirements"] = [{ id: "r1", text: "설계변경으로 공사량의 증감이 발생한 때", quote: "설계변경으로 인하여 공사량의 증감이 발생한 때" }];
+  const run = (D: StructureComparison["D"], facts2: FactFrame = facts) => decideStructure({ candidate: candidate(text, { law }), evidence: verified,
+    comparison: compare({ A: { value: "compatible", factPartyIds: ["p2"], quote: "" }, B: { value: "same", factActIds: ["a2"], quote: "" },
+      C: { addressesAsk: true, askId: "q1", effectType: "power" }, D }),
+    profile: profile("power", req), frame: facts2, originalQuery: query });
+
+  it("both facts linked → S1", () => {
+    expect(run([{ reqId: "r1", value: "satisfied", factIds: ["a1", "k1"] }])).toMatchObject({ state: "direct", rule: 8, signals: [] });
+  });
+  it("the observed record (unconfirmed, no fact ids) stays S3 with the requirement listed", () => {
+    expect(run([{ reqId: "r1", value: "unconfirmed", factIds: [] }])).toMatchObject({ state: "needs_condition", unconfirmed: ["설계변경으로 공사량의 증감이 발생한 때"] });
+  });
+  it("satisfied without any fact id is demoted to unconfirmed (S3)", () => {
+    const result = run([{ reqId: "r1", value: "satisfied", factIds: [] }]);
+    expect(result).toMatchObject({ state: "needs_condition" });
+    expect(result.signals).toContain("D.r1.no_fact");
+  });
+  it("a frame without the stated change cannot confirm it: the only fact named is denied → S3", () => {
+    const denied = frame({ ...facts, acts: [{ id: "a1", actor: "p2", act: "설계변경", polarity: "denied", span: "설계변경" }] });
+    const result = run([{ reqId: "r1", value: "satisfied", factIds: ["a1"] }], denied);
+    expect(result).toMatchObject({ state: "needs_condition" });
+    expect(result.signals).toContain("D.r1.denied_fact");
+  });
+  it("a numeric requirement is not confirmed by a fact without a number", () => {
+    const numeric: ProvisionProfile["requirements"] = [{ id: "r1", text: "증액이 계약금액의 100분의 10 이상", quote: "공사량의 증감이 발생한 때" }];
+    const result = decideStructure({ candidate: candidate(text, { law }), evidence: verified,
+      comparison: compare({ C: { addressesAsk: true, askId: "q1", effectType: "power" }, D: [{ reqId: "r1", value: "satisfied", factIds: ["k1"] }] }),
+      profile: profile("power", numeric), frame: facts, originalQuery: query });
+    expect(result).toMatchObject({ state: "needs_condition" });
+    expect(result.signals).toContain("D.r1.numeric_unverified");
+  });
+  it("a fact id that does not exist in the frame voids the pair (S5 malformed), never links", () => {
+    const candidates = new Map([["c1", candidate(text, { law })]]);
+    const raw = { profiles: [{ candidateId: "c1", regulatedParties: [], regulatedAct: null, effectType: "power", requirements: req }],
+      comparisons: [{ issueIndex: 0, candidateId: "c1", A: { value: "compatible", factPartyIds: ["p2"], quote: "각 중앙관서의 장" },
+        B: { value: "same", factActIds: ["a2"], quote: "당해 계약금액을 조정한다" }, C: { addressesAsk: true, askId: "q1", effectType: "power" },
+        D: [{ reqId: "r1", value: "satisfied", factIds: ["a1", "k9"], general: false }] }] };
+    expect(validateAdoptionStructure(raw, facts, candidates, 1)?.comparisons.get("0\0c1")).toEqual({ malformed: "D.factIds" });
+  });
+  it("a fact listed twice is one link", () => {
+    const candidates = new Map([["c1", candidate(text, { law })]]);
+    const raw = { profiles: [{ candidateId: "c1", regulatedParties: [], regulatedAct: null, effectType: "power", requirements: req }],
+      comparisons: [{ issueIndex: 0, candidateId: "c1", A: { value: "compatible", factPartyIds: ["p2", "p2"], quote: "각 중앙관서의 장" },
+        B: { value: "same", factActIds: ["a2", "a2"], quote: "당해 계약금액을 조정한다" }, C: { addressesAsk: true, askId: "q1", effectType: "power" },
+        D: [{ reqId: "r1", value: "satisfied", factIds: ["a1", "k1", "a1"], general: false }] }] };
+    expect(validateAdoptionStructure(raw, facts, candidates, 1)?.comparisons.get("0\0c1")).toMatchObject({
+      A: { factPartyIds: ["p2"] }, B: { factActIds: ["a2"] }, D: [{ reqId: "r1", value: "satisfied", factIds: ["a1", "k1"] }] });
+  });
+  it("only part of the requirement confirmed (written unconfirmed) stays S3; a core condition marked general does not block (model-side risk, unchanged)", () => {
+    expect(run([{ reqId: "r1", value: "unconfirmed", factIds: ["a1"] }])).toMatchObject({ state: "needs_condition" });
+    expect(run([{ reqId: "r1", value: "unconfirmed", factIds: [], general: true }])).toMatchObject({ state: "direct" });
   });
 });

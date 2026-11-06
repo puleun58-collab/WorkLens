@@ -2,7 +2,7 @@ import type { IssueEvidence, StructureShadowDecision, StructureShadowRecord } fr
 import type { ResearchAdoptionCandidate, ResearchAdoptionVerdict } from "@/lib/research-relevance";
 import {
   decideStructure, structureFollowUp, structureIssueStatus, structureRawCounts, validateAdoptionStructure,
-  type FactFrame, type StructureCandidate, type StructureState,
+  type StructureCandidate, type StructureState, type ValidatedFactFrame,
 } from "@/lib/research-structure";
 import { workerEnv } from "@/server/cf-env";
 
@@ -32,7 +32,7 @@ export function buildStructureShadow(input: {
   evaluated: ReadonlyMap<string, ResearchAdoptionVerdict["window"]> | undefined;
   verification: "verified" | "unavailable";
   structureRaw: unknown;
-  factFrame: { frame?: FactFrame; dropped: number } | undefined;
+  factFrame: ValidatedFactFrame | undefined;
   legacyOutcomes: ReadonlyMap<string, LegacyOutcome>;
   issueStates: ReadonlyArray<{ status: IssueEvidence["status"]; lookup?: "found" | "none" | "failed" | "timeout"; chainFailed: boolean }>;
 }): StructureShadowRecord {
@@ -105,6 +105,7 @@ export function buildStructureShadow(input: {
     mode: "shadow",
     ...(frame ? { factFrame: frame } : {}),
     factFrameDropped: factFrame?.dropped ?? 0,
+    ...(factFrame?.repairs ? { factFrameRepairs: factFrame.repairs } : {}),
     adoption, decisions, issues: issueRecords, articles: [...articles.values()],
     differences: decisions.filter((decision) => decision.differs).length + issueRecords.filter((issue) => issue.differs).length,
     ...(verification === "verified" && candidates.length
@@ -128,6 +129,7 @@ export function logStructureShadow(requestId: string, record: StructureShadowRec
     ...(record.recording.copied !== undefined ? { copied: record.recording.copied } : {}) } : undefined;
   console.info("[law][structure-shadow]", {
     requestId, adoption: record.adoption, factFrameDropped: record.factFrameDropped,
+    ...(record.factFrameRepairs ? { factFrameRepairs: record.factFrameRepairs } : {}),
     decisions: record.decisions.length, byState, differences: record.differences,
     ...(recording ? { recording } : {}),
     issues: record.issues.map(({ issueIndex, legacyStatus, status }) => ({ issueIndex, legacyStatus, status })),

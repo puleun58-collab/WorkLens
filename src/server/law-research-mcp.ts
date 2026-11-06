@@ -26,7 +26,7 @@ import { assessAmendment } from "@/lib/amendment-evidence";
 import { assessDispute } from "@/lib/dispute-evidence";
 import { assessLawSystem, delegatingDetailBlocks, askedArticles } from "@/lib/law-system-evidence";
 import { integratedEvidenceStatus } from "@/lib/research-status";
-import type { FactFrame } from "@/lib/research-structure";
+import type { ValidatedFactFrame } from "@/lib/research-structure";
 import { buildStructureShadow, logStructureShadow, structureShadowEnabled } from "@/server/research-structure-shadow";
 
 const RESEARCH_FAILURE = "법령 리서치 서비스가 요청을 처리하지 못했습니다.";
@@ -182,7 +182,7 @@ async function fullResearch(
   // Staging-only structural shadow (DESIGN §5-1 ①): extends the same two model
   // calls and records a comparison; operational evidence below is unchanged.
   const shadow = structureShadowEnabled();
-  let factFrame: { frame?: FactFrame; dropped: number } | undefined;
+  let factFrame: ValidatedFactFrame | undefined;
   const interpretation = await interpretResearchQuery(query, shadow ? { ...context, onFactFrame: (result) => { factFrame = result; } } : context).catch((error: unknown) => {
     const failure = error instanceof ApiError ? error : undefined;
     interpretationFailure = failure?.code === "AI_RATE_LIMITED" ? "rate-limited"

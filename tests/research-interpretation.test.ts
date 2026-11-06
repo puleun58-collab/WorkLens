@@ -157,7 +157,12 @@ describe("research query interpretation", () => {
     expect(answer).toEqual({ original: query, ...proposal, uncertainty: undefined });
     expect(fetcher).toHaveBeenCalledOnce();
     expect(received).toMatchObject({ dropped: 1, frame: { parties: [{ id: "p1" }], acts: [{ id: "a1" }], asks: [{ id: "q1" }] } });
+    // §11 fix4: the act's actor named the dropped party p2; it is recorded as unknown, not as a dangling id.
+    expect(received).toMatchObject({ frame: { acts: [{ actor: "미상" }] }, repairs: { renamed: 0, unresolvedActors: 1 } });
     const request = JSON.parse(String((fetcher.mock.calls[0] as [string, RequestInit])[1].body));
+    // §11 fix4: a status change and the time since it are two conditions; relation comes from the stated relationship.
+    expect(request.messages[0].content).toContain("상태 변화와 그 뒤 지난 기간은 서로 다른 조건 두 개입니다");
+    expect(request.messages[0].content).toContain("parties를 지어내지 말되");
     // §9 fix2: ceiling set from the §6 re-run measurement (max 2,794 of 3,000).
     expect(request.max_completion_tokens).toBe(3_600);
     expect(request.response_format.json_schema.schema.required).toContain("factFrame");

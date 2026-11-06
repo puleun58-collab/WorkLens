@@ -10,7 +10,7 @@ import type { AiApiRequest, AiApiResult } from "@/lib/ai/api";
 import type { ResearchInterpretation, ResearchIssue } from "@/lib/law-research";
 import type { ResearchAdoptionCandidate, ResearchAdoptionVerdict } from "@/lib/research-relevance";
 import { researchCandidateWindows } from "@/lib/research-candidate-window";
-import { ADOPTION_STRUCTURE_INSTRUCTION, ADOPTION_STRUCTURE_JSON_SCHEMA, FACT_FRAME_INSTRUCTION, FACT_FRAME_JSON_SCHEMA, validateFactFrame, type FactFrame } from "@/lib/research-structure";
+import { ADOPTION_STRUCTURE_INSTRUCTION, ADOPTION_STRUCTURE_JSON_SCHEMA, FACT_FRAME_INSTRUCTION, FACT_FRAME_JSON_SCHEMA, validateFactFrame, type FactFrame, type ValidatedFactFrame } from "@/lib/research-structure";
 import { buildExtractMessages, EXTRACT_RESPONSE_SCHEMA, parseExtractResponse } from "@/lib/ai/extract-prompt";
 import { buildPolishBatchMessages, buildPolishMessages, parsePolishResponse, POLISH_BATCH_RESPONSE_SCHEMA, POLISH_RESPONSE_SCHEMA } from "@/lib/ai/polish-prompt";
 import { ANALYZE_RESPONSE_SCHEMA, buildMessages, CLAIM_RESPONSE_SCHEMA, MAX_ANALYZE_EVIDENCE_CHARS, MAX_EVIDENCE_CHARS, parseModelResponse } from "@/lib/ai/prompt";
@@ -63,7 +63,7 @@ export interface GroqRequestContext {
    * interpretation call with a FactFrame; the server-validated frame is handed
    * back here. Absent, the interpretation call is unchanged.
    */
-  onFactFrame?: (result: { frame?: FactFrame; dropped: number }) => void;
+  onFactFrame?: (result: ValidatedFactFrame) => void;
   /**
    * Structural shadow mode only. Its presence extends the one adoption call with
    * provision profiles and comparison records (raw; validated by the caller).
