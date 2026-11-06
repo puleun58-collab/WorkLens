@@ -329,7 +329,9 @@ export interface StructureShadowRecord {
    * §9 fix2: the model's record before validation (row counts, -1 = field missing) and what validation
    * discarded, so an empty array can be told apart from invalid rows. Absent when the verifier was not reached.
    */
-  recording?: { raw: { profiles: number; comparisons: number; screens: number; selections: number }; ignored?: StructureIgnored };
+  recording?: { raw: { profiles: number; comparisons: number; screens: number; selections: number }; ignored?: StructureIgnored;
+    /** §10 fix3: pairs filled by copying a comparison to an identical complete copy. */
+    copied?: number };
 }
 
 export interface OrdinanceRegionResult {

@@ -108,7 +108,7 @@ export function buildStructureShadow(input: {
     adoption, decisions, issues: issueRecords, articles: [...articles.values()],
     differences: decisions.filter((decision) => decision.differs).length + issueRecords.filter((issue) => issue.differs).length,
     ...(verification === "verified" && candidates.length
-      ? { recording: { raw: structureRawCounts(structureRaw), ...(validated ? { ignored: validated.ignored } : {}) } } : {}),
+      ? { recording: { raw: structureRawCounts(structureRaw), ...(validated ? { ignored: validated.ignored, copied: validated.copied } : {}) } } : {}),
   };
 }
 
@@ -123,7 +123,9 @@ export function logStructureShadow(requestId: string, record: StructureShadowRec
   const ignored = record.recording?.ignored;
   const recording = record.recording ? { raw: record.recording.raw,
     ...(ignored ? { ignored: { profiles: ignored.profiles, comparisons: ignored.comparisons, screens: ignored.screens,
-      requirementQuotesUnverified: ignored.requirementQuotesUnverified } } : {}) } : undefined;
+      requirementQuotesUnverified: ignored.requirementQuotesUnverified, comparisonQuotesUnverified: ignored.comparisonQuotesUnverified,
+      quoteForms: ignored.quoteForms } } : {}),
+    ...(record.recording.copied !== undefined ? { copied: record.recording.copied } : {}) } : undefined;
   console.info("[law][structure-shadow]", {
     requestId, adoption: record.adoption, factFrameDropped: record.factFrameDropped,
     decisions: record.decisions.length, byState, differences: record.differences,

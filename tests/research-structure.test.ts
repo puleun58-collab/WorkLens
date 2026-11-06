@@ -72,7 +72,6 @@ describe("comparison format checks (decision rule ③)", () => {
     expect(result?.comparisons.get("0\0c1")).toMatchObject({ A: { value: "same" }, D: [{ reqId: "r1", value: "satisfied" }] });
   });
   it.each([
-    ["invented quote", { ...pair, B: { ...pair.B, quote: "임금을 지급하지 아니할 수 있다" } }, "B.quote"],
     ["unknown fact id", { ...pair, A: { ...pair.A, factPartyIds: ["p9"] } }, "A.factPartyIds"],
     ["enum violation", { ...pair, A: { ...pair.A, value: "similar" } }, "A.format"],
     ["unknown requirement", { ...pair, D: [{ reqId: "r9", value: "satisfied", factIds: ["a1"], general: false }] }, "D.reqId"],
@@ -93,7 +92,7 @@ describe("comparison format checks (decision rule ③)", () => {
     const result = validateAdoptionStructure({ profiles: [bad], comparisons: [row] }, frame(), candidates, 1);
     expect(result?.profiles.get("c1")?.requirements).toEqual([{ id: "r1", text: "x", quote: "원문에 없는 요건", unverifiedQuote: true }]);
     expect(result?.ignored.requirementQuotesUnverified).toBe(1);
-    expect(result?.ignored.samples).toEqual([{ kind: "requirement", reason: "quote_not_in_original", candidateId: "c1", quote: "원문에 없는 요건" }]);
+    expect(result?.ignored.samples).toEqual([{ kind: "requirement", reason: "quote_not_in_original", candidateId: "c1", quote: "원문에 없는 요건", form: "other" }]);
     const decision = decideStructure({ candidate: candidates.get("c1")!, evidence: verified, comparison: result!.comparisons.get("0\0c1"),
       profile: result!.profiles.get("c1"), frame: frame(), originalQuery: "회사가 임금을 지급하지 않습니다" });
     expect(decision).toMatchObject({ state: "needs_condition", rule: 5, unconfirmed: ["x"] });
@@ -126,12 +125,88 @@ describe("comparison format checks (decision rule ③)", () => {
       profile: result!.profiles.get("c1"), frame: frame(), originalQuery: "회사가 임금을 지급하지 않습니다" });
     expect(decision).toMatchObject({ state: "direct", signals: ["info.profile.regulatedParties_dropped", "info.profile.regulatedAct_dropped"] });
   });
-  it("still rejects a structurally invalid descriptive field and keeps A/B quotes strict", () => {
+  it("still rejects a structurally invalid descriptive field", () => {
     const notArray = { ...good, regulatedParties: "사용자" };
     expect(validateAdoptionStructure({ profiles: [notArray], comparisons: [pair] }, frame(), candidates, 1)?.comparisons.get("0\0c1"))
       .toEqual({ malformed: "profile.regulatedParties" });
-    expect(validateAdoptionStructure({ profiles: [good], comparisons: [{ ...pair, A: { ...pair.A, quote: "회사는" } }] }, frame(), candidates, 1)
-      ?.comparisons.get("0\0c1")).toEqual({ malformed: "A.quote" });
+  });
+  // §10 fix3 (intended change): an A/B quote missing from the original (36 of 39 malformed pairs in the §6 re-run)
+  // no longer voids the pair. It is kept, sampled and never trusted: that criterion reads as unknown, so whatever
+  // value the model wrote the pair stays S3 — it can reach neither S1 nor S4 on that criterion.
+  const decideValidated = (result: ReturnType<typeof validateAdoptionStructure>, key = "0\0c1", id = "c1") =>
+    decideStructure({ candidate: candidates.get(id) ?? candidate(text, { id }), evidence: verified, comparison: result!.comparisons.get(key),
+      profile: result!.profiles.get(id), frame: frame(), originalQuery: "회사가 임금을 지급하지 않습니다" });
+  it.each([
+    ["A", "same", { A: { ...pair.A, quote: "회사는" } }],
+    ["B", "same", { B: { ...pair.B, quote: "임금을 지급하지 아니할 수 있다" } }],
+    ["A", "different", { A: { ...pair.A, value: "different", quote: "회사는" } }],
+    ["B", "different", { B: { ...pair.B, value: "different", quote: "임금을 ... 지급하여야 한다" } }],
+  ] as const)("keeps an invented %s quote (value %s) as unverified and holds the pair at S3", (field, _value, over) => {
+    const result = validateAdoptionStructure({ profiles: [good], comparisons: [{ ...pair, ...over }] }, frame(), candidates, 1);
+    expect(result?.comparisons.get("0\0c1")).toMatchObject({ [field]: { unverifiedQuote: true } });
+    expect(result?.ignored.comparisonQuotesUnverified).toBe(1);
+    const quote = (over as Record<string, { quote: string }>)[field].quote;
+    expect(result?.ignored.samples).toEqual([{ kind: "comparison", reason: `${field}.quote_not_in_original`, candidateId: "c1", issueIndex: 0,
+      quote, form: quote.includes("...") ? "ellipsis" : "other" }]);
+    const decision = decideValidated(result);
+    expect(decision).toMatchObject({ state: "needs_condition", rule: 5 });
+    expect(decision.signals).toContain(`${field}.quote_unverified`);
+  });
+  it("still lets another verified criterion make an unverified-quote pair S4", () => {
+    const result = validateAdoptionStructure({ profiles: [good], comparisons: [{ ...pair, A: { ...pair.A, quote: "회사는" },
+      C: { ...pair.C, addressesAsk: false } }] }, frame(), candidates, 1);
+    expect(decideValidated(result)).toMatchObject({ state: "not_relevant", rule: 4 });
+  });
+  it("counts failed quotes by form: an ellipsis versus any other wording", () => {
+    const shortened = { ...good, requirements: [{ id: "r1", text: "x", quote: "임금은 ... 지급하여야" }, { id: "r2", text: "y", quote: "임금은 …" }] };
+    const result = validateAdoptionStructure({ profiles: [shortened], comparisons: [{ ...pair, D: [], B: { ...pair.B, quote: "월급을 줘야 한다" } }] },
+      frame(), candidates, 1);
+    expect(result?.ignored.quoteForms).toEqual({ ellipsis: 2, other: 1 });
+    expect(result?.ignored.samples.map((sample) => [sample.kind, sample.form])).toEqual([["requirement", "ellipsis"], ["requirement", "ellipsis"], ["comparison", "other"]]);
+  });
+  it("treats middle-dot variants as one character but keeps wording strict", () => {
+    const dotted = new Map([["c1", candidate("사용자는 출산ㆍ질병ㆍ재해의 경우 임금을 지급하여야 한다.")]]);
+    const row = (quote: string) => ({ ...pair, A: { ...pair.A, quote: "사용자는" }, B: { ...pair.B, quote }, D: [] });
+    const ok = validateAdoptionStructure({ profiles: [{ ...good, requirements: [] }], comparisons: [row("출산·질병·재해의 경우")] }, frame(), dotted, 1);
+    expect(ok?.comparisons.get("0\0c1")).not.toHaveProperty("B.unverifiedQuote");
+    const reworded = validateAdoptionStructure({ profiles: [{ ...good, requirements: [] }], comparisons: [row("출산·질병의 경우")] }, frame(), dotted, 1);
+    expect(reworded?.comparisons.get("0\0c1")).toMatchObject({ B: { unverifiedQuote: true } });
+  });
+  // §10 fix3: identical complete copies share one comparison; nothing recorded is overwritten.
+  describe("identical copies", () => {
+    const copies = (extra: Record<string, Partial<StructureCandidate>> = {}) => new Map(["c1", "c2", "c3"].map((id) =>
+      [id, candidate(text, { id, title: "임금 지급", ...extra[id] })]));
+    it("copies a comparison and its profile to an identical complete copy without a record", () => {
+      const result = validateAdoptionStructure({ profiles: [good], comparisons: [pair], screens: [{ candidateId: "c3", issueIndexes: [0], basis: "act" }] },
+        frame(), copies(), 1);
+      expect(result?.copied).toBe(1);
+      expect(result?.comparisons.get("0\0c2")).toMatchObject({ candidateId: "c2", copiedFrom: "c1", A: { value: "same" } });
+      expect(result?.profiles.get("c2")).toMatchObject({ candidateId: "c2", effectType: "duty" });
+      // A screened copy keeps its own record.
+      expect(result?.comparisons.has("0\0c3")).toBe(false);
+      const decision = decideStructure({ candidate: copies().get("c2")!, evidence: verified, comparison: result!.comparisons.get("0\0c2"),
+        profile: result!.profiles.get("c2"), frame: frame(), originalQuery: "회사가 임금을 지급하지 않습니다" });
+      expect(decision).toMatchObject({ state: "direct", rule: 8 });
+      expect(decision.signals).toContain("info.copy_of.c1");
+    });
+    it("never copies to a windowed, partial or differently titled candidate, nor a malformed record", () => {
+      const result = validateAdoptionStructure({ profiles: [good], comparisons: [pair] }, frame(), copies({
+        c2: { visibleText: text.slice(0, 10), window: { start: 0, end: 10, total: text.length } }, c3: { title: "다른 제목" } }), 1);
+      expect(result?.copied).toBe(0);
+      const partial = validateAdoptionStructure({ profiles: [good], comparisons: [pair] }, frame(), copies({ c2: { partial: true }, c3: { partial: true } }), 1);
+      expect(partial?.copied).toBe(0);
+      const malformed = validateAdoptionStructure({ profiles: [good], comparisons: [{ ...pair, D: [{ reqId: "r9", value: "satisfied", factIds: ["a1"], general: false }] }] },
+        frame(), copies(), 1);
+      expect(malformed?.copied).toBe(0);
+      expect(malformed?.comparisons.has("0\0c2")).toBe(false);
+    });
+  });
+  it("adds measurement notes that never change the state", () => {
+    const operative = { ...good, requirements: [{ id: "r1", text: "x", quote: "전액을 지급하여야 한다" }] };
+    const result = validateAdoptionStructure({ profiles: [operative], comparisons: [{ ...pair, C: { ...pair.C, askId: null } }] }, frame(), candidates, 1);
+    const decision = decideValidated(result);
+    expect(decision).toMatchObject({ state: "direct", rule: 8 });
+    expect(decision.signals).toEqual(expect.arrayContaining(["info.C.ask_unlinked", "info.D.r1.effect_wording"]));
   });
   it("reads screens per issue and ignores invalid rows", () => {
     const two = new Map([["c1", candidate(text)], ["c2", candidate("다른 조문", { id: "c2" })]]);
