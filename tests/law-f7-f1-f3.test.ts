@@ -159,21 +159,22 @@ describe("F1 M2: the supplement gate is articles==0, regardless of precedents", 
     });
   });
 
-  it("skipped lookup surfaces no lookupPartial while the server status stays matched", async () => {
+  // Task 1 (A안, DESIGN-FOLLOWUP §2.3): the issue lookup now runs even when
+  // the chain already adopted an article, so the precedent search below runs
+  // too. It answers NOT_FOUND here, so the lookup is healthy: no
+  // lookupPartial surfaces and the server status stays matched on the
+  // adopted article. (Before Task 1 the lookup never ran for a covered
+  // issue, so the search was never reached at all.)
+  it("Task 1 (A안): the issue lookup runs for an already-adopted issue, and a healthy lookup keeps the server status matched", async () => {
     const queries = upstream({
       legal_research: () => chain,
       get_decision_text: () => caseText("직장 내 괴롭힘 손해배상", "사용자가 직장 내 괴롭힘에 대해 필요한 조치를 하지 않은 경우 손해배상책임이 인정되는 요건"),
       search_law: () => lawList(),
       get_law_text: (args) => (args as { jo?: string }).jo ? articleText() : toc(),
-      search_decisions: () => new Error("down"),
+      search_decisions: () => "[NOT_FOUND] 없음",
     });
     const result = await runLegalResearch({ task: "full_research", query: question }, ctx);
-    // Policy (2026-10-28): the chain supplement already adopted 제76조의3,
-    // so the issue lookup never ran — a search that never ran cannot have
-    // partially failed. The throwing precedent search is never reached, so
-    // there is no lookupPartial to surface and the server status stays
-    // matched on the adopted article.
-    expect(queries("search_decisions")).toEqual([]);
+    expect(queries("search_decisions")).toEqual([expect.objectContaining({ query: "사용자 조치 의무" })]);
     expect(result).toMatchObject({
       evidence: {
         status: "matched",
@@ -214,7 +215,12 @@ describe("F1 M2: the supplement gate is articles==0, regardless of precedents", 
     });
   });
 
-  it("keeps the old behaviour when the chain already adopted an article: no issue lookup runs", async () => {
+  // Task 1 (A안, DESIGN-FOLLOWUP §2.3): the F5 gate is gone — the issue
+  // lookup now runs even when the chain already adopted an article. The
+  // lookup only adds candidates (restricted to chain-shown + inherited
+  // laws), so the adoption below is unchanged: the prohibition stays direct
+  // and the protective-measures article stays supporting.
+  it("Task 1 (A안): the issue lookup runs even when the chain already adopted an article, without changing the adoption", async () => {
     vi.mocked(interpretResearchQuery).mockResolvedValueOnce({
       ...interpretation,
       issues: [{ label: "직장 내 괴롭힘 금지", query: "직장 내 괴롭힘" }],
@@ -242,10 +248,12 @@ describe("F1 M2: the supplement gate is articles==0, regardless of precedents", 
     // The chain supplement is not an issue lookup: with the question's law name
     // inherited (law-supplement-trace), its toc + article lookups still run for
     // the display-only reference even when the chain already adopted an article.
-    // What must not run is the issue lookup itself: no precedent search.
-    // The final semantic response keeps the prohibition directly and the
+    // Task 1 (A안) runs the issue lookup itself too now (one precedent search
+    // for the single issue), restricted to named laws — the lookup only adds
+    // the already-adopted protective-measures article as a candidate, so the
+    // final semantic response keeps the prohibition directly and the
     // acquired protective-measures article as supporting evidence.
-    expect(queries("search_decisions")).toEqual([]);
+    expect(queries("search_decisions")).toEqual([expect.objectContaining({ query: "직장 내 괴롭힘" })]);
     expect(result).toMatchObject({
       evidence: { articles: [{ law: "근로기준법", jo: "제76조의2" }, { law: "근로기준법", jo: "제76조의3" }] },
       enrichment: { supplement: { articles: [{ law: "근로기준법", jo: "제76조의3" }] } },

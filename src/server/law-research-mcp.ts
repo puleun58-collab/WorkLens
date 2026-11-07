@@ -17,7 +17,7 @@ import { mcpReviewSources, reviewContract } from "@/server/contract-review";
 import { interpretResearchQuery, verifyResearchAdoption } from "@/server/groq";
 import { ApiError } from "@/server/http";
 import {
-  articleExcerpt, enrichResearch, explicitArticlePairs, lookupIssue, mcpEnrichmentSources, rereadShownArticles, sharedSources,
+  articleExcerpt, enrichResearch, explicitArticlePairs, lookupIssue, mcpEnrichmentSources, rereadShownArticles, selectRereadCandidates, sharedSources,
   type EnrichmentSources, type IssueLookup,
 } from "@/server/research-enrichment";
 import { compareOrdinances, mcpOrdinanceSources } from "@/server/ordinance-compare";
@@ -311,22 +311,26 @@ async function fullResearch(
     const fallback = issue.label === undefined;
     let adopted = await issueSources(issue.query, known, undefined, sources, summaries, requestTerms, fallback, query);
     let lookup: IssueLookup | undefined;
-    // F1 M2: the gate used to require precedents to be empty as well, so an issue covered only by
-    // precedents never reached the supplement lookup — and the question's law-name inheritance (F2)
-    // could not rescue its missing articles. Precedents cover status, not articles, so the gate is
-    // articles==0 alone; the shared issue budget and timeout reporting are unchanged.
+    // Task 1 (A안, DESIGN-FOLLOWUP §2.3): F5 게이트 완화 — 어휘 채택 여부와
+    // 무관하게 쟁점별 lookup을 실행한다. 단, 대상 법령은 체인 등장 법령 +
+    // 상속 법령명으로 한정한다 (restrictToNamedLaws: 키워드로 새 법령을
+    // 발견하지 않음). lookup 결과는 후보에 추가만 한다 — issueSources가
+    // 체인 supplement + lookup을 합쳐 같은 관련성 규칙으로 다시 판정하므로
+    // 기존 어휘 채택이 무효화되지 않는다. 공유 예산 15초·타임아웃 보고는
+    // 그대로 유지한다.
     // An unread question has no short phrase of its own, so its lookup query is
     // its subject words only — the whole everyday sentence is never sent.
-    if (!adopted.articles.length) {
+    {
       const lookupQuery = fallback ? questionSubjectTerms(query).join(" ") : issue.query;
-      if (lookupQuery) {
+      if (lookupQuery && !expired()) {
         // A thrown lookup is an incomplete lookup, never a confirmed absence:
         // the chain's own adoption still stands, and the issue status below
         // reports the failure instead of "none".
         const questionIdentities = parseExplicitIdentities(query);
         lookup = await lookupIssue(lookupQuery, shownArticles, sources, expired,
           [...new Set([...lawNamesInQuery(query), ...questionTerms(query).filter(isLawName)])], questionTerms(query),
-          questionIdentities.length ? questionIdentities : undefined)
+          questionIdentities.length ? questionIdentities : undefined,
+          { restrictToNamedLaws: true })
           .catch(() => ({ status: "failed" as const, articles: [], precedents: [] }));
         if (lookup?.status === "found") adopted = await issueSources(issue.query, known, lookup, sources, summaries, requestTerms, fallback, query);
       }
@@ -337,10 +341,16 @@ async function fullResearch(
     // display truncation or title match.
     const unreadAdopted = adopted.articles.some((ref) => shownArticles.some((article) =>
       article.law === ref.law && article.jo === ref.jo && /\.{3}|…|⋯|중략/u.test(article.excerpt)));
-    if ((!adopted.articles.length || unreadAdopted) && !expired()) {
-      const candidateTerms = [...new Set([...questionTerms(issue.query), ...questionTerms(query)])];
+    // Task 1 (C안, DESIGN-FOLLOWUP §2.3): partial 미리보기는 다른 조문이
+    // 채택됐어도 전문 재조회 대상이다 — 핵심 조문이 잘린 미리보기로 남아
+    // 있으면 직접 근거가 될 수 없으므로, partial 재독 후보가 있을 때도
+    // 게이트를 연다. (i) 제목·용어 일치 또는 (ii) 체인 반복 등장, 쟁점당
+    // 최대 2건은 selectRereadCandidates가 고정한다.
+    const candidateTerms = [...new Set([...questionTerms(issue.query), ...questionTerms(query)])];
+    const hasPartialReread = selectRereadCandidates(shownArticles, candidateTerms, found?.text ?? "").some((entry) => entry.partial);
+    if ((!adopted.articles.length || unreadAdopted || hasPartialReread) && !expired()) {
       // A re-read failure degrades to "no candidate", never to a failed request.
-      const reread = await rereadShownArticles(shownArticles, candidateTerms, sources, expired).catch(() => []);
+      const reread = await rereadShownArticles(shownArticles, candidateTerms, sources, expired, 2, found?.text ?? "").catch(() => []);
       const fresh = reread.filter((article) => !(lookup?.articles ?? [])
         .some((shown) => shown.law === article.law && shown.jo === article.jo));
       retrievedArticles.push(...reread);
@@ -424,7 +434,7 @@ async function fullResearch(
       let retryAdopted = await issueSources(item.issue.query, retryKnown, undefined, sources, summaries, requestTerms, false, query);
       if (!retryAdopted.articles.length && !expired()) {
         const candidateTerms = [...new Set([...questionTerms(item.issue.query), ...questionTerms(query)])];
-        const reread = await rereadShownArticles(retryTextArticles, candidateTerms, sources, expired).catch(() => []);
+        const reread = await rereadShownArticles(retryTextArticles, candidateTerms, sources, expired, 2, retry.text).catch(() => []);
         retrievedArticles.push(...reread);
         if (reread.length) {
           retryAdopted = await issueSources(item.issue.query, retryKnown, { status: "found", articles: reread, precedents: [] },

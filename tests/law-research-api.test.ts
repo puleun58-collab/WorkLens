@@ -13,6 +13,9 @@ vi.mock("@/server/research-enrichment", async (importOriginal) => {
     enrichResearch: () => Promise.reject(new Error("enrichment disabled in route tests")),
     lookupIssue: () => Promise.resolve({ status: "none", articles: [], precedents: [] }),
     rereadShownArticles: () => Promise.resolve([]),
+    // Task 1 (A안): the per-issue loop now calls this pure selector on every
+    // issue, so the route mock must export it (returns no candidates here).
+    selectRereadCandidates: () => [],
     // Pure term→pair mapping used by the follow-up path; everything else stays mocked.
     explicitArticlePairs: original.explicitArticlePairs,
   };

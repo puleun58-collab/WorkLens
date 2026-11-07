@@ -120,9 +120,12 @@ describe("full_research issue-by-issue retrieval", () => {
     // The combined search runs with the first issue's phrase; each still
     // article-less issue then gets one chain search of its own phrase
     // (V4 M3-lite, capped) — the dismissal text adopts nothing for either,
-    // so the evidence below is unchanged. The user's sentence is never a search query.
+    // so the evidence below is unchanged. Task 1 (A안): the issue lookup
+    // now runs for every issue, including the covered first one, so its
+    // precedent search runs for all three phrases. The user's sentence is
+    // never a search query.
     expect(queries("legal_research")).toEqual(["부당해고", "임금 체불", "퇴직금 지급"]);
-    expect(queries("search_decisions").sort()).toEqual(["임금 체불", "퇴직금 지급"]);
+    expect(queries("search_decisions").sort()).toEqual(["부당해고", "임금 체불", "퇴직금 지급"]);
     expect([...queries("legal_research"), ...queries("search_decisions"), ...queries("search_law")]).not.toContain(longQuery);
     expect(result).toMatchObject({
       found: true,
@@ -181,7 +184,11 @@ describe("full_research issue-by-issue retrieval", () => {
     const shared = { law: "근로기준법", jo: "제28조" };
     expect(result).toMatchObject({ evidence: { status: "matched", articles: [shared],
       issues: [{ status: "found", articles: [shared] }, { status: "found", articles: [shared] }] } });
-    expect(queries("search_decisions")).toEqual([]);
+    // Task 1 (A안): the issue lookup now runs for both issues even though
+    // the chain already adopted the shared article. Both lookups find
+    // nothing new (no precedent hits), so the shared source is still listed
+    // once and attributed to both.
+    expect(queries("search_decisions").sort()).toEqual(["부당해고", "부당해고 구제"]);
   });
 
   it("retries a genuine absence once, with a keyword-short question as written but never a long one", async () => {
@@ -214,7 +221,10 @@ describe("full_research issue-by-issue retrieval", () => {
     }]));
     const result = await runLegalResearch({ task: "full_research", query: "직장 내 괴롭힘" }, ctx);
     expect(queries("legal_research")).toEqual(["직장 내 괴롭힘"]);
-    expect(queries("search_decisions")).toEqual([]);
+    // Task 1 (A안): the issue lookup now runs for the fallback issue too,
+    // with the question's own subject terms as its query. It finds nothing
+    // new here, so the evidence is unchanged.
+    expect(queries("search_decisions")).toEqual(["직장 괴롭힘"]);
     expect(result).toMatchObject({ found: true, evidence: { status: "matched", issues: [{ status: "found" }] } });
     expect(result).not.toHaveProperty("interpretation");
   });

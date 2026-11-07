@@ -377,6 +377,10 @@ async function titleArticles(
   expired: () => boolean,
   strictName: boolean,
   strictCandidates = false,
+  // Task 1 (A안): false이면 키워드로 새 법령을 발견하지 않고 named로
+  // 한정한다. 쟁점별 lookup은 이 한정으로만 실행한다 — 한정 밖 법령이
+  // lookup 대상이 되면 안 된다 (DESIGN-FOLLOWUP §2.3).
+  discoverLaws = true,
 ): Promise<NonNullable<ResearchEnrichment["supplement"]>> {
   const compactName = (value: string) => value.replace(/\s+/gu, "");
   const laws = new Map<string, string>();
@@ -393,6 +397,9 @@ async function titleArticles(
     if (exact) laws.set(exact.name, exact.mst);
   }
   for (const term of keywords) {
+    // Task 1 (A안): discoverLaws=false이면 키워드로 새 법령을 발견하지
+    // 않는다 — named(체인 등장 법령 + 상속 법령명)로만 한정한다.
+    if (!discoverLaws) break;
     // In the displayed supplement, a generic word must not discover laws by
     // itself: searching "조사" or "의무" returned whole unrelated regimes
     // (대일항쟁기 특별법, 이태원 특별법…) whose titles merely share that
@@ -595,6 +602,11 @@ export async function lookupIssue(
   // across the chain search, this lookup, the followup and the law-system
   // assessment instead of fragmenting into "보호법" in each of them.
   questionIdentities: ReadonlyArray<ExplicitIdentity> = [],
+  // Task 1 (A안): true이면 제목 조회가 named(쟁점·질문 법령명 + 체인
+  // 등장 법령)로만 한정되고 키워드로 새 법령을 발견하지 않는다.
+  // F5 게이트 완화로 어휘 채택 여부와 무관하게 실행되는 lookup은 이
+  // 한정으로만 실행한다.
+  options: { restrictToNamedLaws?: boolean } = {},
 ): Promise<IssueLookup> {
   const terms = questionTerms(query);
   const keywords = terms.filter((term) => !isLawName(term));
@@ -609,7 +621,8 @@ export async function lookupIssue(
   let failed = false;
   const [hits, statutes, explicit] = await Promise.all([
     sources.precedents(query).catch(() => { failed = true; return []; }),
-    titleArticles(titleKeywords, candidateLaws, shownArticles, sources, expired, true),
+    titleArticles(titleKeywords, candidateLaws, shownArticles, sources, expired, true, false,
+      !options.restrictToNamedLaws),
     (async () => {
       // Articles the issue itself named are fetched for this issue. The
       // issue phrase is parsed from its raw text, not from its tokens,
@@ -675,6 +688,53 @@ export async function lookupIssue(
   return { status, articles: mergedArticles, precedents, ...(partialFailure ? { partialFailure: true as const } : {}) };
 }
 
+/** A chain excerpt that stops mid-article: only a full-text re-read can supply the missing clause. */
+const isPartialExcerpt = (excerpt: string | undefined): boolean => !!excerpt && /\.{3}|…|⋯|중략/u.test(excerpt);
+
+/** How many times one article number is mentioned in the chain text (its own header counts as one). */
+function countJoMentions(chainText: string, jo: string): number {
+  if (!chainText) return 0;
+  const escaped = jo.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  // "제36조" must not match inside 제136조/제360조/제36조의2.
+  return [...chainText.matchAll(new RegExp(`(?<!\\d)${escaped}(?!\\d|의\\d)`, "gu"))].length;
+}
+
+export interface RereadCandidate {
+  article: { law: string; jo: string; title?: string; excerpt?: string };
+  matched: string[];
+  /** Truncated preview (사본 없음) — the re-read's actual target. */
+  partial: boolean;
+  /** Mentions of this article number in the chain text. */
+  repeats: number;
+}
+
+/**
+ * Task 1 (C안): which chain articles a full-text re-read should fetch.
+ * Pure selection, no fetching — the caller uses it for the gate check too.
+ * (i) Title matches an issue/request term (existing rule), or (ii) a partial
+ * preview whose article number is mentioned at least twice in the chain
+ * text (its own header plus another listing or citation). At most `limit`
+ * per issue (same number as the existing re-read cap). Sorted by matched
+ * terms, then by repeat mentions.
+ */
+export function selectRereadCandidates(
+  shown: ReadonlyArray<{ law: string; jo: string; title?: string; excerpt?: string }>,
+  candidateTerms: readonly string[],
+  chainText = "",
+  limit = 2,
+): RereadCandidate[] {
+  return shown
+    .map((article) => {
+      const matched = article.title ? titleMatches(candidateTerms, article.law, article.title) : [];
+      const partial = isPartialExcerpt(article.excerpt);
+      const repeats = countJoMentions(chainText, article.jo);
+      return { article, matched, partial, repeats };
+    })
+    .filter((entry) => entry.matched.length > 0 || (entry.partial && entry.repeats >= 2))
+    .sort((a, b) => b.matched.length - a.matched.length || b.repeats - a.repeats)
+    .slice(0, limit);
+}
+
 /**
  * A chain article an issue could not adopt from its preview: the MCP preview
  * can stop mid-article (a `③...` cut), hiding the clause the issue asks
@@ -682,21 +742,20 @@ export async function lookupIssue(
  * the issue's or the request's terms, and return them as supplement
  * candidates — adoption itself still judges the excerpt by the issue's own
  * terms in the caller, so a title match alone never confirms anything.
+ * Task 1 (C안): a partial preview whose article is mentioned repeatedly in
+ * the chain text is also re-read, even when its title carries no issue term.
  * Bounded (at most two articles) and budget-checked; a fetch that fails or
  * times out simply yields no candidate, never a guessed one.
  */
 export async function rereadShownArticles(
-  shown: ReadonlyArray<{ law: string; jo: string; title?: string }>,
+  shown: ReadonlyArray<{ law: string; jo: string; title?: string; excerpt?: string }>,
   candidateTerms: readonly string[],
   sources: EnrichmentSources,
   expired: () => boolean,
   limit = 2,
+  chainText = "",
 ): Promise<SupplementArticle[]> {
-  const candidates = shown
-    .map((article) => ({ article, matched: article.title ? titleMatches(candidateTerms, article.law, article.title) : [] }))
-    .filter((entry) => entry.matched.length > 0)
-    .sort((a, b) => b.matched.length - a.matched.length)
-    .slice(0, limit);
+  const candidates = selectRereadCandidates(shown, candidateTerms, chainText, limit);
   const articles: SupplementArticle[] = [];
   for (const { article, matched } of candidates) {
     if (expired()) break;
