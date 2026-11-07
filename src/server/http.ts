@@ -10,6 +10,8 @@ const NO_STORE_HEADERS = {
 
 /** Shared helpers for the remaining control-plane endpoints (admin, 용어 사전). */
 export class ApiError extends Error {
+  /** Zod issue paths and codes only, never values; for diagnostics, never serialized to clients. */
+  public zodIssues?: Array<{ path: string; code: string }>;
   constructor(
     public readonly code: string,
     message: string,

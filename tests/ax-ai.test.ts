@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parseAiApiRequest } from "@/server/ai-request";
 import { runGroqAi } from "@/server/groq";
+import { axMessages } from "@/lib/ax/prompt";
 import { axDiagnosisOutputSchema, axPlanSchema, confirmedAxDiagnosis } from "@/lib/ax/schema";
 import { buildAllInOnePrompt } from "@/lib/ax/guide";
 import { diagnosisFixture, planFixture, outputFixture } from "./fixtures/ax";
@@ -276,20 +277,46 @@ describe("AX diagnosis repair, malformed answers and provider failures", () => {
   });
 
   it("S3c classifies a repeated json_validate_failed as invalid output, not a rejected request", async () => {
-    const fetcher = sequence(facts, jvf(), jvf());
+    const fetcher = sequence(facts, jvf(), jvf(), jvf());
     await expect(runGroqAi(request)).rejects.toMatchObject({ code: "INVALID_PROVIDER_OUTPUT", status: 502 });
-    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(fetcher).toHaveBeenCalledTimes(4);
     expect(lastLog("error")).toMatchObject({ providerCode: "json_validate_failed", failureCode: "INVALID_PROVIDER_OUTPUT" });
+    expect(stages()).toContainEqual(expect.objectContaining({ stage: "initial-json-invalid-changed-retry" }));
+    expect(body(fetcher, 3).max_completion_tokens).toBe(4_000);
     expectMaskedLogs();
   });
 
-  it.each([
-    ["a non-string risk", (raw: ReturnType<typeof outputFixture>) => ({ ...raw, risks: [123] })],
-    ["an unknown TO-BE owner", (raw: ReturnType<typeof outputFixture>) => ({ ...raw, toBe: [{ ...raw.toBe[0], owner: "로봇" }] })],
-  ])("S4 keeps whole-response validation: %s fails the diagnosis", async (_label, broken) => {
-    const fetcher = sequence(facts, broken(outputFixture()));
-    await expect(runGroqAi(request)).rejects.toMatchObject({ code: "INVALID_PROVIDER_OUTPUT", status: 502 });
-    expect(fetcher).toHaveBeenCalledTimes(2);
+  // S4 changed with the §5 salvage design: a malformed optional field is now salvaged and
+  // repaired instead of failing the whole diagnosis. Structural failures still fail (S14).
+  it("S4 salvages a non-string risk and repairs it instead of failing the diagnosis", async () => {
+    const raw = outputFixture();
+    raw.risks = [123 as unknown as string];
+    const repaired = { risks: outputFixture().risks };
+    const fetcher = sequence(facts, raw, repaired);
+    const result = await runGroqAi(request);
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    if (result.kind !== "ax-diagnosis") throw new Error("unexpected result");
+    expect(result.diagnosis.risks).toEqual(repaired.risks);
+    const repair = body(fetcher, 2);
+    expect(repair.response_format.json_schema.name).toBe("worklens_ax_diagnosis_repair");
+    expect(Object.keys(repair.response_format.json_schema.schema.properties)).toEqual(["risks"]);
+    expect(stages()).toContainEqual(expect.objectContaining({ stage: "initial-parse-salvaged", salvagedKeys: ["risks"] }));
+    expectMaskedLogs();
+  });
+
+  it("S4 salvages an unknown TO-BE owner and repairs it instead of failing the diagnosis", async () => {
+    const raw = outputFixture();
+    raw.toBe = [{ ...raw.toBe[0], owner: "로봇" }];
+    const repaired = { toBe: outputFixture().toBe };
+    const fetcher = sequence(facts, raw, repaired);
+    const result = await runGroqAi(request);
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    if (result.kind !== "ax-diagnosis") throw new Error("unexpected result");
+    expect(result.diagnosis.toBe).toEqual(repaired.toBe);
+    const repair = body(fetcher, 2);
+    expect(repair.response_format.json_schema.name).toBe("worklens_ax_diagnosis_repair");
+    expect(Object.keys(repair.response_format.json_schema.schema.properties)).toEqual(["toBe"]);
+    expect(stages()).toContainEqual(expect.objectContaining({ stage: "initial-parse-salvaged", salvagedKeys: ["toBe"] }));
     expectMaskedLogs();
   });
 
@@ -387,6 +414,77 @@ describe("AX diagnosis repair, malformed answers and provider failures", () => {
     expect(fetcher).toHaveBeenCalledTimes(2);
     expect(result).toMatchObject({ diagnosis: { asIs: { inputs: expect.arrayContaining(["부가세 10%"]) }, poc: { inputs: ["부가세 10%"] } } });
     expect(lastLog("info")).not.toHaveProperty("semanticViolationCategories");
+  });
+
+  it("S11 recovers from two json_validate_failed failures with one changed-condition request", async () => {
+    const fetcher = sequence(facts, jvf(), jvf(), outputFixture());
+    await expect(runGroqAi(request)).resolves.toMatchObject({ kind: "ax-diagnosis" });
+    expect(fetcher).toHaveBeenCalledTimes(4);
+    const changed = body(fetcher, 3);
+    expect(changed.max_completion_tokens).toBe(4_000);
+    expect(changed.messages.at(-1).content).toContain("간결하게");
+    expect(JSON.stringify(changed.messages)).not.toBe(JSON.stringify(body(fetcher, 1).messages));
+    expect(stages()).toContainEqual(expect.objectContaining({ stage: "initial-json-invalid-changed-retry" }));
+    expectMaskedLogs();
+  });
+
+  it("S12 skips the changed-condition request when the shared budget is already spent", async () => {
+    const fetcher = sequence(withoutSteps, facts, jvf(), jvf());
+    await expect(runGroqAi(request)).rejects.toMatchObject({ code: "INVALID_PROVIDER_OUTPUT", status: 502 });
+    expect(fetcher).toHaveBeenCalledTimes(4);
+    expect(stages()).not.toContainEqual(expect.objectContaining({ stage: "initial-json-invalid-changed-retry" }));
+    expectMaskedLogs();
+  });
+
+  it("S13 salvages a diagnosis whose only bad key is PoC and repairs it in one field call", async () => {
+    const raw = outputFixture();
+    raw.poc = { ...raw.poc, success: [123 as unknown as string] };
+    const repaired = { poc: outputFixture().poc };
+    const baseline = sequence(facts, outputFixture());
+    const valid = await runGroqAi(request);
+    expect(baseline).toHaveBeenCalledTimes(2);
+    vi.mocked(console.info).mockClear();
+    const fetcher = sequence(facts, raw, repaired);
+    const result = await runGroqAi(request);
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    if (result.kind !== "ax-diagnosis" || valid.kind !== "ax-diagnosis") throw new Error("unexpected result");
+    expect(result.diagnosis.poc).toEqual(repaired.poc);
+    for (const key of ["stepAssessments", "technicalChecks", "decisionGate", "factors", "toBe", "risks", "roadmap", "asIs"] as const) expect(result.diagnosis[key]).toEqual(valid.diagnosis[key]);
+    const repair = body(fetcher, 2);
+    expect(repair.response_format.json_schema.name).toBe("worklens_ax_diagnosis_repair");
+    expect(Object.keys(repair.response_format.json_schema.schema.properties)).toEqual(["poc"]);
+    expect(stages()).toContainEqual(expect.objectContaining({ stage: "initial-parse-invalid", zodIssues: expect.arrayContaining([expect.stringContaining("poc")]) }));
+    expect(stages()).toContainEqual(expect.objectContaining({ stage: "initial-parse-salvaged", salvagedKeys: ["poc"] }));
+    expectMaskedLogs();
+  });
+
+  it("S14 fails a diagnosis whose structural key is bad without a repair attempt", async () => {
+    const raw = outputFixture();
+    raw.factors = raw.factors.slice(0, 5);
+    const fetcher = sequence(facts, raw);
+    await expect(runGroqAi(request)).rejects.toMatchObject({ code: "INVALID_PROVIDER_OUTPUT", status: 502 });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(stages()).toContainEqual(expect.objectContaining({ stage: "initial-parse-invalid", zodIssues: expect.arrayContaining([expect.stringContaining("factors")]) }));
+    expect(stages()).not.toContainEqual(expect.objectContaining({ stage: "initial-parse-salvaged" }));
+    expectMaskedLogs();
+  });
+
+  it("S15 never publishes a salvaged key the repair rejected", async () => {
+    const raw = outputFixture();
+    raw.poc = { ...raw.poc, success: [123 as unknown as string] };
+    const fetcher = sequence(facts, raw, { poc: withPoc(["정확도 90% 이상"]).poc });
+    await expect(runGroqAi(request)).rejects.toMatchObject({ code: "INVALID_PROVIDER_OUTPUT", status: 502 });
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(stages()).toContainEqual(expect.objectContaining({ stage: "initial-parse-salvaged", salvagedKeys: ["poc"] }));
+    expect(stages()).toContainEqual(expect.objectContaining({ stage: "salvage-unrepaired", reason: "poc" }));
+    expectMaskedLogs("정확도 90% 이상");
+  });
+
+  it("S16 names the PoC number rules and the owner enum in the first diagnosis instruction", () => {
+    const [system] = axMessages(request);
+    expect(system.content).toContain("poc.success");
+    expect(system.content).toContain("정량 기준 확인 필요");
+    expect(system.content).toContain("owner 필드의 값은 시스템·AI·사용자 중 하나여야 합니다");
   });
 
   it("keeps factor scores and the gate verdict when a repair rewrites their narrative", async () => {

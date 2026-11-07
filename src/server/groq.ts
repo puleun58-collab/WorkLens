@@ -437,18 +437,39 @@ export async function runGroqAi(
     let raw: GroqCompletion | undefined;
     // A diagnosis completion that could not close its JSON (Groq 400 json_validate_failed) is a malformed
     // answer: it is asked for once more inside the shared budget. Other provider rejections are not retried.
+    // A second identical failure is not re-requested under the same conditions: the one further request
+    // raises the completion budget to the existing current-facts constant and asks for concise items,
+    // because the same input and conditions already failed twice.
     for (let attempt = 0; !raw; attempt++) {
+      const changedCondition = attempt === 2;
       try {
-        raw = await complete(specification.messages, specification.schema, specification.schemaName, specification.maxTokens,
+        raw = await complete(
+          changedCondition ? [...specification.messages, { role: "user", content: "출력 길이를 줄이기 위해 각 항목은 간결하게 작성하세요." }] : specification.messages,
+          specification.schema, specification.schemaName, changedCondition ? 4_000 : specification.maxTokens,
           { ...context, operation }, budget);
+        if (changedCondition) axStage("initial-json-invalid-changed-retry", undefined, "recovered");
       } catch (error) {
         if (request.kind !== "ax-diagnosis" || budget.rejection?.providerCode !== JSON_VALIDATE_FAILED) throw error;
         budget.failure = new ApiError("INVALID_PROVIDER_OUTPUT", "AI 응답 형식이 올바르지 않습니다.", 502);
-        axStage("initial-json-invalid");
-        if (attempt >= 1 || budget.attempt >= budget.maxAttempts) throw budget.failure;
+        axStage(changedCondition ? "initial-json-invalid-changed-retry" : "initial-json-invalid");
+        if (attempt >= 2 || budget.attempt >= budget.maxAttempts) throw budget.failure;
       }
     }
-    const parsed = parseResult(request, raw.choices[0].message.content);
+    let parsed: AiApiResult;
+    let salvagedKeys: AxRepairKey[] = [];
+    const salvagedRepaired = new Set<AxRepairKey>();
+    try {
+      parsed = parseResult(request, raw.choices[0].message.content);
+    } catch (error) {
+      if (request.kind !== "ax-diagnosis") throw error;
+      const issues = error instanceof ApiError ? error.zodIssues : undefined;
+      if (issues?.length) axStage("initial-parse-invalid", undefined, undefined, { zodIssues: issues.map(issue => `${issue.path}:${issue.code}`) });
+      const salvaged = salvageAxDiagnosis(request, raw.choices[0].message.content);
+      if (!salvaged) throw error;
+      axStage("initial-parse-salvaged", salvaged.diagnosis, undefined, { salvagedKeys: [...salvaged.salvagedKeys] });
+      salvagedKeys = salvaged.salvagedKeys;
+      parsed = { kind: "ax-diagnosis", diagnosis: salvaged.diagnosis };
+    }
     const initialStage = parsed.kind === "ax-diagnosis" ? axStage("initial-parsed", parsed.diagnosis) : undefined;
     if (parsed.kind === "ax-diagnosis" && grounding?.conflicts.length && parsed.diagnosis.technicalChecks.length >= 10) throw new ApiError("INVALID_PROVIDER_OUTPUT", "상충 정보와 필수 기술 조건을 모두 보존할 수 없습니다.", 502);
     const result = parsed.kind === "ax-diagnosis" && grounding ? { ...parsed, diagnosis: applyCurrentFacts(parsed.diagnosis, grounding) } : parsed;
@@ -480,11 +501,22 @@ export async function runGroqAi(
     };
     const userNumbers = userNumberTokens(request);
     /**
+     * A salvaged key is a placeholder the server invented, never a model answer. It may
+     * only reach the caller after a repair replaced it; anything else fails the request.
+     */
+    const assertSalvagedRepaired = () => {
+      const pending = salvagedKeys.filter(key => !salvagedRepaired.has(key));
+      if (!pending.length) return;
+      axStage("salvage-unrepaired", undefined, pending.join(","));
+      throw new ApiError("INVALID_PROVIDER_OUTPUT", "AI 진단 결과를 검증하지 못했습니다. 다시 시도하세요.", 502);
+    };
+    /**
      * The merged answer is published only when the Semantic Guard finds nothing. Violations left only in
      * TO-BE or risks empty those lists (shown as assessment-incomplete, never as "no risk"); any other
      * remaining violation fails the request, so nothing is returned, stored or shown as complete.
      */
     const settle = (value: AxDiagnosisResult, diagnosis: AxDiagnosisValue, keys: readonly AxRepairKey[]): AxDiagnosisResult => {
+      assertSalvagedRepaired();
       if (grounding?.conflicts.length && diagnosis.technicalChecks.length >= 10) throw new ApiError("INVALID_PROVIDER_OUTPUT", "상충 정보와 필수 기술 조건을 모두 보존할 수 없습니다.", 502);
       const remaining = validateAxSemantics(diagnosis, request);
       if (!remaining.length) {
@@ -501,9 +533,13 @@ export async function runGroqAi(
     const repairFields = async (value: AxDiagnosisResult, violations: readonly AxSemanticViolation[]): Promise<AxDiagnosisResult> => {
       const violated = [...new Set(violations.map(violation => topLevelKey(violation.field)))] as AxRepairKey[];
       const gaps = groundedSteps ? (["toBe", "risks"] as const).filter(key => !value.diagnosis[key].length && !violated.includes(key)) : [];
-      const keys: AxRepairKey[] = [...violated, ...gaps];
-      // Without a violation this is the focused TO-BE/risks pass and keeps its stage names.
-      const prefix = violations.length ? "repair" : "focused";
+      // Salvaged keys are repaired here too: they are placeholders, not model answers, and must
+      // be replaced before anything is published.
+      const pendingSalvaged = salvagedKeys.filter(key => !salvagedRepaired.has(key));
+      const keys: AxRepairKey[] = [...new Set([...violated, ...gaps, ...pendingSalvaged])];
+      // Without a violation or a salvaged key this is the focused TO-BE/risks pass and keeps its stage names.
+      const useRepair = violations.length > 0 || pendingSalvaged.length > 0;
+      const prefix = useRepair ? "repair" : "focused";
       if (!keys.length || budget.attempt >= budget.maxAttempts) {
         axStage(`${prefix}-skipped`, value.diagnosis, !keys.length ? (!groundedSteps ? "no-grounded-steps" : "no-gaps") : "budget-exhausted");
         return settle(value, value.diagnosis, keys);
@@ -511,8 +547,8 @@ export async function runGroqAi(
       axStage(`${prefix}-start`, value.diagnosis, keys.join(","));
       let diagnosis = value.diagnosis;
       try {
-        const raw = violations.length
-          ? await complete(axDiagnosisRepairMessages(request, value.diagnosis, keys, violations), axDiagnosisRepairResponseSchema(keys),
+        const raw = useRepair
+          ? await complete(axDiagnosisRepairMessages(request, value.diagnosis, keys, violations, pendingSalvaged), axDiagnosisRepairResponseSchema(keys),
             "worklens_ax_diagnosis_repair", keys.length >= 3 ? 3_000 : 1_500, { ...context, operation }, budget)
           : await complete(axDiagnosisRepairMessages(request, value.diagnosis, keys, []), AX_DIAGNOSIS_GAP_RESPONSE_SCHEMA,
             "worklens_ax_diagnosis_gaps", 1_500, { ...context, operation }, budget);
@@ -522,7 +558,8 @@ export async function runGroqAi(
         for (const key of keys) {
           // Each key is checked on its own: a malformed or still-violating key never costs a valid one.
           const filled = shape[key].safeParse((payload as Record<string, unknown>)[key]);
-          const fixed = filled.success ? keepStructure(key, diagnosis, filled.data) : undefined;
+          // A salvaged key has no valid first value to preserve, so its repaired value is used as-is.
+          const fixed = filled.success ? (pendingSalvaged.includes(key) ? filled.data : keepStructure(key, diagnosis, filled.data)) : undefined;
           const candidate = fixed === undefined ? undefined : { ...diagnosis, [key]: fixed } as AxDiagnosisValue;
           if (!candidate || copiesAttachment(candidate, request.attachmentSummary)
             || validateAxSemantics(candidate, request).some(violation => topLevelKey(violation.field) === key)) {
@@ -530,6 +567,7 @@ export async function runGroqAi(
             continue;
           }
           axStage(`${prefix}-applied`, candidate, key, { userNumbersDropped: droppedUserNumbers(diagnosis[key], candidate[key], userNumbers) });
+          if (pendingSalvaged.includes(key)) salvagedRepaired.add(key);
           diagnosis = candidate;
         }
       } catch (error) {
@@ -548,7 +586,9 @@ export async function runGroqAi(
     }
     const missing = groundedSteps
       ? (["stepAssessments", "toBe", "risks"] as const).filter(key => !result.diagnosis[key].length) : [];
-    if (!violations.length && !missing.length) {
+    // A salvaged key is still a placeholder here: it must go through the field repair below,
+    // even when nothing else violates and nothing is missing.
+    if (!violations.length && !missing.length && !salvagedKeys.length) {
       axStage("completed", result.diagnosis);
       return result;
     }
@@ -590,6 +630,9 @@ export async function runGroqAi(
         if (!correctedViolations.length) {
           axStage("whole-correction-accepted", corrected.diagnosis);
           if (budget.semantic) budget.semantic.corrected = true;
+          // The corrected answer is a fresh full parse: no placeholder survives it.
+          salvagedKeys = [];
+          salvagedRepaired.clear();
           return repairFields(corrected, []);
         }
         if (violations.length) violations = correctedViolations;
@@ -698,6 +741,51 @@ function requestSpecification(request: AiApiRequest): {
   }
 }
 
+/** Keys whose failure cannot sink a diagnosis: they carry no fact the gate depends on. */
+const AX_SALVAGEABLE_KEYS = ["poc", "toBe", "risks", "roadmap", "operation", "nextAction", "humanInLoop", "followUpQuestions", "technicalChecks"] as const;
+/** Keys whose failure is a broken diagnosis, never a repairable field. */
+const AX_STRUCTURAL_KEYS = ["informationSufficiency", "asIs", "factors", "stepAssessments", "decisionGate"] as const;
+
+/** Schema-valid empty value for a salvaged key. A placeholder only, never published unrepaired. */
+function salvagedDefault(key: AxRepairKey): unknown {
+  switch (key) {
+    case "poc": return { hypothesis: "", inScope: [], outOfScope: [], inputs: [], outputs: [], evaluation: [], success: [], failure: [] };
+    case "operation": return { owner: "", failureOwner: "", maintenanceBurden: "low", fallback: "", notes: [] };
+    case "nextAction": return { label: "확인 필요", detail: "" };
+    default: return [];
+  }
+}
+
+/**
+ * A first diagnosis whose top-level keys mostly parse. Structural keys must all be valid and
+ * only salvageable keys may be rebuilt from empty defaults for a field repair. Returns undefined
+ * when the payload is not an object, a structural key failed, no key failed (a refine-level
+ * failure such as duplicate factors is not repairable per key), or the answer copies attachment
+ * text. Unknown extra keys are not dropped: strict-mode failure stays a failure.
+ */
+function salvageAxDiagnosis(request: Extract<AiApiRequest, { kind: "ax-diagnosis" }>, content: string): { diagnosis: AxDiagnosisValue; salvagedKeys: AxRepairKey[] } | undefined {
+  let payload: unknown;
+  try { payload = JSON.parse(content); } catch { return undefined; }
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return undefined;
+  const record = { ...(payload as Record<string, unknown>) };
+  delete record.decisionPoints;
+  const shape = axDiagnosisOutputSchema.shape as Record<string, z.ZodType>;
+  const diagnosis: Record<string, unknown> = {};
+  const failed: AxRepairKey[] = [];
+  for (const key of Object.keys(shape)) {
+    const checked = shape[key].safeParse(record[key]);
+    if (checked.success) diagnosis[key] = checked.data;
+    else failed.push(key as AxRepairKey);
+  }
+  if (!failed.length) return undefined;
+  if (failed.some(key => (AX_STRUCTURAL_KEYS as readonly string[]).includes(key))) return undefined;
+  if (!failed.every(key => (AX_SALVAGEABLE_KEYS as readonly string[]).includes(key))) return undefined;
+  for (const key of failed) diagnosis[key] = salvagedDefault(key);
+  const parsed = axDiagnosisOutputSchema.safeParse(diagnosis);
+  if (!parsed.success || copiesAttachment(parsed.data, request.attachmentSummary)) return undefined;
+  return { diagnosis: parsed.data, salvagedKeys: failed };
+}
+
 function parseResult(request: AiApiRequest, content: string): AiApiResult {
   let payload: unknown;
   try {
@@ -715,7 +803,14 @@ function parseResult(request: AiApiRequest, content: string): AiApiResult {
         payload = rest;
       }
       const parsed = axDiagnosisOutputSchema.safeParse(payload);
-      if (!parsed.success || copiesAttachment(parsed.data, request.attachmentSummary)) throw new ApiError("INVALID_PROVIDER_OUTPUT", "AI 응답 형식이 올바르지 않습니다.", 502);
+      if (!parsed.success) {
+        // Paths and codes only: the values stay out of logs so the next measurement can attribute
+        // the failing field without recording model output.
+        const failure = new ApiError("INVALID_PROVIDER_OUTPUT", "AI 응답 형식이 올바르지 않습니다.", 502);
+        failure.zodIssues = parsed.error.issues.map(issue => ({ path: issue.path.join("."), code: issue.code }));
+        throw failure;
+      }
+      if (copiesAttachment(parsed.data, request.attachmentSummary)) throw new ApiError("INVALID_PROVIDER_OUTPUT", "AI 응답 형식이 올바르지 않습니다.", 502);
       return { kind: "ax-diagnosis", diagnosis: parsed.data };
     }
     case "ax-plan": {
