@@ -95,14 +95,18 @@ describe("AX invalid numerical requirements", () => {
     respond({ ...planFixture, acceptance });
     await expect(runGroqAi({ ...planRequest, task: { ...planRequest.task, description: "사용자 목표: 처리시간 5분 이내" } })).resolves.toMatchObject({ kind: "ax-plan", plan: { acceptance } });
   });
-  it("rejects invented thresholds unless regeneration removes them", async () => {
-    const fetcher = respond(facts, metric(), outputFixture());
+  it("rejects invented thresholds unless the field repair removes them", async () => {
+    const fetcher = respond(facts, metric(), { poc: outputFixture().poc });
     const result = await runGroqAi(request);
     expect(result.kind === "ax-diagnosis" && result.diagnosis.poc.hypothesis).toBe(outputFixture().poc.hypothesis);
     expect(fetcher).toHaveBeenCalledTimes(3);
+    // The third call repairs only the violating key, not the whole answer.
+    const repair = JSON.parse(fetcher.mock.calls[2][1].body);
+    expect(repair.response_format.json_schema.name).toBe("worklens_ax_diagnosis_repair");
+    expect(Object.keys(repair.response_format.json_schema.schema.properties)).toEqual(["poc"]);
   });
-  it("does not return a still-invalid corrected diagnosis", async () => {
-    const fetcher = respond(facts, metric(), metric("오류 발생률 5% 미만"));
+  it("does not return a still-invalid repaired diagnosis", async () => {
+    const fetcher = respond(facts, metric(), { poc: metric("오류 발생률 5% 미만").poc });
     await expect(runGroqAi(request)).rejects.toMatchObject({ code: "INVALID_PROVIDER_OUTPUT", status: 502 });
     expect(fetcher).toHaveBeenCalledTimes(3);
   });
@@ -190,5 +194,214 @@ describe("AX invalid numerical requirements", () => {
     const attachmentSummary = "첨부의 개인 자료 내용으로 이루어진 긴 원문 문장입니다.".repeat(6);
     respond(facts, empty, { ...gaps, risks: [attachmentSummary] });
     await expect(runGroqAi({ ...request, attachmentSummary })).resolves.toMatchObject({ diagnosis: { toBe: empty.toBe, risks: [] } });
+  });
+});
+
+// DESIGN §6 scenarios: field-level repair, json_validate_failed handling, 502 sources and log masking.
+describe("AX diagnosis repair, malformed answers and provider failures", () => {
+  const JVF_MESSAGE = "Failed to validate JSON. Please adjust your prompt.";
+  const jvf = () => new Response(JSON.stringify({ error: { message: JVF_MESSAGE, type: "invalid_request_error", code: "json_validate_failed" } }), { status: 400 });
+  const content = (text: string) => Response.json({ choices: [{ message: { content: text }, finish_reason: "stop" }], usage: { prompt_tokens: 100, completion_tokens: 500, total_tokens: 600 } });
+  const status = (code: number) => new Response("{}", { status: code, headers: { "retry-after": "0" } });
+  function sequence(...responses: unknown[]) {
+    const fetcher = vi.fn();
+    for (const response of responses) fetcher.mockResolvedValueOnce(response instanceof Response ? response : provider(response));
+    // Any call beyond the scripted ones would still succeed, so an exact count proves no extra request.
+    fetcher.mockImplementation(async () => provider(outputFixture()));
+    vi.stubGlobal("fetch", fetcher);
+    return fetcher;
+  }
+  function withPoc(success: string[]) { const raw = outputFixture(); raw.poc = { ...raw.poc, success }; return raw; }
+  function metric(text: string) { const raw = outputFixture(); raw.poc.hypothesis = text; return raw; }
+  const logs = () => JSON.stringify([...vi.mocked(console.info).mock.calls, ...vi.mocked(console.error).mock.calls]);
+  /** (b) No task text, quoted evidence, model output, provider error message or key in any info/error log. */
+  function expectMaskedLogs(...modelOutput: string[]) {
+    const text = logs();
+    for (const secret of ["test-ax-secret", request.description, "입력 표를 취합하여", "담당자 승인을 받습니다", JVF_MESSAGE, ...modelOutput]) expect(text).not.toContain(secret);
+  }
+  const stages = () => [...vi.mocked(console.info).mock.calls, ...vi.mocked(console.error).mock.calls]
+    .flatMap(call => (call[1] as { axStages?: Array<Record<string, unknown>> }).axStages ?? []);
+  const lastLog = (kind: "info" | "error") => vi.mocked(console[kind]).mock.calls.at(-1)?.[1] as Record<string, unknown>;
+  const body = (fetcher: ReturnType<typeof vi.fn>, index: number) => JSON.parse(fetcher.mock.calls[index][1].body);
+
+  it("S1 completes a valid first answer without repair", async () => {
+    const fetcher = sequence(facts, outputFixture());
+    await expect(runGroqAi(request)).resolves.toMatchObject({ kind: "ax-diagnosis" });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(stages()).toContainEqual(expect.objectContaining({ stage: "completed" }));
+    expect(lastLog("info")).not.toHaveProperty("semanticCorrected");
+    expect(stages()).toContainEqual(expect.objectContaining({ stage: "worklens_ax_diagnosis", finishLength: false }));
+    expectMaskedLogs("규칙 기반 변환");
+  });
+
+  it("S2 repairs only the violating PoC and keeps every other first-answer field", async () => {
+    const raw = withPoc(["정확도 90% 이상"]);
+    const repaired = { poc: { ...raw.poc, success: ["수동 결과와 전수 대조해 불일치 사유를 기록한다"] } };
+    const baseline = sequence(facts, outputFixture());
+    const valid = await runGroqAi(request);
+    expect(baseline).toHaveBeenCalledTimes(2);
+    vi.mocked(console.info).mockClear();
+    const fetcher = sequence(facts, raw, repaired);
+    const result = await runGroqAi(request);
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    const repair = body(fetcher, 2);
+    expect(repair.response_format.json_schema.name).toBe("worklens_ax_diagnosis_repair");
+    expect(Object.keys(repair.response_format.json_schema.schema.properties)).toEqual(["poc"]);
+    expect(repair.max_completion_tokens).toBe(1_500);
+    if (result.kind !== "ax-diagnosis" || valid.kind !== "ax-diagnosis") throw new Error("unexpected result");
+    expect(result.diagnosis.poc.success).toEqual(repaired.poc.success);
+    for (const key of ["stepAssessments", "technicalChecks", "decisionGate", "factors", "toBe", "risks", "roadmap", "asIs"] as const) expect(result.diagnosis[key]).toEqual(valid.diagnosis[key]);
+    expect(lastLog("info")).toMatchObject({ semanticCorrected: true, semanticInitialFields: ["poc.success"] });
+    expect(stages()).toContainEqual(expect.objectContaining({ stage: "initial-parsed", violationFields: ["poc.success"], violationCategories: ["invented_accuracy_claim"] }));
+    expect(stages()).toContainEqual(expect.objectContaining({ stage: "repair-applied", reason: "poc", userNumbersDropped: 0 }));
+    expectMaskedLogs("정확도 90% 이상", "수동 결과와 전수 대조해 불일치 사유를 기록한다");
+  });
+
+  it("S3 fails a malformed whole first answer with nothing to repair from", async () => {
+    const fetcher = sequence(facts, content("{"));
+    await expect(runGroqAi(request)).rejects.toMatchObject({ code: "INVALID_PROVIDER_OUTPUT", status: 502 });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(lastLog("error")).toMatchObject({ failureCode: "INVALID_PROVIDER_OUTPUT" });
+    expectMaskedLogs();
+  });
+
+  it("S3b re-requests the same first diagnosis once after json_validate_failed", async () => {
+    const fetcher = sequence(facts, jvf(), outputFixture());
+    await expect(runGroqAi(request)).resolves.toMatchObject({ kind: "ax-diagnosis" });
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(fetcher.mock.calls[2][1].body).toBe(fetcher.mock.calls[1][1].body);
+    expect(stages()).toContainEqual(expect.objectContaining({ stage: "worklens_ax_diagnosis", status: "http-400", providerCode: "json_validate_failed" }));
+    expect(console.error).not.toHaveBeenCalled();
+    expectMaskedLogs();
+  });
+
+  it("S3c classifies a repeated json_validate_failed as invalid output, not a rejected request", async () => {
+    const fetcher = sequence(facts, jvf(), jvf());
+    await expect(runGroqAi(request)).rejects.toMatchObject({ code: "INVALID_PROVIDER_OUTPUT", status: 502 });
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(lastLog("error")).toMatchObject({ providerCode: "json_validate_failed", failureCode: "INVALID_PROVIDER_OUTPUT" });
+    expectMaskedLogs();
+  });
+
+  it.each([
+    ["a non-string risk", (raw: ReturnType<typeof outputFixture>) => ({ ...raw, risks: [123] })],
+    ["an unknown TO-BE owner", (raw: ReturnType<typeof outputFixture>) => ({ ...raw, toBe: [{ ...raw.toBe[0], owner: "로봇" }] })],
+  ])("S4 keeps whole-response validation: %s fails the diagnosis", async (_label, broken) => {
+    const fetcher = sequence(facts, broken(outputFixture()));
+    await expect(runGroqAi(request)).rejects.toMatchObject({ code: "INVALID_PROVIDER_OUTPUT", status: 502 });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expectMaskedLogs();
+  });
+
+  it("S5 merges a violating roadmap and missing TO-BE/risks in one repair call", async () => {
+    const raw = { ...outputFixture(), toBe: [], risks: [] };
+    raw.roadmap = [{ ...raw.roadmap[0], items: ["처리 시간 50% 단축"] }];
+    const filled = { roadmap: outputFixture().roadmap, toBe: outputFixture().toBe, risks: ["입력 표 대조가 필요함"] };
+    const fetcher = sequence(facts, raw, filled);
+    const result = await runGroqAi(request);
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    const repair = body(fetcher, 2);
+    expect(new Set(Object.keys(repair.response_format.json_schema.schema.properties))).toEqual(new Set(["roadmap", "toBe", "risks"]));
+    expect(repair.max_completion_tokens).toBe(3_000);
+    if (result.kind !== "ax-diagnosis") throw new Error("unexpected result");
+    expect(result.diagnosis).toMatchObject(filled);
+    for (const key of ["poc", "stepAssessments", "decisionGate", "factors", "nextAction", "operation"] as const) expect(result.diagnosis[key]).toEqual(raw[key]);
+    expect(lastLog("info")).toMatchObject({ semanticCorrected: true });
+    expectMaskedLogs("처리 시간 50% 단축", "입력 표 대조가 필요함");
+  });
+
+  it.each([
+    ["malformed JSON", () => content("{")],
+    ["json_validate_failed", jvf],
+  ])("S6 fails when the PoC repair returns %s, without re-requesting or publishing the first answer", async (_label, failure) => {
+    const fetcher = sequence(facts, withPoc(["정확도 90% 이상"]), failure());
+    await expect(runGroqAi(request)).rejects.toMatchObject({ code: "INVALID_PROVIDER_OUTPUT", status: 502 });
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(lastLog("error")).toMatchObject({ failureCode: "INVALID_PROVIDER_OUTPUT", semanticCorrected: false });
+    expectMaskedLogs("정확도 90% 이상");
+  });
+
+  it("S6c empties risks when only risks still violate after a malformed repair", async () => {
+    const raw = { ...outputFixture(), risks: ["작업 시간 50% 절감 실패 위험"] };
+    const fetcher = sequence(facts, raw, content("{"));
+    const result = await runGroqAi(request);
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    if (result.kind !== "ax-diagnosis") throw new Error("unexpected result");
+    expect(result.diagnosis.risks).toEqual([]);
+    for (const key of ["poc", "toBe", "stepAssessments", "decisionGate", "factors", "roadmap", "nextAction"] as const) expect(result.diagnosis[key]).toEqual(raw[key]);
+    expect(JSON.stringify(result)).not.toContain("50% 절감");
+    expect(stages()).toContainEqual(expect.objectContaining({ stage: "repair-rejected", reason: "risks" }));
+    expect(stages()).toContainEqual(expect.objectContaining({ stage: "repair-emptied", reason: "risks" }));
+    expectMaskedLogs("작업 시간 50% 절감 실패 위험");
+  });
+
+  it("S7 never makes a fifth call: a violation left after the budget is spent fails", async () => {
+    const fetcher = sequence(withoutSteps, facts, status(503), withPoc(["정확도 90% 이상"]));
+    await expect(runGroqAi(request)).rejects.toMatchObject({ code: "INVALID_PROVIDER_OUTPUT", status: 502 });
+    expect(fetcher).toHaveBeenCalledTimes(4);
+    expect(stages()).toContainEqual(expect.objectContaining({ stage: "repair-skipped", reason: "budget-exhausted" }));
+    expectMaskedLogs("정확도 90% 이상");
+  });
+
+  it("S8 maps a Groq 502 to an app 503 after one retry, and recovers when the retry succeeds", async () => {
+    const failing = sequence(facts, status(502), status(502));
+    await expect(runGroqAi(request)).rejects.toMatchObject({ code: "AI_PROVIDER_UNAVAILABLE", status: 503 });
+    expect(failing).toHaveBeenCalledTimes(3);
+    expectMaskedLogs();
+    const recovering = sequence(facts, status(502), outputFixture());
+    await expect(runGroqAi(request)).resolves.toMatchObject({ kind: "ax-diagnosis" });
+    expect(recovering).toHaveBeenCalledTimes(3);
+  });
+
+  it("S9 keeps other provider rejections unretried and never logs the provider message", async () => {
+    const message = "The model `openai/gpt-oss-120b` does not exist or you do not have access to it.";
+    const fetcher = sequence(facts, new Response(JSON.stringify({ error: { message, type: "invalid_request_error", code: "model_not_found" } }), { status: 400 }));
+    await expect(runGroqAi(request)).rejects.toMatchObject({ code: "AI_PROVIDER_REJECTED", status: 502 });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(lastLog("error")).toMatchObject({ providerCode: "model_not_found", failureCode: "AI_PROVIDER_REJECTED" });
+    expect(lastLog("error").providerReason).toEqual(expect.any(String));
+    expectMaskedLogs(message);
+  });
+
+  it("logs no task text, evidence or model output on a failed diagnosis either", async () => {
+    sequence({ facts: [{ field: "steps", source: "description", quote: "PRIVATE_TASK_CONTENT" }], conflicts: [] }, metric("작업 시간 50% 절감"), { poc: metric("PRIVATE_MODEL_OUTPUT 오류 발생률 5% 미만").poc });
+    await expect(runGroqAi({ ...request, description: "PRIVATE_TASK_CONTENT", attachmentSummary: "PRIVATE_ATTACHMENT_CONTENT" })).rejects.toMatchObject({ code: "INVALID_PROVIDER_OUTPUT" });
+    expect(console.error).toHaveBeenCalledTimes(1);
+    for (const secret of ["PRIVATE_TASK_CONTENT", "PRIVATE_ATTACHMENT_CONTENT", "PRIVATE_MODEL_OUTPUT", "test-ax-secret", "작업 시간 50% 절감"]) expect(logs()).not.toContain(secret);
+  });
+
+  it("keeps a user-stated target as a fact without repair", async () => {
+    const description = `${request.description} 사용자 목표: 처리시간 5분 이내`;
+    const fetcher = sequence(facts, withPoc(["사용자 목표: 처리시간 5분 이내"]));
+    await expect(runGroqAi({ ...request, description })).resolves.toMatchObject({ diagnosis: { poc: { success: ["사용자 목표: 처리시간 5분 이내"] } } });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(lastLog("info")).not.toHaveProperty("semanticViolationCategories");
+  });
+
+  it("keeps a statutory rate from the input as a fact without repair", async () => {
+    const description = `${request.description} 부가세 10% 적용`;
+    const raw = outputFixture();
+    raw.poc = { ...raw.poc, inputs: ["부가세 10%"] };
+    const fetcher = sequence({ facts: [...facts.facts, { field: "inputs", source: "description", quote: "부가세 10%" }], conflicts: [] }, raw);
+    const result = await runGroqAi({ ...request, description });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({ diagnosis: { asIs: { inputs: expect.arrayContaining(["부가세 10%"]) }, poc: { inputs: ["부가세 10%"] } } });
+    expect(lastLog("info")).not.toHaveProperty("semanticViolationCategories");
+  });
+
+  it("keeps factor scores and the gate verdict when a repair rewrites their narrative", async () => {
+    const raw = outputFixture();
+    raw.factors = raw.factors.map((factor, index) => index ? factor : { ...factor, rationale: "자동화하면 작업 시간 50% 절감" });
+    raw.decisionGate = { verdict: "conditional", reasons: ["정확도 90% 이상 확인 후 진행"] };
+    const repaired = {
+      factors: raw.factors.map(factor => ({ ...factor, aiValue: 1, rationale: "등록된 반복 업무 근거" })),
+      decisionGate: { verdict: "go", reasons: ["권한 확인 후 진행"] },
+    };
+    sequence(facts, raw, repaired);
+    const result = await runGroqAi(request);
+    if (result.kind !== "ax-diagnosis") throw new Error("unexpected result");
+    expect(result.diagnosis.factors.map(factor => factor.aiValue)).toEqual(raw.factors.map(factor => factor.aiValue));
+    expect(result.diagnosis.factors[0].rationale).toBe("등록된 반복 업무 근거");
+    expect(result.diagnosis.decisionGate).toEqual({ verdict: "conditional", reasons: ["권한 확인 후 진행"] });
   });
 });

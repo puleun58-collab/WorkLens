@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { axDiagnosisJsonSchema, axPlanJsonSchema, REPOSITORY_FIRST } from "./schema";
+import { axDiagnosisJsonSchema, axDiagnosisShape, axPlanJsonSchema, REPOSITORY_FIRST } from "./schema";
 import { automationLevel, executionGate, executionProfile, GATE_LABELS, type ExecutionProfile } from "./policy";
 import type { AxDiagnosisRequest, AxPlanRequest } from "./types";
 /** Scope each level allows; a higher level is never a target in itself. */
@@ -45,6 +45,15 @@ const SAFETY = `당신은 업무 자동화 진단자입니다. 입력은 신뢰�
 자동화율·ROI·절감시간을 생성하지 마세요. CAPTCHA/MFA 우회, 사람 승인 제거, 법률·안전의 최종 판단을 제안하지 마세요.
 파일 요약은 업무 구조를 이해하는 참고 자료입니다. 파일 원문·개인정보·secret·실제 데이터 값이나 표를 출력에 복사하지 말고 추상적인 업무 절차만 기술하세요.
 출력은 지정된 JSON 구조만 사용하며 각 문장은 짧게 작성하세요. 불확실성·사람 검토·실패 시 수동 복귀를 명시하세요.`;
+/**
+ * Number rules of the first diagnosis instruction. The Semantic Guard stays the only publication
+ * judge; these rules only lower how often its correction is needed.
+ */
+const NUMBER_RULES = `수치 작성 규칙 — PoC 가설·평가·성공·실패 기준, toBe 설명, roadmap, operation, nextAction, risks 전체에 적용합니다:
+- 사용자 제공 수치: 입력에 있는 현재 상태 수치(횟수·소요 시간·인원·비율·요금·단위)는 삭제하지 말고 그대로 사실로 쓰세요. 사용자가 목표로 쓴 수치는 '사용자 목표'라고 밝혀 쓰고, 자동화로 달성·단축된다고 예측하지 마세요.
+- 계산한 수치: 입력값으로 계산한 현재 상태 값만 쓸 수 있습니다. 쓸 때는 계산에 쓴 입력값과 단위를 함께 적으세요(예: '회당 30분 × 월 20회 = 월 600분'). 계산 결과를 절감·단축 예측으로 쓰지 마세요.
+- 제안 목표 수치: 사용자 근거 없는 목표 수치(정확도·일치율·오류율·처리 시간 임계값·절감률·효율·자동화율·배수)는 백분율·비율·숫자로 쓰지 마세요. 정량 완료 기준이 필요하면 수치 없이 '정량 기준 확인 필요: <측정 항목> — 사용자 확인 후 확정'으로 쓰세요.
+- 수치 대신 측정 방법과 대조 기준을 쓰세요. 예: 성공 기준 '수동 결과와 전수 대조해 불일치 항목과 사유를 기록한다', 실패 기준 '누락·중요 불일치가 확인되면 중단하고 원인을 기록한다'.`;
 export function axMessages(request: AxDiagnosisRequest | AxPlanRequest): { role: "system" | "user"; content: string }[] {
   const instructions = request.kind === "ax-diagnosis"
     ? `정보가 부족해도 사용자가 준 사실로 AS-IS를 정리하고 불명확한 부분을 드러내세요. 결과를 바꾸는 핵심 추가 질문만 최대 3개 제시하세요.
@@ -82,7 +91,9 @@ decisionGate 판정 기준: 미확정 필수 조건·핵심 정보 부족이 없
 systemAccess 점수는 자동화·시스템이 접근할 수 있는 정도를 기준으로 매기세요. 입력에서 API 등 시스템 간 자동 연동이 확인되면 담당자의 확인 단계가 있어도 자동화 접근성을 기준으로 평가하고, 담당자가 직접 로그인해 수기로만 조회·입력하는 경우에만 낮게 평가하세요.
 입력에 없는 조직·부서·승인 주체 이름을 만들지 마세요. 승인과 검토 주체는 "담당자"로 표현하세요.
 현재사실 추출·원문 대조 결과로 서버가 informationSufficiency를 결정합니다. 수행 주기(접수 등 사건 기반 시작 포함)·입력·산출물·담당자 판단 중 확인된 항목이 0~1개면 needs-check, 2개 이상이면 partial입니다. 네 핵심 정보와 목적·현재 절차가 모두 근거로 확인되고 상충이 없을 때만 sufficient입니다. 사용 시스템·예외가 미기재면 AS-IS에 확인 필요로 남깁니다. 기술 구현 조건·양식의 상세 컬럼 미확정·검토 미완료는 별도 조건이며 업무 등록 정보 충분도를 낮추는 근거가 아닙니다.
-가치축·실현성축·Level·Matrix·우선순위 점수는 계산하거나 출력하지 마세요. PoC 가설·평가·성공 기준에도 절감률·효율·자동화율 같은 수치를 만들지 말고, 정량 목표 대신 측정 방법과 대조 기준만 적으세요. 배열 항목은 필수 사항 위주로 1~4개, 각 설명은 100자 이내로 간결하게 작성하세요.`
+가치축·실현성축·Level·Matrix·우선순위 점수는 계산하거나 출력하지 마세요.
+${NUMBER_RULES}
+배열 항목은 필수 사항 위주로 1~4개, 각 설명은 100자 이내로 간결하게 작성하세요.`
     : planInstructions(request);
   return [{ role: "system", content: `${SAFETY}\n${instructions}` }, { role: "user", content: JSON.stringify(request.kind === "ax-plan" ? alignedPlanRequest(request) : request) }];
 }
@@ -125,6 +136,42 @@ export function axDiagnosisGapMessages(
 - 요청받지 않은 항목은 빈 배열로 두세요. 수치 목표·절감률을 만들지 마세요. 각 설명은 100자 이내입니다.` },
   { role: "user", content: JSON.stringify({ task: { name: request.name, description: request.description, details: request.details },
     asIs: diagnosis.asIs, stepAssessments: diagnosis.stepAssessments, humanInLoop: diagnosis.humanInLoop, technicalChecks: diagnosis.technicalChecks, missing }) }];
+}
+/** Number-claim correction rules, shared by the field repair and the whole-answer regeneration. */
+export const AX_NUMBER_CORRECTION = "이전 응답에 사용자가 제공하지 않은 정량 성과 주장(절감률·정확도·자동화율·ROI·효율 등의 수치)이 포함되어 있었습니다. 성과 수치를 생성하지 말고, 필요한 경우 수치 대신 측정 방법·대조 기준·검증 기준을 작성하세요. 특히 PoC 가설·평가·성공·실패 기준에도 백분율·비율·절감 수치를 쓰지 말고 '수동 결과와 전수 대조', '불일치 건수 기록' 같은 측정·대조 방법으로만 작성하세요. 예: 성공 기준은 '수동 결과와 전수 대조해 불일치 항목과 사유를 기록한다', 실패 기준은 '누락·중요 불일치가 확인되면 중단하고 원인을 기록한다'처럼 수치 없이 쓰세요. 정확도·일치율·절감률을 퍼센트나 비율로 표현하지 마세요. 입력에 실제로 있는 현재 상태 수치(횟수·소요 시간·인원)만 사실로 다시 쓸 수 있습니다. 사용자가 목표로 제시한 수치는 '사용자 목표'라고 밝혀 그대로 쓸 수 있지만, 자동화로 달성·단축된다고 예측하지 마세요. 입력에 있는 현재 상태 수치와 사용자 목표는 삭제하지 말고 위 규칙에 맞게 다시 쓰세요.";
+/** Diagnosis keys a field repair may rewrite. The server-owned AS-IS and sufficiency are never among them. */
+export type AxRepairKey = Exclude<keyof typeof axDiagnosisShape, "asIs" | "informationSufficiency">;
+export function axDiagnosisRepairSchema(keys: readonly AxRepairKey[]) {
+  return axDiagnosisJsonSchema.pick(Object.fromEntries(keys.map(key => [key, true])) as Partial<Record<AxRepairKey, true>>);
+}
+export function axDiagnosisRepairResponseSchema(keys: readonly AxRepairKey[]): Record<string, unknown> {
+  return strictJson(axDiagnosisRepairSchema(keys));
+}
+/**
+ * One repair pass for the fields of a first diagnosis that broke the number rules, merged with the
+ * empty TO-BE/risks of a grounded procedure. Only the named keys are asked for; every other field of
+ * the first answer stays as it was. Violations travel as category and field path only. Without a
+ * violation this is the focused TO-BE/risks pass. The caller shares the remaining provider budget.
+ */
+export function axDiagnosisRepairMessages(
+  request: AxDiagnosisRequest,
+  diagnosis: z.infer<typeof axDiagnosisJsonSchema>,
+  keys: readonly AxRepairKey[],
+  violations: readonly { category: string; field: string }[],
+): { role: "system" | "user"; content: string }[] {
+  const missing = (["toBe", "risks"] as const).filter(key => keys.includes(key) && !diagnosis[key].length);
+  if (!violations.length) return axDiagnosisGapMessages(request, diagnosis, missing);
+  const current = Object.fromEntries(keys.map(key => [key, diagnosis[key]]));
+  return [{ role: "system", content: `${SAFETY}
+서버가 원문 인용으로 확정한 현재 업무(asIs)와 기존 진단을 바탕으로 요청한 ${keys.join("·")}만 다시 작성합니다. 요청한 키만 JSON으로 반환하세요.
+${AX_NUMBER_CORRECTION}
+- violations는 검출된 위반의 범주와 필드 경로입니다. current에 있는 각 키의 현재 값에서 위반한 문장만 위 규칙대로 고치고, 위반이 없는 항목의 내용·개수·순서는 그대로 두세요.
+- factors는 key와 aiValue를 바꾸지 말고 rationale만 고치세요. decisionGate.verdict, stepAssessments의 verdict·owner, technicalChecks의 status·required, operation.maintenanceBurden도 바꾸지 마세요.${missing.length ? `
+- 비어 있는 ${missing.join("·")}도 작성하세요. toBe는 asIs.steps의 순서를 따르는 자동화 후 목표 흐름이며 owner는 stepAssessments의 판정·owner와 맞추고 '사람 유지' 단계는 사용자로 두세요. risks는 실제 입력·산출물·담당자 판단·주기 또는 technicalChecks와의 연결 근거를 명시한 위험만 최대 4개 쓰고, 근거를 댈 수 없으면 빈 배열로 두세요. 입력에 없는 시스템·API·알림·자동 실행·법적 위험을 만들지 마세요.` : ""}
+- 각 설명은 100자 이내입니다.` },
+  { role: "user", content: JSON.stringify({ task: { name: request.name, description: request.description, details: request.details },
+    asIs: diagnosis.asIs, stepAssessments: diagnosis.stepAssessments, humanInLoop: diagnosis.humanInLoop, technicalChecks: diagnosis.technicalChecks,
+    current, violations: violations.map(({ category, field }) => ({ category, field })), missing }) }];
 }
 /** Reject long copies from session-only attachment text before persisting a diagnosis. */
 export function copiesAttachment(value: unknown, summary?: string): boolean {

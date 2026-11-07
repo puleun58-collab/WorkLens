@@ -1,9 +1,9 @@
-import { axDiagnosisGapMessages, axDiagnosisGapSchema, axMessages, AX_DIAGNOSIS_GAP_RESPONSE_SCHEMA, AX_DIAGNOSIS_RESPONSE_SCHEMA, AX_PLAN_RESPONSE_SCHEMA, copiesAttachment } from "@/lib/ax/prompt";
+import { AX_DIAGNOSIS_GAP_RESPONSE_SCHEMA, AX_DIAGNOSIS_RESPONSE_SCHEMA, AX_NUMBER_CORRECTION, AX_PLAN_RESPONSE_SCHEMA, axDiagnosisRepairMessages, axDiagnosisRepairResponseSchema, axDiagnosisRepairSchema, axMessages, copiesAttachment, type AxRepairKey } from "@/lib/ax/prompt";
 import { axDiagnosisOutputSchema, axPlanSchema } from "@/lib/ax/schema";
 import { unconfirmedPlanMetrics } from "@/lib/ax/guide";
 import { applyCurrentFacts, currentFactAssessment, currentFactMessages, CURRENT_FACT_RESPONSE_SCHEMA, resolveCurrentFacts } from "@/lib/ax/current-facts";
 import type { AxGrounding } from "@/lib/ax/grounding-schema";
-import { validateAxSemantics } from "@/lib/ax/semantic";
+import { validateAxSemantics, type AxSemanticViolation } from "@/lib/ax/semantic";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { AiApiRequest, AiApiResult } from "@/lib/ai/api";
@@ -22,8 +22,12 @@ const GROQ_MODEL = "openai/gpt-oss-120b";
 const REQUEST_TIMEOUT_MS = 30_000;
 /** Shared by provider retries and the one malformed-answer retry; never raise above four. */
 const RESEARCH_INTERPRETATION_MAX_ATTEMPTS = 4;
-const CORRECTION_MESSAGE = "이전 응답에 사용자가 제공하지 않은 정량 성과 주장(절감률·정확도·자동화율·ROI·효율 등의 수치)이 포함되어 있었습니다. 성과 수치를 생성하지 말고, 필요한 경우 수치 대신 측정 방법·대조 기준·검증 기준을 작성하세요. 동일한 JSON 스키마로 전체 응답을 다시 작성하세요.";
-const CORRECTION_MESSAGE_SUFFIX = " 특히 PoC 가설·평가·성공·실패 기준에도 백분율·비율·절감 수치를 쓰지 말고 '수동 결과와 전수 대조', '불일치 건수 기록' 같은 측정·대조 방법으로만 작성하세요. 예: 성공 기준은 '수동 결과와 전수 대조해 불일치 항목과 사유를 기록한다', 실패 기준은 '누락·중요 불일치가 확인되면 중단하고 원인을 기록한다'처럼 수치 없이 쓰세요. 정확도·일치율·절감률을 퍼센트나 비율로 표현하지 마세요. 입력에 실제로 있는 현재 상태 수치(횟수·소요 시간·인원)만 사실로 다시 쓸 수 있습니다. 사용자가 목표로 제시한 수치는 '사용자 목표'라고 밝혀 그대로 쓸 수 있지만, 자동화로 달성·단축된다고 예측하지 마세요. 입력에 있는 현재 상태 수치와 사용자 목표는 삭제하지 말고 위 규칙에 맞게 다시 쓰세요.";
+/** Whole-answer regeneration is kept only for missing step judgements; violations there reuse the repair rules. */
+const CORRECTION_MESSAGE = `${AX_NUMBER_CORRECTION} 동일한 JSON 스키마로 전체 응답을 다시 작성하세요.`;
+/** A Groq 400 for a completion that could not close its JSON: a malformed answer, not a rejected request. */
+const JSON_VALIDATE_FAILED = "json_validate_failed";
+/** Same number+unit tokens as the Semantic Guard's user-input corpus; used only to count dropped user numbers. */
+const USER_NUMBER = /(\d+(?:\.\d+)?)\s*(%|퍼센트|배|분|시간|회|명|건|개|일|주|개월|년)/g;
 
 export type GroqOperation = Extract<AiApiRequest, { kind: "claims" }>["request"]["operation"]
   | Exclude<AiApiRequest["kind"], "claims">
@@ -63,9 +67,15 @@ interface GroqAttemptBudget {
   usage?: GroqCompletion["usage"];
   cumulativeUsage: NonNullable<GroqCompletion["usage"]>;
   rejection?: ProviderErrorMetadata & { status: number };
-  semantic?: { categories: string[]; corrected: boolean };
-  /** AX-only structural diagnostics; never include task text, provider content or keys. */
-  axStages?: Array<Record<string, string | number | boolean | undefined>>;
+  semantic?: { categories: string[]; corrected: boolean; initialFields?: string[] };
+  /**
+   * AX-only structural diagnostics. Allowed: stage names, attempts, counts, schema field paths,
+   * violation categories, token counts, provider codes and finish reasons. Never task text,
+   * provider content, provider error messages, failed generations, prompts or keys.
+   */
+  axStages?: Array<Record<string, string | number | boolean | string[] | undefined>>;
+  /** completion_tokens of the latest provider error body, when the provider reported it. */
+  errorCompletionTokens?: number;
 }
 
 /** Only the request boundary logs outcomes, after every retry and validation has finished. */
@@ -100,6 +110,7 @@ async function observeGroq<T>(
     ...(budget.semantic ? {
       semanticViolationCategories: budget.semantic.categories,
       semanticCorrected: budget.semantic.corrected,
+      ...(budget.semantic.initialFields ? { semanticInitialFields: budget.semantic.initialFields } : {}),
     } : {}),
     ...(budget.axStages ? { axStages: budget.axStages } : {}),
   });
@@ -386,10 +397,13 @@ export async function runGroqAi(
   const operation: GroqOperation = request.kind === "claims" ? request.request.operation : request.kind;
   return observeGroq({ ...context, operation }, request.kind, async (budget) => {
     if (request.kind === "ax-diagnosis") budget.axStages = [];
-    const axStage = (stage: string, diagnosis?: Extract<AiApiResult, { kind: "ax-diagnosis" }>["diagnosis"], reason?: string) => {
-      budget.axStages?.push({ stage, attempt: budget.attempt, reason,
+    const axStage = (stage: string, diagnosis?: AxDiagnosisValue, reason?: string, extra?: Record<string, number | string[]>) => {
+      const entry: NonNullable<GroqAttemptBudget["axStages"]>[number] = { stage, attempt: budget.attempt, reason,
         ...(diagnosis ? { steps: diagnosis.asIs.steps.length, stepAssessments: diagnosis.stepAssessments.length,
-          toBe: diagnosis.toBe.length, risks: diagnosis.risks.length, technicalChecks: diagnosis.technicalChecks.length } : {}) });
+          toBe: diagnosis.toBe.length, risks: diagnosis.risks.length, technicalChecks: diagnosis.technicalChecks.length } : {}),
+        ...extra };
+      budget.axStages?.push(entry);
+      return entry;
     };
     let grounding: AxGrounding | undefined;
     if (request.kind === "ax-diagnosis") {
@@ -420,10 +434,22 @@ export async function runGroqAi(
         { role: "user", content: JSON.stringify({ ...JSON.parse(user.content), currentFacts: currentFactAssessment(grounding), conflicts: grounding.conflicts }) },
       ];
     }
-    const raw = await complete(specification.messages, specification.schema, specification.schemaName, specification.maxTokens,
-      { ...context, operation }, budget);
+    let raw: GroqCompletion | undefined;
+    // A diagnosis completion that could not close its JSON (Groq 400 json_validate_failed) is a malformed
+    // answer: it is asked for once more inside the shared budget. Other provider rejections are not retried.
+    for (let attempt = 0; !raw; attempt++) {
+      try {
+        raw = await complete(specification.messages, specification.schema, specification.schemaName, specification.maxTokens,
+          { ...context, operation }, budget);
+      } catch (error) {
+        if (request.kind !== "ax-diagnosis" || budget.rejection?.providerCode !== JSON_VALIDATE_FAILED) throw error;
+        budget.failure = new ApiError("INVALID_PROVIDER_OUTPUT", "AI 응답 형식이 올바르지 않습니다.", 502);
+        axStage("initial-json-invalid");
+        if (attempt >= 1 || budget.attempt >= budget.maxAttempts) throw budget.failure;
+      }
+    }
     const parsed = parseResult(request, raw.choices[0].message.content);
-    if (parsed.kind === "ax-diagnosis") axStage("initial-parsed", parsed.diagnosis);
+    const initialStage = parsed.kind === "ax-diagnosis" ? axStage("initial-parsed", parsed.diagnosis) : undefined;
     if (parsed.kind === "ax-diagnosis" && grounding?.conflicts.length && parsed.diagnosis.technicalChecks.length >= 10) throw new ApiError("INVALID_PROVIDER_OUTPUT", "상충 정보와 필수 기술 조건을 모두 보존할 수 없습니다.", 502);
     const result = parsed.kind === "ax-diagnosis" && grounding ? { ...parsed, diagnosis: applyCurrentFacts(parsed.diagnosis, grounding) } : parsed;
     if (result.kind === "ax-diagnosis") axStage("current-facts-applied", result.diagnosis);
@@ -446,47 +472,98 @@ export async function runGroqAi(
     // that the procedure is risk-free; the consumer keeps an explicit assessment-incomplete notice.
     const groundedSteps = grounding?.facts.some(fact => fact.field === "steps") ?? false;
     // Missing narrative fields do not justify replacing valid scores, judgements or conditions.
-    // Reserve whole-answer correction for semantic violations or missing step judgements.
-    const completeGaps = async (value: Extract<AiApiResult, { kind: "ax-diagnosis" }>): Promise<AiApiResult> => {
-      const gaps = groundedSteps ? (["toBe", "risks"] as const).filter(key => !value.diagnosis[key].length) : [];
-      if (!gaps.length || budget.attempt >= budget.maxAttempts) {
-        axStage("focused-skipped", value.diagnosis, !groundedSteps ? "no-grounded-steps" : !gaps.length ? "no-gaps" : "budget-exhausted");
-        return value;
+    // Violating or missing fields are repaired in one field-level call; whole-answer regeneration is
+    // reserved for missing step judgements, which TO-BE, human-in-loop and the gate depend on.
+    const semanticFailure = (remaining: readonly AxSemanticViolation[]) => {
+      if (budget.semantic) budget.semantic.categories = [...new Set(remaining.map(violation => violation.category))];
+      return new ApiError("INVALID_PROVIDER_OUTPUT", "AI 진단 결과를 검증하지 못했습니다. 다시 시도하세요.", 502);
+    };
+    const userNumbers = userNumberTokens(request);
+    /**
+     * The merged answer is published only when the Semantic Guard finds nothing. Violations left only in
+     * TO-BE or risks empty those lists (shown as assessment-incomplete, never as "no risk"); any other
+     * remaining violation fails the request, so nothing is returned, stored or shown as complete.
+     */
+    const settle = (value: AxDiagnosisResult, diagnosis: AxDiagnosisValue, keys: readonly AxRepairKey[]): AxDiagnosisResult => {
+      if (grounding?.conflicts.length && diagnosis.technicalChecks.length >= 10) throw new ApiError("INVALID_PROVIDER_OUTPUT", "상충 정보와 필수 기술 조건을 모두 보존할 수 없습니다.", 502);
+      const remaining = validateAxSemantics(diagnosis, request);
+      if (!remaining.length) {
+        if (budget.semantic) budget.semantic.corrected = true;
+        return { ...value, diagnosis };
       }
-      axStage("focused-start", value.diagnosis, gaps.join(","));
+      const remainingKeys = [...new Set(remaining.map(violation => topLevelKey(violation.field)))];
+      if (!remainingKeys.every(key => key === "toBe" || key === "risks")) throw semanticFailure(remaining);
+      const emptied = { ...diagnosis, ...Object.fromEntries(remainingKeys.map(key => [key, []])) };
+      axStage("repair-emptied", emptied, remainingKeys.join(","), { requested: [...keys] });
+      if (budget.semantic) budget.semantic.corrected = true;
+      return { ...value, diagnosis: emptied };
+    };
+    const repairFields = async (value: AxDiagnosisResult, violations: readonly AxSemanticViolation[]): Promise<AxDiagnosisResult> => {
+      const violated = [...new Set(violations.map(violation => topLevelKey(violation.field)))] as AxRepairKey[];
+      const gaps = groundedSteps ? (["toBe", "risks"] as const).filter(key => !value.diagnosis[key].length && !violated.includes(key)) : [];
+      const keys: AxRepairKey[] = [...violated, ...gaps];
+      // Without a violation this is the focused TO-BE/risks pass and keeps its stage names.
+      const prefix = violations.length ? "repair" : "focused";
+      if (!keys.length || budget.attempt >= budget.maxAttempts) {
+        axStage(`${prefix}-skipped`, value.diagnosis, !keys.length ? (!groundedSteps ? "no-grounded-steps" : "no-gaps") : "budget-exhausted");
+        return settle(value, value.diagnosis, keys);
+      }
+      axStage(`${prefix}-start`, value.diagnosis, keys.join(","));
+      let diagnosis = value.diagnosis;
       try {
-        const raw = await complete(axDiagnosisGapMessages(request, value.diagnosis, gaps), AX_DIAGNOSIS_GAP_RESPONSE_SCHEMA,
-          "worklens_ax_diagnosis_gaps", 1_500, { ...context, operation }, budget);
-        const filled = axDiagnosisGapSchema.parse(JSON.parse(raw.choices[0].message.content));
-        let diagnosis = value.diagnosis;
-        for (const key of gaps) {
-          const candidate = { ...diagnosis, [key]: filled[key] };
-          if (copiesAttachment(candidate, request.attachmentSummary) || validateAxSemantics(candidate, request).length) {
-            axStage("focused-rejected", diagnosis, key);
+        const raw = violations.length
+          ? await complete(axDiagnosisRepairMessages(request, value.diagnosis, keys, violations), axDiagnosisRepairResponseSchema(keys),
+            "worklens_ax_diagnosis_repair", keys.length >= 3 ? 3_000 : 1_500, { ...context, operation }, budget)
+          : await complete(axDiagnosisRepairMessages(request, value.diagnosis, keys, []), AX_DIAGNOSIS_GAP_RESPONSE_SCHEMA,
+            "worklens_ax_diagnosis_gaps", 1_500, { ...context, operation }, budget);
+        const payload: unknown = JSON.parse(raw.choices[0].message.content);
+        if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new ApiError("INVALID_PROVIDER_OUTPUT", "AI 응답 형식이 올바르지 않습니다.", 502);
+        const shape = axDiagnosisRepairSchema(keys).shape as Record<AxRepairKey, z.ZodType>;
+        for (const key of keys) {
+          // Each key is checked on its own: a malformed or still-violating key never costs a valid one.
+          const filled = shape[key].safeParse((payload as Record<string, unknown>)[key]);
+          const fixed = filled.success ? keepStructure(key, diagnosis, filled.data) : undefined;
+          const candidate = fixed === undefined ? undefined : { ...diagnosis, [key]: fixed } as AxDiagnosisValue;
+          if (!candidate || copiesAttachment(candidate, request.attachmentSummary)
+            || validateAxSemantics(candidate, request).some(violation => topLevelKey(violation.field) === key)) {
+            axStage(`${prefix}-rejected`, diagnosis, key);
             continue;
           }
+          axStage(`${prefix}-applied`, candidate, key, { userNumbersDropped: droppedUserNumbers(diagnosis[key], candidate[key], userNumbers) });
           diagnosis = candidate;
         }
-        axStage("focused-applied", diagnosis);
-        return { ...value, diagnosis };
       } catch (error) {
-        axStage("focused-failed", value.diagnosis, error instanceof ApiError ? error.code : "format-error");
-        return value;
+        // A failed repair call is not re-requested: the first answer's remaining violations decide the outcome.
+        if (budget.rejection?.providerCode === JSON_VALIDATE_FAILED) budget.failure = new ApiError("INVALID_PROVIDER_OUTPUT", "AI 응답 형식이 올바르지 않습니다.", 502);
+        axStage(`${prefix}-failed`, value.diagnosis, error instanceof ApiError ? error.code : "format-error");
+        for (const key of keys) axStage(`${prefix}-rejected`, value.diagnosis, key);
+        diagnosis = value.diagnosis;
       }
+      return settle(value, diagnosis, keys);
     };
     let violations = validateAxSemantics(result.diagnosis, request);
+    if (initialStage) {
+      initialStage.violationFields = [...new Set(violations.map(violation => violationPath(violation.field)))];
+      initialStage.violationCategories = [...new Set(violations.map(violation => violation.category))];
+    }
     const missing = groundedSteps
       ? (["stepAssessments", "toBe", "risks"] as const).filter(key => !result.diagnosis[key].length) : [];
     if (!violations.length && !missing.length) {
       axStage("completed", result.diagnosis);
       return result;
     }
-    if (!violations.length && result.diagnosis.stepAssessments.length) return completeGaps(result);
-    if (violations.length) budget.semantic = { categories: [...new Set(violations.map(violation => violation.category))], corrected: false };
+    if (violations.length) budget.semantic = { categories: [...new Set(violations.map(violation => violation.category))], corrected: false,
+      initialFields: [...new Set(violations.map(violation => violationPath(violation.field)))] };
+    // AS-IS is the server's quoted current facts; a repair cannot change it, so it is not attempted.
+    if (violations.some(violation => topLevelKey(violation.field) === "asIs")) {
+      axStage("asis-violation", result.diagnosis);
+      throw semanticFailure(violations);
+    }
+    if (result.diagnosis.stepAssessments.length || !groundedSteps) return repairFields(result, violations);
     if (budget.attempt < budget.maxAttempts) {
       axStage("whole-correction-start", result.diagnosis, violations.length ? "semantic-violation" : missing.join(","));
       const correction = [
-        violations.length ? `${CORRECTION_MESSAGE}${CORRECTION_MESSAGE_SUFFIX} 검출된 위반 범주: ${[...new Set(violations.map(violation => violation.category))].join(", ")}. 검출 위치: ${[...new Set(violations.map(violation => violation.field.replace(/\[\d+\]/g, "")))].join(", ")}.` : "",
+        violations.length ? `${CORRECTION_MESSAGE} 검출된 위반 범주: ${[...new Set(violations.map(violation => violation.category))].join(", ")}. 검출 위치: ${[...new Set(violations.map(violation => violation.field.replace(/\[\d+\]/g, "")))].join(", ")}.` : "",
         missing.length ? `다음 항목이 비어 있습니다: ${missing.join(", ")}. currentFacts의 각 현재 절차에 대한 단계별 판정(stepAssessments), 자동화 후 목표 흐름(toBe), 위험(risks)을 작성하고, currentFacts로 확인되지 않은 시스템 접근·입력 형식·권한은 technicalChecks의 확인 필요 항목으로 작성하세요. asIs는 currentFacts 그대로 두고 동일한 JSON 스키마로 전체 응답을 다시 작성하세요.` : "",
       ].filter(Boolean).join(" ");
       const messages: Message[] = [...specification.messages, { role: "user", content: correction }];
@@ -499,6 +576,10 @@ export async function runGroqAi(
           if (grounding?.conflicts.length && parsedCorrection.diagnosis.technicalChecks.length >= 10) return undefined;
           return grounding ? { ...parsedCorrection, diagnosis: applyCurrentFacts(parsedCorrection.diagnosis, grounding) } : parsedCorrection;
         } catch (error) {
+          if (budget.rejection?.providerCode === JSON_VALIDATE_FAILED) {
+            budget.failure = new ApiError("INVALID_PROVIDER_OUTPUT", "AI 응답 형식이 올바르지 않습니다.", 502);
+            error = budget.failure;
+          }
           // A failed correction of a merely incomplete answer keeps the valid first answer.
           if (violations.length) throw error;
           return undefined;
@@ -509,15 +590,82 @@ export async function runGroqAi(
         if (!correctedViolations.length) {
           axStage("whole-correction-accepted", corrected.diagnosis);
           if (budget.semantic) budget.semantic.corrected = true;
-          return completeGaps(corrected);
+          return repairFields(corrected, []);
         }
         if (violations.length) violations = correctedViolations;
       }
     }
-    if (!violations.length) return completeGaps(result);
-    budget.semantic!.categories = [...new Set(violations.map(violation => violation.category))];
-    throw new ApiError("INVALID_PROVIDER_OUTPUT", "AI 진단 결과를 검증하지 못했습니다. 다시 시도하세요.", 502);
+    if (!violations.length) return repairFields(result, []);
+    throw semanticFailure(violations);
   });
+}
+
+type AxDiagnosisResult = Extract<AiApiResult, { kind: "ax-diagnosis" }>;
+type AxDiagnosisValue = AxDiagnosisResult["diagnosis"];
+
+/** `poc.success[1]` → `poc`, `toBe[0].description` → `toBe`, `roadmap[2].items[0]` → `roadmap`. */
+function topLevelKey(field: string): string {
+  return field.split(/[.[]/u)[0];
+}
+
+/** Schema path without item indexes or item sub-fields: `poc.success[1]` → `poc.success`, `toBe[0].description` → `toBe`. */
+function violationPath(field: string): string {
+  return field.split("[")[0];
+}
+
+/**
+ * A repair rewrites narrative only. Scores, verdicts, owners, check states and the maintenance
+ * burden stay as the first answer set them; an answer that changes the item count of a judged list
+ * cannot be aligned and is rejected.
+ */
+function keepStructure(key: AxRepairKey, current: AxDiagnosisValue, filled: unknown): unknown {
+  switch (key) {
+    case "factors": {
+      const rationale = new Map((filled as AxDiagnosisValue["factors"]).map(factor => [factor.key, factor.rationale]));
+      if (current.factors.some(factor => !rationale.has(factor.key))) return undefined;
+      return current.factors.map(factor => ({ ...factor, rationale: rationale.get(factor.key)! }));
+    }
+    case "decisionGate":
+      return { ...(filled as AxDiagnosisValue["decisionGate"]), verdict: current.decisionGate.verdict };
+    case "operation":
+      return { ...(filled as AxDiagnosisValue["operation"]), maintenanceBurden: current.operation.maintenanceBurden };
+    case "stepAssessments": {
+      const steps = filled as AxDiagnosisValue["stepAssessments"];
+      if (steps.length !== current.stepAssessments.length) return undefined;
+      return steps.map((step, index) => ({ ...step, verdict: current.stepAssessments[index].verdict, owner: current.stepAssessments[index].owner }));
+    }
+    case "technicalChecks": {
+      const checks = filled as AxDiagnosisValue["technicalChecks"];
+      if (checks.length !== current.technicalChecks.length) return undefined;
+      return checks.map(({ topic, note }, index) => {
+        const { status, required } = current.technicalChecks[index];
+        return { topic, status, note, ...(required === undefined ? {} : { required }) };
+      });
+    }
+    default:
+      return filled;
+  }
+}
+
+/** Number+unit tokens of the user's own input, read the same way as the Semantic Guard reads them. */
+function userNumberTokens(request: Extract<AiApiRequest, { kind: "ax-diagnosis" }>): Set<string> {
+  const { details } = request;
+  const corpus = [request.name, request.description];
+  for (const key of ["cycle", "systems", "inputs", "outputs", "humanSteps", "painPoints", "goal"] as const) {
+    if (details[key] !== undefined) corpus.push(details[key]);
+  }
+  for (const [key, unit] of [["minutesPerRun", "분"], ["runsPerMonth", "회"], ["people", "명"]] as const) {
+    if (details[key] !== undefined) corpus.push(`${details[key]}${unit}`);
+  }
+  return new Set([...corpus.join(" ").matchAll(USER_NUMBER)].map(match => `${Number(match[1])}|${match[2]}`));
+}
+
+/** How many user-supplied number tokens a repair removed from one field; a count only, never the values. */
+function droppedUserNumbers(before: unknown, after: unknown, user: ReadonlySet<string>): number {
+  const tokens = (value: unknown) => new Set([...JSON.stringify(value).matchAll(USER_NUMBER)]
+    .map(match => `${Number(match[1])}|${match[2]}`).filter(token => user.has(token)));
+  const kept = tokens(after);
+  return [...tokens(before)].filter(token => !kept.has(token)).length;
 }
 
 function requestSpecification(request: AiApiRequest): {
@@ -669,10 +817,12 @@ async function complete(
     if (budget.attempt >= budget.maxAttempts) throw budget.failure;
     budget.attempt += 1;
     const axCall = budget.axStages ? { stage: schemaName, attempt: budget.attempt, status: "started",
-      promptTokens: undefined as number | undefined, completionTokens: undefined as number | undefined } : undefined;
+      promptTokens: undefined as number | undefined, completionTokens: undefined as number | undefined,
+      finishLength: undefined as boolean | undefined, providerCode: undefined as string | undefined } : undefined;
     if (axCall) budget.axStages!.push(axCall);
     budget.usage = undefined;
     budget.rejection = undefined;
+    budget.errorCompletionTokens = undefined;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     const onClientAbort = () => controller.abort(new DOMException("client aborted", "AbortError"));
@@ -706,6 +856,8 @@ async function complete(
         if (axCall) {
           axCall.promptTokens = completion.usage?.prompt_tokens;
           axCall.completionTokens = completion.usage?.completion_tokens;
+          const finishReason = completion.choices[0].finish_reason;
+          if (finishReason) axCall.finishLength = finishReason === "length";
         }
         return completion;
       }
@@ -715,11 +867,16 @@ async function complete(
         if (retryAfter <= maxRetryWait) {
           // Capture retry-response usage once during the existing wait. Missing
           // or malformed error bodies do not change retry or abort policy.
-          await Promise.all([delay(retryAfter, context.signal), providerErrorMetadata(response, budget)]);
+          const [, retried] = await Promise.all([delay(retryAfter, context.signal), providerErrorMetadata(response, budget)]);
+          if (axCall) Object.assign(axCall, { providerCode: retried.providerCode,
+            ...(budget.errorCompletionTokens === undefined ? {} : { completionTokens: budget.errorCompletionTokens }) });
           continue;
         }
       }
       const failure = await providerError(response, budget);
+      // providerError has just set the rejection; control-flow narrowing still sees the reset above.
+      if (axCall) Object.assign(axCall, { providerCode: (budget.rejection as GroqAttemptBudget["rejection"])?.providerCode,
+        ...(budget.errorCompletionTokens === undefined ? {} : { completionTokens: budget.errorCompletionTokens }) });
       throwIfAborted(context.signal);
       throw failure;
     } catch (error) {
@@ -758,6 +915,8 @@ const groqUsageSchema = z.object({
 const groqCompletionSchema = z.object({
   choices: z.array(z.object({
     message: z.object({ content: z.string() }),
+    /** Only whether it is "length" is recorded (AX); the value never changes acceptance. */
+    finish_reason: z.string().nullish(),
   })).min(1),
   usage: groqUsageSchema.optional(),
 });
@@ -822,7 +981,11 @@ async function providerErrorMetadata(response: Response, budget: GroqAttemptBudg
     ?? undefined;
   try {
     const payload: unknown = JSON.parse(await response.text());
-    if (payload && typeof payload === "object" && "usage" in payload) accumulateUsage(budget, payload.usage);
+    if (payload && typeof payload === "object" && "usage" in payload) {
+      accumulateUsage(budget, payload.usage);
+      const usage = groqUsageSchema.safeParse(payload.usage);
+      if (usage.success) budget.errorCompletionTokens = usage.data.completion_tokens;
+    }
     const parsed = groqErrorSchema.safeParse(payload);
     if (!parsed.success) return { providerRequestId };
     const providerCode = parsed.data.error.code === undefined ? undefined : String(parsed.data.error.code).slice(0, 120);
