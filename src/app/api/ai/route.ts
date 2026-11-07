@@ -20,7 +20,10 @@ export async function POST(request: Request) {
     }
     enforceRateLimit(request);
     const input = parseAiApiRequest(await readBoundedJson(request, MAX_AI_BODY_BYTES));
-    const result = await runBoundedOperation(() => runGroqAi(input, { requestId }));
+    // Fault injection (design §6.2.4): the header is only a mode selector for
+    // AX diagnosis; it does nothing without AX_VERIFY_FAULT=1 in the worker env.
+    const verifyFault = input.kind === "ax-diagnosis" ? request.headers.get("x-worklens-verify-fault") ?? undefined : undefined;
+    const result = await runBoundedOperation(() => runGroqAi(input, { requestId, ...(verifyFault ? { verifyFault } : {}) }));
     return ok(result, 200, requestId);
   } catch (error) {
     return apiError(error, requestId);

@@ -306,7 +306,8 @@ describe("AX diagnosis repair, malformed answers and provider failures", () => {
 
   it("S4 salvages an unknown TO-BE owner and repairs it instead of failing the diagnosis", async () => {
     const raw = outputFixture();
-    raw.toBe = [{ ...raw.toBe[0], owner: "로봇" }];
+    // Intentionally invalid owner at runtime (salvage target); the assertion is compile-time only.
+    raw.toBe = [{ ...raw.toBe[0], owner: "로봇" as unknown as "시스템" }];
     const repaired = { toBe: outputFixture().toBe };
     const fetcher = sequence(facts, raw, repaired);
     const result = await runGroqAi(request);
@@ -501,5 +502,155 @@ describe("AX diagnosis repair, malformed answers and provider failures", () => {
     expect(result.diagnosis.factors.map(factor => factor.aiValue)).toEqual(raw.factors.map(factor => factor.aiValue));
     expect(result.diagnosis.factors[0].rationale).toBe("등록된 반복 업무 근거");
     expect(result.diagnosis.decisionGate).toEqual({ verdict: "conditional", reasons: ["권한 확인 후 진행"] });
+  });
+
+  // Fault injection (design §6.2.4, staging verification only): the double
+  // gate is AX_VERIFY_FAULT=1 (env) + the x-worklens-verify-fault header
+  // (mode selector, passed here as context.verifyFault). A synthetic 400
+  // replaces the fetch, so fetcher counts exclude it while the shared budget
+  // counts it; a body substitution modifies a real provider response.
+  // S17/S19/S21 as defined need the whole-correction conditional-retry loop,
+  // which is out of scope for this round (§10.2 decision): S18/S20m/S21m
+  // below verify the current-code mechanics instead.
+  it("S22 injects initial-jvf twice and recovers on the changed-condition retry", async () => {
+    process.env.AX_VERIFY_FAULT = "1";
+    try {
+      const fetcher = sequence(facts, outputFixture());
+      await expect(runGroqAi(request, { requestId: "test-s22", verifyFault: "initial-jvf" })).resolves.toMatchObject({ kind: "ax-diagnosis" });
+      // facts + changed-condition request only: the two synthetic 400s make no fetch.
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      expect(lastLog("info")).toMatchObject({ attempt: 4, maxAttempts: 4 });
+      expect(stages()).toContainEqual(expect.objectContaining({ stage: "verify-fault-injected", reason: "initial-jvf:initial-call-1" }));
+      expect(stages()).toContainEqual(expect.objectContaining({ stage: "verify-fault-injected", reason: "initial-jvf:initial-call-2" }));
+      expect(stages()).toContainEqual(expect.objectContaining({ stage: "worklens_ax_diagnosis", status: "http-400", providerCode: "json_validate_failed" }));
+      expect(stages()).toContainEqual(expect.objectContaining({ stage: "initial-json-invalid-changed-retry", reason: "recovered" }));
+      expect(body(fetcher, 1).max_completion_tokens).toBe(4_000);
+      expect(body(fetcher, 1).messages.at(-1).content).toContain("간결하게");
+      expectMaskedLogs();
+    } finally {
+      delete process.env.AX_VERIFY_FAULT;
+    }
+  });
+
+  it("S23 never injects without the env enabler and ignores unknown modes", async () => {
+    const fetcher = sequence(facts, outputFixture());
+    await expect(runGroqAi(request, { requestId: "test-s23a", verifyFault: "initial-jvf" })).resolves.toMatchObject({ kind: "ax-diagnosis" });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(stages()).not.toContainEqual(expect.objectContaining({ stage: "verify-fault-injected" }));
+    process.env.AX_VERIFY_FAULT = "1";
+    try {
+      vi.mocked(console.info).mockClear();
+      const second = sequence(facts, outputFixture());
+      await expect(runGroqAi(request, { requestId: "test-s23b", verifyFault: "not-a-mode" })).resolves.toMatchObject({ kind: "ax-diagnosis" });
+      expect(second).toHaveBeenCalledTimes(2);
+      expect(stages()).not.toContainEqual(expect.objectContaining({ stage: "verify-fault-injected" }));
+    } finally {
+      delete process.env.AX_VERIFY_FAULT;
+    }
+  });
+
+  it("S24 injects initial-zod-poc, salvages the placeholder and repairs it", async () => {
+    process.env.AX_VERIFY_FAULT = "1";
+    try {
+      const repaired = { poc: outputFixture().poc };
+      const fetcher = sequence(facts, outputFixture(), repaired);
+      const result = await runGroqAi(request, { requestId: "test-s24", verifyFault: "initial-zod-poc" });
+      expect(fetcher).toHaveBeenCalledTimes(3);
+      if (result.kind !== "ax-diagnosis") throw new Error("unexpected result");
+      expect(result.diagnosis.poc).toEqual(repaired.poc);
+      const repair = body(fetcher, 2);
+      expect(repair.response_format.json_schema.name).toBe("worklens_ax_diagnosis_repair");
+      expect(Object.keys(repair.response_format.json_schema.schema.properties)).toEqual(["poc"]);
+      expect(stages()).toContainEqual(expect.objectContaining({ stage: "verify-fault-injected", reason: "initial-zod-poc:initial-call-1" }));
+      expect(stages()).toContainEqual(expect.objectContaining({ stage: "initial-parse-invalid", zodIssues: expect.arrayContaining([expect.stringContaining("poc")]) }));
+      expect(stages()).toContainEqual(expect.objectContaining({ stage: "initial-parse-salvaged", salvagedKeys: ["poc"] }));
+      expect(stages()).toContainEqual(expect.objectContaining({ stage: "repair-applied", reason: "poc" }));
+      expectMaskedLogs();
+    } finally {
+      delete process.env.AX_VERIFY_FAULT;
+    }
+  });
+
+  it("S25 injects initial-zod-factors and fails without salvage on the structural key", async () => {
+    process.env.AX_VERIFY_FAULT = "1";
+    try {
+      const fetcher = sequence(facts, outputFixture());
+      await expect(runGroqAi(request, { requestId: "test-s25", verifyFault: "initial-zod-factors" })).rejects.toMatchObject({ code: "INVALID_PROVIDER_OUTPUT", status: 502 });
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      expect(lastLog("error")).toMatchObject({ failureCode: "INVALID_PROVIDER_OUTPUT" });
+      expect(stages()).toContainEqual(expect.objectContaining({ stage: "verify-fault-injected", reason: "initial-zod-factors:initial-call-1" }));
+      expect(stages()).toContainEqual(expect.objectContaining({ stage: "initial-parse-invalid", zodIssues: expect.arrayContaining([expect.stringContaining("factors")]) }));
+      expect(stages()).not.toContainEqual(expect.objectContaining({ stage: "initial-parse-salvaged" }));
+      expectMaskedLogs();
+    } finally {
+      delete process.env.AX_VERIFY_FAULT;
+    }
+  });
+
+  it("S26 injects zod-poc-repair-jvf and fails without publishing the salvaged placeholder", async () => {
+    process.env.AX_VERIFY_FAULT = "1";
+    try {
+      const fetcher = sequence(facts, outputFixture());
+      await expect(runGroqAi(request, { requestId: "test-s26", verifyFault: "zod-poc-repair-jvf" })).rejects.toMatchObject({ code: "INVALID_PROVIDER_OUTPUT", status: 502 });
+      // facts + initial only: the repair jvf is synthetic and makes no fetch.
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      expect(lastLog("error")).toMatchObject({ failureCode: "INVALID_PROVIDER_OUTPUT" });
+      expect(stages()).toContainEqual(expect.objectContaining({ stage: "verify-fault-injected", reason: "zod-poc-repair-jvf:initial-call-1" }));
+      expect(stages()).toContainEqual(expect.objectContaining({ stage: "verify-fault-injected", reason: "zod-poc-repair-jvf:repair-call-1" }));
+      expect(stages()).toContainEqual(expect.objectContaining({ stage: "initial-parse-salvaged", salvagedKeys: ["poc"] }));
+      expect(stages()).toContainEqual(expect.objectContaining({ stage: "repair-failed", reason: "AI_PROVIDER_REJECTED" }));
+      expect(stages()).toContainEqual(expect.objectContaining({ stage: "repair-rejected", reason: "poc" }));
+      expect(stages()).toContainEqual(expect.objectContaining({ stage: "salvage-unrepaired", reason: "poc" }));
+      expectMaskedLogs();
+    } finally {
+      delete process.env.AX_VERIFY_FAULT;
+    }
+  });
+
+  it("S18 fails a budget-exhausted whole-correction jvf with no changed-condition retry", async () => {
+    const fetcher = sequence(withoutSteps, facts, { ...withPoc(["정확도 90% 이상"]), stepAssessments: [] }, jvf());
+    await expect(runGroqAi(request)).rejects.toMatchObject({ code: "INVALID_PROVIDER_OUTPUT", status: 502 });
+    expect(fetcher).toHaveBeenCalledTimes(4);
+    expect(stages()).toContainEqual(expect.objectContaining({ stage: "whole-correction-start" }));
+    expect(stages()).not.toContainEqual(expect.objectContaining({ stage: "whole-correction-json-invalid-changed-retry" }));
+    expectMaskedLogs("정확도 90% 이상");
+  });
+
+  it("S20m keeps the first answer when a missing-only whole-correction jvf fails once", async () => {
+    // Variant of the defined S20 (two consecutive jvf attempts), which needs
+    // the whole-correction retry loop: the current code makes one attempt.
+    const first = { ...outputFixture(), stepAssessments: [] };
+    const fetcher = sequence(facts, first, jvf());
+    const result = await runGroqAi(request);
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    if (result.kind !== "ax-diagnosis") throw new Error("unexpected result");
+    expect(result.diagnosis.stepAssessments).toEqual([]);
+    expect(result.diagnosis.toBe).toEqual(first.toBe);
+    expect(result.diagnosis.risks).toEqual(first.risks);
+    expect(stages()).toContainEqual(expect.objectContaining({ stage: "whole-correction-start" }));
+    expect(stages()).toContainEqual(expect.objectContaining({ stage: "focused-skipped", reason: "no-gaps" }));
+    expectMaskedLogs();
+  });
+
+  it("S21m forces whole-correction entry for whole-correction-jvf and observes the current-code 502", async () => {
+    // Mechanics variant of the defined S21 (conditional retry success),
+    // which needs the whole-correction retry loop: forced entry + synthetic
+    // jvf + the current code's 502 are verified here; the retry leg is
+    // NOT_VERIFIED until the recovery code exists.
+    process.env.AX_VERIFY_FAULT = "1";
+    try {
+      const fetcher = sequence(facts, withPoc(["정확도 90% 이상"]));
+      await expect(runGroqAi(request, { requestId: "test-s21m", verifyFault: "whole-correction-jvf" })).rejects.toMatchObject({ code: "INVALID_PROVIDER_OUTPUT", status: 502 });
+      // facts + initial only: the whole-correction jvf is synthetic.
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      expect(lastLog("error")).toMatchObject({ failureCode: "INVALID_PROVIDER_OUTPUT" });
+      expect(stages()).toContainEqual(expect.objectContaining({ stage: "verify-fault-injected", reason: "whole-correction-jvf:whole-correction-call-1" }));
+      expect(stages()).toContainEqual(expect.objectContaining({ stage: "whole-correction-start", "entry-forced": true }));
+      expect(stages()).not.toContainEqual(expect.objectContaining({ stage: "whole-correction-json-invalid-changed-retry" }));
+      expect(stages()).not.toContainEqual(expect.objectContaining({ stage: expect.stringMatching(/^repair-/) }));
+      expectMaskedLogs("정확도 90% 이상");
+    } finally {
+      delete process.env.AX_VERIFY_FAULT;
+    }
   });
 });

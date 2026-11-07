@@ -17,6 +17,169 @@ import { ASSISTANT_RESPONSE_SCHEMA, buildAssistantMessages, parseAssistantRespon
 import { workerEnv } from "@/server/cf-env";
 import { ApiError } from "@/server/http";
 
+// AX diagnosis fault injection (design §6.2.4, staging verification only).
+// The hook lives at the provider response boundary inside complete(): the
+// synthetic 400 and the body substitution replace the provider response
+// before providerError mapping, budget accounting and stage recording, so a
+// synthetic failure is indistinguishable from a real one downstream —
+// including budget consumption (정정 1: 합성 실패도 예산 차감).
+// Activation is a double gate: the worker env AX_VERIFY_FAULT=1 (enabler)
+// AND the x-worklens-verify-fault request header (mode selector). The header
+// alone never enables injection; the env value alone never selects a mode.
+// Every mode is allowlisted; unknown values are ignored. The hook only fires
+// for operation "ax-diagnosis", so research/law Groq calls are untouched.
+const VERIFY_FAULT_MODES = [
+  "initial-jvf",
+  "initial-jvf-all",
+  "initial-zod-poc",
+  "initial-zod-factors",
+  "repair-jvf",
+  "zod-poc-repair-jvf",
+  "whole-correction-jvf",
+] as const;
+type VerifyFaultMode = (typeof VERIFY_FAULT_MODES)[number];
+type VerifyFaultStage = "initial" | "repair" | "whole-correction";
+interface VerifyFaultState {
+  mode: VerifyFaultMode;
+  stage: VerifyFaultStage | undefined;
+  /** complete() calls seen per stage (1-based ordinal per call). */
+  stageCalls: Record<string, number>;
+  /** call keys already intervened on ("호출당 최대 1회"). */
+  usedCalls: Set<string>;
+}
+
+function normalizeVerifyFault(raw: string | undefined): VerifyFaultMode | undefined {
+  if (!raw) return undefined;
+  const trimmed = raw.trim();
+  return (VERIFY_FAULT_MODES as readonly string[]).includes(trimmed) ? (trimmed as VerifyFaultMode) : undefined;
+}
+
+function verifyFaultEnabled(): boolean {
+  return workerEnv().AX_VERIFY_FAULT === "1";
+}
+
+type VerifyFaultAction =
+  | { kind: "jvf"; callKey: string }
+  | { kind: "body"; mode: "poc-string" | "factors-short"; callKey: string };
+
+/**
+ * Decide the intervention for one complete() call (lazy: once per call, at
+ * fetch time, so a budget-exhausted call consumes no ordinal). The ordinal
+ * counts complete() calls per stage, not interventions: a mode that fires on
+ * ordinal 1 only must not fire again on a later call of the same stage.
+ * Combined modes are explicit allowlisted scripts (정정 2): zod-poc-repair-jvf
+ * modifies the first initial response AND fails the first repair call.
+ */
+function planVerifyFaultAction(budget: GroqAttemptBudget, context: GroqRequestContext & { operation: GroqOperation }): VerifyFaultAction | undefined {
+  const fault = budget.fault;
+  if (!fault || context.operation !== "ax-diagnosis" || !fault.stage) return undefined;
+  const stage = fault.stage;
+  const ordinal = (fault.stageCalls[stage] ?? 0) + 1;
+  fault.stageCalls[stage] = ordinal;
+  const callKey = `${stage}-call-${ordinal}`;
+  switch (fault.mode) {
+    case "initial-jvf":
+      return stage === "initial" && ordinal <= 2 ? { kind: "jvf", callKey } : undefined;
+    case "initial-jvf-all":
+      return stage === "initial" ? { kind: "jvf", callKey } : undefined;
+    case "initial-zod-poc":
+      return stage === "initial" && ordinal === 1 ? { kind: "body", mode: "poc-string", callKey } : undefined;
+    case "initial-zod-factors":
+      return stage === "initial" && ordinal === 1 ? { kind: "body", mode: "factors-short", callKey } : undefined;
+    case "repair-jvf":
+      return stage === "repair" && ordinal === 1 ? { kind: "jvf", callKey } : undefined;
+    case "zod-poc-repair-jvf":
+      if (stage === "initial" && ordinal === 1) return { kind: "body", mode: "poc-string", callKey };
+      if (stage === "repair" && ordinal === 1) return { kind: "jvf", callKey };
+      return undefined;
+    case "whole-correction-jvf":
+      return stage === "whole-correction" && ordinal === 1 ? { kind: "jvf", callKey } : undefined;
+    default:
+      return undefined;
+  }
+}
+
+/** A synthetic 400 that carries the real json_validate_failed provider code. */
+function syntheticVerifyFaultResponse(): Response {
+  const payload = JSON.stringify({
+    error: {
+      message: "Failed to generate JSON. Please try again. (injected verification fault)",
+      type: "invalid_request_error",
+      code: "json_validate_failed",
+    },
+  });
+  return new Response(payload, { status: 400, headers: { "content-type": "application/json" } });
+}
+
+function modifyVerifyFaultBody(text: string, mode: "poc-string" | "factors-short"): string | undefined {
+  let payload: unknown;
+  try {
+    payload = JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+  if (!payload || typeof payload !== "object") return undefined;
+  const choices = (payload as { choices?: unknown }).choices;
+  if (!Array.isArray(choices) || !choices[0] || typeof choices[0] !== "object") return undefined;
+  const message = (choices[0] as { message?: unknown }).message;
+  if (!message || typeof message !== "object") return undefined;
+  const content = (message as { content?: unknown }).content;
+  if (typeof content !== "string") return undefined;
+  let diagnosis: unknown;
+  try {
+    diagnosis = JSON.parse(content);
+  } catch {
+    return undefined;
+  }
+  if (!diagnosis || typeof diagnosis !== "object" || Array.isArray(diagnosis)) return undefined;
+  const record = diagnosis as Record<string, unknown>;
+  if (mode === "poc-string") {
+    if (!("poc" in record)) return undefined;
+    record.poc = "injected-string-not-object";
+  } else {
+    const factors = record.factors;
+    if (!Array.isArray(factors) || factors.length < 2) return undefined;
+    record.factors = factors.slice(0, 2);
+  }
+  (message as { content?: unknown }).content = JSON.stringify(diagnosis);
+  return JSON.stringify(payload);
+}
+
+/**
+ * Apply a body-substitution fault to a real provider response. The original
+ * response is only read via a clone, so when the body is not a modifiable
+ * diagnosis the natural response is returned untouched.
+ */
+async function applyVerifyFaultBody(
+  budget: GroqAttemptBudget,
+  response: Response,
+  action: Extract<VerifyFaultAction, { kind: "body" }>,
+): Promise<{ response: Response; injected: boolean }> {
+  const fault = budget.fault;
+  if (!fault || fault.usedCalls.has(action.callKey)) return { response, injected: false };
+  let text: string;
+  try {
+    text = await response.clone().text();
+  } catch {
+    return { response, injected: false };
+  }
+  const modified = modifyVerifyFaultBody(text, action.mode);
+  if (modified === undefined) return { response, injected: false };
+  fault.usedCalls.add(action.callKey);
+  const headers = new Headers(response.headers);
+  headers.delete("content-encoding");
+  headers.delete("content-length");
+  return { response: new Response(modified, { status: response.status, headers }), injected: true };
+}
+
+function recordVerifyFaultInjected(budget: GroqAttemptBudget, action: VerifyFaultAction): void {
+  const fault = budget.fault;
+  if (!fault) return;
+  fault.usedCalls.add(action.callKey);
+  // axStages is always set for ax-diagnosis (the only kind with a fault state).
+  budget.axStages?.push({ stage: "verify-fault-injected", attempt: budget.attempt, reason: `${fault.mode}:${action.callKey}` });
+}
+
 const GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions";
 const GROQ_MODEL = "openai/gpt-oss-120b";
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -58,6 +221,8 @@ type JsonSchema = Record<string, unknown>;
 export interface GroqRequestContext {
   requestId: string;
   signal?: AbortSignal;
+  /** Staging-only fault-injection mode selector (design §6.2.4: x-worklens-verify-fault header). Ignored unless AX_VERIFY_FAULT=1 is set in the worker env. */
+  verifyFault?: string;
 }
 
 interface GroqAttemptBudget {
@@ -76,6 +241,8 @@ interface GroqAttemptBudget {
   axStages?: Array<Record<string, string | number | boolean | string[] | undefined>>;
   /** completion_tokens of the latest provider error body, when the provider reported it. */
   errorCompletionTokens?: number;
+  /** Staging-only fault-injection state (design §6.2.4). Absent unless double-gated. */
+  fault?: VerifyFaultState;
 }
 
 /** Only the request boundary logs outcomes, after every retry and validation has finished. */
@@ -397,7 +564,14 @@ export async function runGroqAi(
   const operation: GroqOperation = request.kind === "claims" ? request.request.operation : request.kind;
   return observeGroq({ ...context, operation }, request.kind, async (budget) => {
     if (request.kind === "ax-diagnosis") budget.axStages = [];
-    const axStage = (stage: string, diagnosis?: AxDiagnosisValue, reason?: string, extra?: Record<string, number | string[]>) => {
+    // Fault injection is double-gated: the worker env enables it and the
+    // request header selects a mode. Either one alone does nothing.
+    // AX diagnosis only: research/law calls never carry a fault state.
+    const faultMode = request.kind === "ax-diagnosis" ? normalizeVerifyFault(context.verifyFault) : undefined;
+    if (faultMode && verifyFaultEnabled()) {
+      budget.fault = { mode: faultMode, stage: undefined, stageCalls: {}, usedCalls: new Set() };
+    }
+    const axStage = (stage: string, diagnosis?: AxDiagnosisValue, reason?: string, extra?: Record<string, number | string[] | boolean>) => {
       const entry: NonNullable<GroqAttemptBudget["axStages"]>[number] = { stage, attempt: budget.attempt, reason,
         ...(diagnosis ? { steps: diagnosis.asIs.steps.length, stepAssessments: diagnosis.stepAssessments.length,
           toBe: diagnosis.toBe.length, risks: diagnosis.risks.length, technicalChecks: diagnosis.technicalChecks.length } : {}),
@@ -440,6 +614,7 @@ export async function runGroqAi(
     // A second identical failure is not re-requested under the same conditions: the one further request
     // raises the completion budget to the existing current-facts constant and asks for concise items,
     // because the same input and conditions already failed twice.
+    if (budget.fault) budget.fault.stage = "initial";
     for (let attempt = 0; !raw; attempt++) {
       const changedCondition = attempt === 2;
       try {
@@ -531,6 +706,7 @@ export async function runGroqAi(
       return { ...value, diagnosis: emptied };
     };
     const repairFields = async (value: AxDiagnosisResult, violations: readonly AxSemanticViolation[]): Promise<AxDiagnosisResult> => {
+      if (budget.fault) budget.fault.stage = "repair";
       const violated = [...new Set(violations.map(violation => topLevelKey(violation.field)))] as AxRepairKey[];
       const gaps = groundedSteps ? (["toBe", "risks"] as const).filter(key => !value.diagnosis[key].length && !violated.includes(key)) : [];
       // Salvaged keys are repaired here too: they are placeholders, not model answers, and must
@@ -599,9 +775,18 @@ export async function runGroqAi(
       axStage("asis-violation", result.diagnosis);
       throw semanticFailure(violations);
     }
-    if (result.diagnosis.stepAssessments.length || !groundedSteps) return repairFields(result, violations);
+    // Fault injection (design §6.2.4, S8b): whole-correction-jvf forces entry
+    // into the whole-correction block even when stepAssessments is present,
+    // so the jvf dynamics of that block can be observed. The forced entry
+    // only applies when there is work to do (a violation or a gap); a
+    // salvaged-only answer still goes through repairFields, and the
+    // conditional-retry loop itself is NOT added here (§10.2 decision).
+    const forceWholeCorrection = budget.fault?.mode === "whole-correction-jvf"
+      && groundedSteps && (violations.length > 0 || missing.length > 0);
+    if (!forceWholeCorrection && (result.diagnosis.stepAssessments.length || !groundedSteps)) return repairFields(result, violations);
     if (budget.attempt < budget.maxAttempts) {
-      axStage("whole-correction-start", result.diagnosis, violations.length ? "semantic-violation" : missing.join(","));
+      axStage("whole-correction-start", result.diagnosis, violations.length ? "semantic-violation" : missing.join(","),
+        forceWholeCorrection ? { "entry-forced": true } : undefined);
       const correction = [
         violations.length ? `${CORRECTION_MESSAGE} 검출된 위반 범주: ${[...new Set(violations.map(violation => violation.category))].join(", ")}. 검출 위치: ${[...new Set(violations.map(violation => violation.field.replace(/\[\d+\]/g, "")))].join(", ")}.` : "",
         missing.length ? `다음 항목이 비어 있습니다: ${missing.join(", ")}. currentFacts의 각 현재 절차에 대한 단계별 판정(stepAssessments), 자동화 후 목표 흐름(toBe), 위험(risks)을 작성하고, currentFacts로 확인되지 않은 시스템 접근·입력 형식·권한은 technicalChecks의 확인 필요 항목으로 작성하세요. asIs는 currentFacts 그대로 두고 동일한 JSON 스키마로 전체 응답을 다시 작성하세요.` : "",
@@ -609,6 +794,7 @@ export async function runGroqAi(
       const messages: Message[] = [...specification.messages, { role: "user", content: correction }];
       const corrected = await (async () => {
         try {
+          if (budget.fault) budget.fault.stage = "whole-correction";
           const correctedRaw = await complete(messages, specification.schema, specification.schemaName, specification.maxTokens, { ...context, operation }, budget);
           const parsedCorrection = parseResult(request, correctedRaw.choices[0].message.content);
           if (parsedCorrection.kind !== "ax-diagnosis") return undefined;
@@ -907,6 +1093,14 @@ async function complete(
   const interpretation = context.operation === "research-interpretation";
   const maxAttempts = context.operation === "polish-batch" || context.operation === "research-adoption" ? 1 : 2;
   const maxRetryWait = interpretation ? 6_000 : 1_500;
+  // Fault injection plan: decided once per complete() call, lazily at the
+  // first fetch, so a budget-exhausted call consumes no ordinal. Declared
+  // outside the retry loop so a 429 re-fetch reuses the same plan.
+  let faultPlan: VerifyFaultAction | undefined | null = null;
+  const faultAction = (): VerifyFaultAction | undefined => {
+    if (faultPlan === null) faultPlan = planVerifyFaultAction(budget, context);
+    return faultPlan;
+  };
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     throwIfAborted(context.signal);
     if (budget.attempt >= budget.maxAttempts) throw budget.failure;
@@ -924,12 +1118,29 @@ async function complete(
     context.signal?.addEventListener("abort", onClientAbort, { once: true });
     if (context.signal?.aborted) onClientAbort();
     try {
-      const response = await fetch(GROQ_ENDPOINT, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body,
-        signal: controller.signal,
-      });
+      // Fault injection (design §6.2.4): a synthetic 400 replaces the fetch
+      // entirely — no provider call is made — but budget.attempt was already
+      // incremented above, so the synthetic failure consumes budget exactly
+      // like a real 400 (정정 1). A body substitution applies to a real
+      // provider response instead.
+      const action = faultAction();
+      let response: Response;
+      if (action?.kind === "jvf") {
+        response = syntheticVerifyFaultResponse();
+        recordVerifyFaultInjected(budget, action);
+      } else {
+        response = await fetch(GROQ_ENDPOINT, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+          body,
+          signal: controller.signal,
+        });
+        if (action?.kind === "body") {
+          const applied = await applyVerifyFaultBody(budget, response, action);
+          response = applied.response;
+          if (applied.injected) recordVerifyFaultInjected(budget, action);
+        }
+      }
       throwIfAborted(context.signal);
       if (axCall) axCall.status = `http-${response.status}`;
       if (response.ok) {

@@ -26,6 +26,8 @@ export interface WorkerEnv {
   GROQ_API_KEY?: string;
   LAW_OC?: string;
   LAW_MCP_URL?: string;
+  /** Staging-only fault-injection enabler (design §6.2.4). Only "1" enables. */
+  AX_VERIFY_FAULT?: string;
 }
 
 export function workerEnv(): WorkerEnv {
@@ -36,6 +38,7 @@ export function workerEnv(): WorkerEnv {
   const groqApiKey = source.GROQ_API_KEY ?? process.env.GROQ_API_KEY;
   const lawOc = source.LAW_OC ?? process.env.LAW_OC;
   const lawMcpUrl = source.LAW_MCP_URL ?? process.env.LAW_MCP_URL;
+  const axVerifyFault = source.AX_VERIFY_FAULT ?? process.env.AX_VERIFY_FAULT;
   return {
     ...(database && typeof database === "object" ? { WORKLENS_CONFIG_DB: database as D1DatabaseLike } : {}),
     ...(typeof password === "string" ? { WORKLENS_ADMIN_PASSWORD: password } : {}),
@@ -43,6 +46,7 @@ export function workerEnv(): WorkerEnv {
     ...(typeof groqApiKey === "string" ? { GROQ_API_KEY: groqApiKey } : {}),
     ...(typeof lawOc === "string" && lawOc.trim() ? { LAW_OC: lawOc.trim() } : {}),
     ...(typeof lawMcpUrl === "string" && lawMcpUrl.trim() ? { LAW_MCP_URL: lawMcpUrl.trim() } : {}),
+    ...(typeof axVerifyFault === "string" && axVerifyFault.trim() ? { AX_VERIFY_FAULT: axVerifyFault.trim() } : {}),
   };
 }
 
