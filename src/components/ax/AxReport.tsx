@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useId, useRef, useState } from "react";
 import { AlertTriangle, ArrowRight, BarChart3, Bot, BrainCircuit, CheckCircle2, CircleCheck, Clipboard, ClipboardList, CloudUpload, Database, Download, FileCode2, FileOutput, FilePlus2, FileSpreadsheet, FileText, Flag, Folder, GitBranch, GitMerge, GitPullRequest, Globe, Info, ListChecks, Monitor, MonitorCog, Play, Plug, Rocket, Settings2, ShieldAlert, ShieldCheck, Sparkles, Target, Terminal, UserCheck, UserRound, Zap } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import type { AxDiagnosis, AxPlan, AxTask, AxTaskV2, HitlAction, HitlReview, VerificationResult } from "@/lib/ax/types";
+import type { AxDiagnosis, AxPlan, AxTask, AxTaskV2, HitlReview, VerificationResult } from "@/lib/ax/types";
 import { automationLevel, axes, executionGate, executionProfile, factorEffectiveValue, GATE_LABELS, gateBlockReasons, levelDescription, levelDisplayLabel, nextAction, prerequisiteTopicKey, splitGatePrerequisites } from "@/lib/ax/policy";
 import { FACTOR_LABELS } from "@/lib/ax/schema";
 import { Badge } from "@/components/ui/badge";
@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { CommandCodeBlock, CopyButton } from "@/components/ui/command-code-block";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { HitlReviewPanel } from "./HitlReview";
-import { extractReviewableItems, extractPlanReviewableItems, findReview, getValidConfirmedReviews, reconcileReviews, type ReviewableItem } from "@/lib/ax/hitl";
+import { extractReviewableItems, extractPlanReviewableItems, findReview, getValidConfirmedReviews, type ReviewableItem } from "@/lib/ax/hitl";
 import { Tabs, TabsList, TabsTab, TabsPanel } from "@/components/ui/tabs";
 import { buildFixPrompt, checkAllInOnePromptDelivery, guideCodeDisplayText, guideProseDisplayText, planSummary, setupGuide, TOOL_GUIDES, type AxCheckTone, type AxGitFlowBlock, type AxGuideBlock, type AxGuideSection, type AxPlanSummary, type AxToolId } from "@/lib/ax/guide";
 import { uiText } from "@/lib/ax/display-text";
@@ -1227,16 +1227,6 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [stepsExpanded, setStepsExpanded] = useState(true);
   const controls: PlanReviewControls | undefined = reviewProps ? { reviews: reviewProps.reviews, validKeys, openKey, editingKey, setOpenKey, setEditingKey, onSaveReview: reviewProps.onSaveReview } : undefined;
-  // 재진단·재생성으로 원본이 사라진 검토 기록: 저장소는 보존하지만 현재 항목이 없어
-  // 검토표에 붙지 않는다. 읽기 전용 이력으로 보여줘 사용자가 확정한 내용을 잃지 않게 한다.
-  // 판정 기준은 화면의 검토표와 같은 적용 보기(diagnosis prop)이다.
-  const goneReviews = reviewProps ? [...reconcileReviews(reviewProps.reviews, [
-    ...extractReviewableItems(diagnosis),
-    ...(plans.codex ? extractPlanReviewableItems(plans.codex, "codex") : []),
-    ...(plans.claude ? extractPlanReviewableItems(plans.claude, "claude") : []),
-  ]).values()].filter(entry => entry.status === "gone").map(entry => entry.review) : [];
-  const [historyExpanded, setHistoryExpanded] = useState(false);
-  const HISTORY_ACTION_LABEL: Record<HitlAction, string> = { keep: "유지", defer: "보류", exclude: "제외", supplement: "보완" };
   // 화면 구성: 진단 결과 요약 3카드 → 구현 계획 → 완료 기준 → 기존 후속 영역.
   // 실행 조건·요약·HITL·올인원 지시문에 전달하는 안전정보는 그대로 유지한다.
   return <div className="ax-plan-stack" id="ax-plan-section" role="region" aria-label="자동화 구현 계획"><section className="ax-surface ax-plan-overview-surface">
@@ -1254,15 +1244,6 @@ export function AxPlanSection({ diagnosis, taskName, taskContext, busy, onGenera
       : <><p className="ax-muted">도구별 구현 계획을 생성하면 단계별 구현 계획이 표시됩니다</p>{!plans.codex && !plans.claude ? <div className="ax-actions">{generateButton("codex")}{generateButton("claude")}</div> : null}</>}
   </AxReviewAccordion>
   <AxCompletionCriteria summary={summary} plan={reviewPlan} criteria={criteriaItems} controls={controls} />
-  {goneReviews.length ? <AxReviewAccordion className="ax-plan-groups-surface" id="ax-plan-history" regionLabel="이전 검토 기록" label={`이전 검토 기록 (${goneReviews.length}건)`} icon={ListChecks} meta={<span>{goneReviews.length}건</span>} open={historyExpanded} onOpenChange={setHistoryExpanded}>
-    <p className="ax-muted">재진단·재생성으로 원본이 사라진 검토 기록입니다. 현재 진단·계획에는 적용되지 않습니다.</p>
-    <ul>{goneReviews.map(review => <li key={review.id}>
-      <div className="ax-check-row">
-        <span className="ax-check-text"><strong>{uiText(review.target.sourceText)}</strong>{review.action === "supplement" && review.supplement ? <small>{uiText(review.supplement)}</small> : null}{(review.action === "defer" || review.action === "exclude") && review.reason ? <small>{uiText(review.reason)}</small> : null}{review.comment ? <small>{uiText(review.comment)}</small> : null}</span>
-        <span className="ax-check-side"><span className="ax-check-badge">{HISTORY_ACTION_LABEL[review.action]} · 이전 원본</span><small className="ax-muted">{review.reviewedAt.slice(0, 10)}</small></span>
-      </div>
-    </li>)}</ul>
-  </AxReviewAccordion> : null}
   <section className="ax-surface ax-instructions-surface">
     <section ref={instructionsRef} id={`${instructionsId}-section`} className="ax-plan-instructions" aria-labelledby={instructionsId}>
       {gate === "blocked" ? <><AxPlanHeading id={instructionsId} title="올인원 지시문" description="선택한 코딩 에이전트를 위한 통합 지시문을 생성합니다" /><p role="status" className="ax-notice">현재 진단에서는 구현 계획 생성 불가</p></> : <>

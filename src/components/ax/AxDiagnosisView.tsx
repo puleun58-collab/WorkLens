@@ -27,7 +27,7 @@ import { exportAxState, importAxState } from "@/lib/ax/transfer";
 import { emptyAxState, type AxStateV2, type AxTask, type AxTaskV2, type AxDiagnosis, type AxDetails, type FactorKey } from "@/lib/ax/types";
 import { extractPlanReviewableItems, reconcileReviews, validateReviewForConfirm } from "@/lib/ax/hitl";
 import { AxLevelBadge, AxProcess, AxPlanSection, AxCheckIcon, AxStatCards, diagnosisSummaryStats, diagnosisSummaryParts, diagnosisCheckItems, visibleDiagnosisCheckItems, resolveActiveTool, type AxCheckItem } from "./AxReport";
-import { applyCheckConfirmations, checkConfirmationState, checkKey, orphanedCheckConfirmations, upsertCheckConfirmation } from "@/lib/ax/check-confirmations";
+import { applyCheckConfirmations, checkConfirmationState, checkKey, upsertCheckConfirmation } from "@/lib/ax/check-confirmations";
 import { applyRediagnosis } from "@/lib/ax/diagnosis-preservation";
 import { RuleSelect, UnifiedRulesSection } from "./AxUnifiedRules";
 import "./ax.css";
@@ -1109,8 +1109,6 @@ function DiagnosisCard({ task, busy, onDiagnose, onEdit, attachment, onSaveCheck
   // 미확인 = 확인 필요·사용 불가·보류 사유, 확인 완료 = 확인됨. 상단 건수와 목록 건수는 같은 집계(pending)를 쓴다.
   const pendingChecks = visibleChecks.filter(c => c.kind !== "done");
   const doneChecks = visibleChecks.filter(c => c.kind === "done");
-  // 재진단으로 주제가 사라진 확인 기록: 저장소는 보존되지만 현재 목록에 붙을 항목이 없다.
-  const orphanedConfirmations = orphanedCheckConfirmations(raw?.technicalChecks, confirmations);
   const [openTopic, setOpenTopic] = useState<string | null>(null);
   const [focusNonce, setFocusNonce] = useState<number | null>(null);
   // 다른 화면에서 '확인하러 가기'로 들어오면 해당 항목의 입력을 연다 (렌더 중 파생 상태 갱신).
@@ -1172,28 +1170,13 @@ function DiagnosisCard({ task, busy, onDiagnose, onEdit, attachment, onSaveCheck
         {/* 기본 출처 문구("사용자 등록 정보 기반 진단")는 표시하지 않고, 재첨부 안내가 담긴 첨부 파일 기반 문구만 남긴다. */}
         {d.sourceNote && d.sourceNote !== "사용자 등록 정보 기반 진단" ? <p className="ax-muted ax-diag-source">{uiText(d.sourceNote)}</p> : null}
       </section>
-      {/* 모든 확인 항목이 추가 질문 영역에서 다뤄지면(표시 항목 0, 원본 1건 이상) 이 영역을 두지 않는다. 이전 확인 기록이 있으면 그 경우에도 영역을 둔다. */}
-      {visibleChecks.length || !checks.length || orphanedConfirmations.length ? <section className="ax-diag-checks" aria-label="구현 전 확인 사항">
+      {/* 모든 확인 항목이 추가 질문 영역에서 다뤄지면(표시 항목 0, 원본 1건 이상) 이 영역을 두지 않는다. */}
+      {visibleChecks.length || !checks.length ? <section className="ax-diag-checks" aria-label="구현 전 확인 사항">
         <div className="ax-diag-checks-head"><h3>구현 전 확인 사항</h3><span className="ax-muted">· {pendingChecks.length}건</span></div>
         {pendingChecks.length ? <ul>{pendingChecks.map(checkRow)}</ul> : null}
         {doneChecks.length ? <Collapsible className="ax-checks-done">
           <CollapsibleTrigger className="ax-checks-done-trigger">확인 완료 항목 보기 ({doneChecks.length}건)<ChevronDown size={16} aria-hidden="true" /></CollapsibleTrigger>
           <CollapsiblePanel><ul>{doneChecks.map(checkRow)}</ul></CollapsiblePanel>
-        </Collapsible> : null}
-        {orphanedConfirmations.length ? <Collapsible className="ax-checks-history">
-          <CollapsibleTrigger className="ax-checks-done-trigger">이전 확인 기록 보기 ({orphanedConfirmations.length}건)<ChevronDown size={16} aria-hidden="true" /></CollapsibleTrigger>
-          <CollapsiblePanel>
-            <p className="ax-muted">재진단으로 사라진 확인 대상의 기록입니다. 현재 진단에는 적용되지 않습니다.</p>
-            <ul>{orphanedConfirmations.map(entry => <li key={entry.key}>
-              <div className="ax-check-row">
-                <span className="ax-check-text"><strong>{uiText(entry.topic)}</strong>{entry.note ? <small>{uiText(entry.note)}</small> : null}</span>
-                <span className="ax-check-side">
-                  <span className="ax-check-badge">{entry.result === "확인 완료" ? "이전 확인 완료" : entry.result === "사용 불가" ? "이전 사용 불가" : "이전 확인 내용"}</span>
-                  <small className="ax-muted">{entry.updatedAt.slice(0, 10)}</small>
-                </span>
-              </div>
-            </li>)}</ul>
-          </CollapsiblePanel>
         </Collapsible> : null}
       </section> : null}
     </> : null}

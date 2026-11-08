@@ -55,14 +55,3 @@ export function upsertCheckConfirmation(list: readonly CheckConfirmation[] | und
   const next: CheckConfirmation = { key, topic: check.topic.trim(), sourceHash: checkSourceHash(check), result: input.result, note: input.note.trim(), updatedAt: now };
   return [...(list ?? []).filter(entry => entry.key !== key), next];
 }
-
-/** 현재 진단에 더 이상 없는 확인 대상의 기록: 저장소는 보존하지만 화면 목록에 붙을 항목이 없다.
- * 재진단으로 주제가 사라진 기록을 "이전 확인 기록"으로 보여주기 위한 순수 판정이다. */
-export function orphanedCheckConfirmations(
-  checks: readonly Pick<TechnicalCheck, "topic">[] | undefined,
-  confirmations: readonly CheckConfirmation[] | undefined,
-): CheckConfirmation[] {
-  if (!confirmations?.length) return [];
-  const liveKeys = new Set((checks ?? []).map(check => checkKey(check.topic)));
-  return confirmations.filter(entry => !liveKeys.has(entry.key));
-}
