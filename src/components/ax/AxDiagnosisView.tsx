@@ -27,7 +27,7 @@ import { exportAxState, importAxState } from "@/lib/ax/transfer";
 import { emptyAxState, type AxStateV2, type AxTask, type AxTaskV2, type AxDiagnosis, type AxDetails, type FactorKey } from "@/lib/ax/types";
 import { extractPlanReviewableItems, reconcileReviews, validateReviewForConfirm } from "@/lib/ax/hitl";
 import { AxLevelBadge, AxProcess, AxPlanSection, AxCheckIcon, AxStatCards, diagnosisSummaryStats, diagnosisSummaryParts, diagnosisCheckItems, visibleDiagnosisCheckItems, resolveActiveTool, type AxCheckItem } from "./AxReport";
-import { applyCheckConfirmations, checkConfirmationState, checkKey, upsertCheckConfirmation } from "@/lib/ax/check-confirmations";
+import { applyCheckConfirmations, checkConfirmationState, checkKey, orphanedCheckConfirmations, upsertCheckConfirmation } from "@/lib/ax/check-confirmations";
 import { applyRediagnosis } from "@/lib/ax/diagnosis-preservation";
 import { RuleSelect, UnifiedRulesSection } from "./AxUnifiedRules";
 import "./ax.css";
@@ -645,6 +645,8 @@ export function AxDiagnosisView() {
       // HITL: 재진단 시 기존 검토와 새 진단 비교 → 변경된 항목 stale 처리
       // 원자적 갱신: 진단과 검토 상태를 단일 update()로 처리, 최신 state 기준
       let keptDecisionPoints = false;
+      let hadPlans = false;
+      let newlyStaleReviews = 0;
       const saved = await updateAndSave(current => {
         const latestTask = current.tasks.find(t => t.id === task.id) as import("@/lib/ax/types").AxTaskV2 | undefined;
         // 업무 삭제됨 → 응답 버림 (복원하지 않음)
@@ -658,16 +660,26 @@ export function AxDiagnosisView() {
         }
         // 사용자 규칙은 새 진단의 도출 여부와 무관하게 최신 저장값을 보존한다.
         keptDecisionPoints = !!latestTask.diagnosis?.decisionPoints?.length;
+        // 계획은 진단 필드라 재진단 시 함께 교체된다. 무효화 안내에 쓸 기준을 미리 잡는다.
+        hadPlans = !!(latestTask.diagnosis?.planCodex || latestTask.diagnosis?.planClaude);
+        const staleBefore = latestTask.reviews?.filter(r => r.status === "stale").length ?? 0;
         const diagnosedTask = applyRediagnosis(latestTask, aiDiagnosis, new Date().toISOString());
+        newlyStaleReviews = (diagnosedTask.reviews?.filter(r => r.status === "stale").length ?? 0) - staleBefore;
         diagnosedTask.followUpDiagnosis = { description: revised, context: questionFiles.context, files: questionFiles.files };
         return {
           ...current,
           tasks: current.tasks.map(t => t.id === task.id ? diagnosedTask : t),
         };
       });
-      if (!saved) { setMessage("진단 결과 저장 실패 · 화면 결과와 기존 질문 자료는 유지됩니다. 저장 상태를 확인하세요"); return; }
+      if (!saved) {
+        // 저장 실패: 별도 쓰기 경로는 쓰지 않는다 (S10 고정 — 두 번째 쓰기가 진단을 저장하는 회귀를 막는다).
+        // 저장소는 실패 시 로컬 편집을 메모리에 유지하는 계약이라, 화면에는 새 진단이 보이지만
+        // 저장되지 않은 상태이다. 새로고침 시 기존 진단으로 돌아감을 문구로 밝힌다.
+        setMessage("진단 결과 저장 실패 · 화면에는 새 진단이 보이지만 저장되지 않았습니다. 새로고침하면 기존 진단으로 돌아갑니다. 저장 상태를 확인하세요");
+        return;
+      }
       setAnswers(current => ({ ...current, [task.id]: {} }));
-      setMessage(`업무 진단을 완료했습니다. 필요한 경우 점수를 조정하세요${keptDecisionPoints ? ". 이전에 저장한 결정 지점(D1~D7)은 그대로 유지했습니다. 새 진단과 맞는지 다시 확인하세요" : ""}`);
+      setMessage(`업무 진단을 완료했습니다. 필요한 경우 점수를 조정하세요${keptDecisionPoints ? ". 이전에 저장한 결정 지점(D1~D7)은 그대로 유지했습니다. 새 진단과 맞는지 다시 확인하세요" : ""}${hadPlans ? ". 재진단 결과가 변경되어 기존 구현 계획을 다시 생성해야 합니다. 이전 검토 기록은 보존됩니다." : newlyStaleReviews > 0 ? `. 이전 검토 중 ${newlyStaleReviews}건이 재확인이 필요합니다. 기록은 보존됩니다.` : ""}`);
     } catch (error) { if (alive.current) setMessage(`진단 실패 · ${aiFailureDetail(error)}`); }
     finally { activeAi.current = false; activeRun.current = false; if (alive.current) setBusy(null); }
   }
@@ -681,11 +693,14 @@ export function AxDiagnosisView() {
     const nextFactor = { ...factor, finalValue: nextFinal };
     const nextEffective = factorEffectiveValue(nextFactor);
     const effectiveChanged = prevEffective !== nextEffective;
+    // 점수 변경으로 계획이 무효화되면 안내한다. 계획이 없을 때는 조용히 넘어간다.
+    const hadPlans = effectiveChanged && !!(task.diagnosis.planCodex || task.diagnosis.planClaude);
     const diagnosis: AxDiagnosis = { ...task.diagnosis,
       ...(effectiveChanged ? { planCodex: undefined, planClaude: undefined } : {}),
       factors: task.diagnosis.factors.map(f => f.key === key ? nextFactor : f),
     };
     patchTask(task.id, { diagnosis, status: taskStatus(diagnosis) });
+    if (hadPlans) setMessage("점수 조정으로 기존 구현 계획이 무효화되어 다시 생성해야 합니다. 이전 검토 기록은 보존됩니다.");
   }
   async function generatePlan(task: AxTask, target: "codex" | "claude") {
     if (!task.diagnosis || activeRun.current) return;
@@ -1094,6 +1109,8 @@ function DiagnosisCard({ task, busy, onDiagnose, onEdit, attachment, onSaveCheck
   // 미확인 = 확인 필요·사용 불가·보류 사유, 확인 완료 = 확인됨. 상단 건수와 목록 건수는 같은 집계(pending)를 쓴다.
   const pendingChecks = visibleChecks.filter(c => c.kind !== "done");
   const doneChecks = visibleChecks.filter(c => c.kind === "done");
+  // 재진단으로 주제가 사라진 확인 기록: 저장소는 보존되지만 현재 목록에 붙을 항목이 없다.
+  const orphanedConfirmations = orphanedCheckConfirmations(raw?.technicalChecks, confirmations);
   const [openTopic, setOpenTopic] = useState<string | null>(null);
   const [focusNonce, setFocusNonce] = useState<number | null>(null);
   // 다른 화면에서 '확인하러 가기'로 들어오면 해당 항목의 입력을 연다 (렌더 중 파생 상태 갱신).
@@ -1155,13 +1172,28 @@ function DiagnosisCard({ task, busy, onDiagnose, onEdit, attachment, onSaveCheck
         {/* 기본 출처 문구("사용자 등록 정보 기반 진단")는 표시하지 않고, 재첨부 안내가 담긴 첨부 파일 기반 문구만 남긴다. */}
         {d.sourceNote && d.sourceNote !== "사용자 등록 정보 기반 진단" ? <p className="ax-muted ax-diag-source">{uiText(d.sourceNote)}</p> : null}
       </section>
-      {/* 모든 확인 항목이 추가 질문 영역에서 다뤄지면(표시 항목 0, 원본 1건 이상) 이 영역을 두지 않는다. */}
-      {visibleChecks.length || !checks.length ? <section className="ax-diag-checks" aria-label="구현 전 확인 사항">
+      {/* 모든 확인 항목이 추가 질문 영역에서 다뤄지면(표시 항목 0, 원본 1건 이상) 이 영역을 두지 않는다. 이전 확인 기록이 있으면 그 경우에도 영역을 둔다. */}
+      {visibleChecks.length || !checks.length || orphanedConfirmations.length ? <section className="ax-diag-checks" aria-label="구현 전 확인 사항">
         <div className="ax-diag-checks-head"><h3>구현 전 확인 사항</h3><span className="ax-muted">· {pendingChecks.length}건</span></div>
         {pendingChecks.length ? <ul>{pendingChecks.map(checkRow)}</ul> : null}
         {doneChecks.length ? <Collapsible className="ax-checks-done">
           <CollapsibleTrigger className="ax-checks-done-trigger">확인 완료 항목 보기 ({doneChecks.length}건)<ChevronDown size={16} aria-hidden="true" /></CollapsibleTrigger>
           <CollapsiblePanel><ul>{doneChecks.map(checkRow)}</ul></CollapsiblePanel>
+        </Collapsible> : null}
+        {orphanedConfirmations.length ? <Collapsible className="ax-checks-history">
+          <CollapsibleTrigger className="ax-checks-done-trigger">이전 확인 기록 보기 ({orphanedConfirmations.length}건)<ChevronDown size={16} aria-hidden="true" /></CollapsibleTrigger>
+          <CollapsiblePanel>
+            <p className="ax-muted">재진단으로 사라진 확인 대상의 기록입니다. 현재 진단에는 적용되지 않습니다.</p>
+            <ul>{orphanedConfirmations.map(entry => <li key={entry.key}>
+              <div className="ax-check-row">
+                <span className="ax-check-text"><strong>{uiText(entry.topic)}</strong>{entry.note ? <small>{uiText(entry.note)}</small> : null}</span>
+                <span className="ax-check-side">
+                  <span className="ax-check-badge">{entry.result === "확인 완료" ? "이전 확인 완료" : entry.result === "사용 불가" ? "이전 사용 불가" : "이전 확인 내용"}</span>
+                  <small className="ax-muted">{entry.updatedAt.slice(0, 10)}</small>
+                </span>
+              </div>
+            </li>)}</ul>
+          </CollapsiblePanel>
         </Collapsible> : null}
       </section> : null}
     </> : null}
