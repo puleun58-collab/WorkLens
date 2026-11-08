@@ -93,8 +93,29 @@ function fileRow(page: Page, filePath: string) {
   return page.locator(".file-row").filter({ hasText: path.basename(filePath) });
 }
 
+const MIME_BY_EXT: Record<string, string> = {
+  ".xlsx":
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ".docx":
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ".pptx":
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  ".pdf": "application/pdf",
+  ".txt": "text/plain",
+  ".csv": "text/csv",
+};
+
 async function sendFile(page: Page, filePath: string) {
-  await page.locator('input[type="file"]').setInputFiles(filePath);
+  // Path-based setInputFiles does not reliably deliver the file in this
+  // VM's Chromium (same cause as the supplement-ux buffer-upload fix,
+  // 2026-11-05); pass the bytes explicitly so delivery is deterministic.
+  // Test-only change: the uploaded name and bytes are unchanged.
+  const ext = path.extname(filePath).toLowerCase();
+  await page.locator('input[type="file"]').setInputFiles({
+    name: path.basename(filePath),
+    mimeType: MIME_BY_EXT[ext] ?? "application/octet-stream",
+    buffer: await readFile(filePath),
+  });
 }
 
 async function upload(page: Page, filePath: string) {
