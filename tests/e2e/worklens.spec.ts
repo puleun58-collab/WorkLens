@@ -1806,6 +1806,12 @@ test("uses only the disabled action button for single-request progress", async (
 });
 
 test("keeps compact counted progress for Polish and Extract", async ({ page }) => {
+  // CONTROLLED FAILURE — Firefox CI failure-propagation verification only
+  // (scratch branch, never merged). Fails only in the firefox project so
+  // the Chromium integration job stays green.
+  if (test.info().project.name === "firefox") {
+    expect(true).toBe(false);
+  }
   // .compact-progress는 처리 중에만 존재하는 일시적 요소다. 순차 단언이
   // 요소 소실과 경합해 간헐 실패를 내므로, 텍스트 조건과 나머지 속성을
   // 같은 폴링 턴에 하나의 스냅샷으로 읽는다 (단언 의미 유지).
