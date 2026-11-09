@@ -1806,6 +1806,33 @@ test("uses only the disabled action button for single-request progress", async (
 });
 
 test("keeps compact counted progress for Polish and Extract", async ({ page }) => {
+  // .compact-progress는 처리 중에만 존재하는 일시적 요소다. 순차 단언이
+  // 요소 소실과 경합해 간헐 실패를 내므로, 텍스트 조건과 나머지 속성을
+  // 같은 폴링 턴에 하나의 스냅샷으로 읽는다 (단언 의미 유지).
+  async function readCompactProgress(expectedText: string) {
+    const handle = await page.waitForFunction((expected) => {
+      const el = document.querySelector(".compact-progress");
+      if (!el || !(el.textContent ?? "").includes(expected)) return null;
+      const stop = [...el.querySelectorAll("button")].find((button) => button.textContent?.trim() === "중지");
+      const stopRect = stop?.getBoundingClientRect();
+      const rect = el.getBoundingClientRect();
+      return {
+        role: el.getAttribute("role"),
+        visible: rect.width > 0 && rect.height > 0 && getComputedStyle(el).visibility !== "hidden",
+        stopVisible: !!stop && !!stopRect && stopRect.width > 0 && stopRect.height > 0 && getComputedStyle(stop).visibility !== "hidden",
+        className: el.className,
+        borderWidth: getComputedStyle(el).borderWidth,
+      };
+    }, expectedText);
+    return (await handle.jsonValue()) as {
+      role: string | null;
+      visible: boolean;
+      stopVisible: boolean;
+      className: string;
+      borderWidth: string;
+    };
+  }
+
   await page.route("**/api/ai", async (route) => {
     const request = route.request().postDataJSON() as {
       kind: string;
@@ -1835,11 +1862,11 @@ test("keeps compact counted progress for Polish and Extract", async ({ page }) =
   await expect(polishAction).toHaveText("처리 중…");
   await expect(polishAction).toBeDisabled();
   const polishProgress = page.locator(".compact-progress");
-  await expect(polishProgress).toContainText(/윤문 처리 중 0\/\d+/);
-  await expect(polishProgress).toHaveAttribute("role", "status");
-  await expect(polishProgress.getByRole("button", { name: "중지", exact: true })).toBeVisible();
-  await expect(polishProgress).not.toHaveClass(/status-panel/);
-  await expect(polishProgress).toHaveCSS("border-width", "0px");
+  const polishState = await readCompactProgress("윤문 처리 중 0/");
+  expect(polishState.role).toBe("status");
+  expect(polishState.stopVisible).toBe(true);
+  expect(polishState.className).not.toMatch(/status-panel/);
+  expect(polishState.borderWidth).toBe("0px");
   await expect(polishAction).toHaveText("실행", { timeout: 15_000 });
   await expect(polishAction).toBeEnabled();
   await expect(polishProgress).toHaveCount(0);
@@ -1854,11 +1881,11 @@ test("keeps compact counted progress for Polish and Extract", async ({ page }) =
   await expect(extractAction).toHaveText("처리 중…");
   await expect(extractAction).toBeDisabled();
   const extractProgress = page.locator(".compact-progress");
-  await expect(extractProgress).toContainText("항목 확인 중 0/1");
-  await expect(extractProgress).toHaveAttribute("role", "status");
-  await expect(extractProgress).toBeVisible();
+  const extractState = await readCompactProgress("항목 확인 중 0/1");
+  expect(extractState.role).toBe("status");
+  expect(extractState.visible).toBe(true);
+  expect(extractState.stopVisible).toBe(true);
   const stop = extractProgress.getByRole("button", { name: "중지", exact: true });
-  await expect(stop).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await stop.click();
   await expect(extractProgress).toHaveCount(0);

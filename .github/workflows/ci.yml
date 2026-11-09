@@ -116,12 +116,13 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
 
-  # Firefox E2E는 참고용 — 실패해도 머지를 막지 않음 (flaky 방지)
+  # Firefox E2E는 필수 검사 — 실패하면 머지를 막는다 (브랜치 보호 필수 검사에 integration-firefox 포함).
+  # 간헐 실패는 2026-11-09 5단계 조사에서 입증되지 않았고, 확인된 1건(worklens.spec.ts:1808)은
+  # 일시적 요소에 대한 순차 단언 경합으로 수정했다.
   integration-firefox:
     needs: fast
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
