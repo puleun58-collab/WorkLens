@@ -601,10 +601,15 @@ export async function lookupIssue(
   if (!keywords.length) return { status: "none", articles: [], precedents: [] };
   if (expired()) return { status: "timeout", articles: [], precedents: [] };
   const titleKeywords = [...new Set([...keywords, ...extraTerms.filter((term) => !isLawName(term))])];
+  // The chain has already identified these official laws, but a short issue
+  // phrase often names none of them ("계약 해제 요건"). Search their TOCs
+  // before discovering laws by generic words. This adds candidates only;
+  // the unchanged original/relationship/adoption checks decide relevance.
+  const candidateLaws = [...new Set([...terms.filter(isLawName), ...extraNamed, ...shownArticles.map((article) => article.law)])];
   let failed = false;
   const [hits, statutes, explicit] = await Promise.all([
     sources.precedents(query).catch(() => { failed = true; return []; }),
-    titleArticles(titleKeywords, [...new Set([...terms.filter(isLawName), ...extraNamed])], shownArticles, sources, expired, true),
+    titleArticles(titleKeywords, candidateLaws, shownArticles, sources, expired, true),
     (async () => {
       // Articles the issue itself named are fetched for this issue. The
       // issue phrase is parsed from its raw text, not from its tokens,

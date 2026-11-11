@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { directConditionsSupported, relationshipSupported, researchEvidenceSources, type ResearchEnrichment } from "@/lib/research-relevance";
+import { integratedEvidenceStatus } from "@/lib/research-status";
 
 import scopeCapture from "./fixtures/research-live-scope-adoption.json";
+import eightCapture from "./fixtures/research-live-eight-adoption.json";
 // Official text captured on 2026-11-02, not an invented law/title blacklist.
 const procurement = {
   law: "조달사업에 관한 법률 시행령", jo: "제12조", title: "제3자를 위한 단가계약",
@@ -33,6 +35,18 @@ describe("source relationship versus the original question", () => {
     expect(directConditionsSupported(wage.review.excerpt, "고의 체불 임금의 손해배상 요건")).toBe(true);
     expect(directConditionsSupported("임금은 통화로 직접 근로자에게 그 전액을 지급하여야 한다.", wage.query)).toBe(true);
     expect(directConditionsSupported("채무자가 채무의 내용에 좇은 이행을 하지 아니한 때에는 채권자는 손해배상을 청구할 수 있다.", labor)).toBe(true);
+  });
+
+  it("keeps retirement-benefit statutes and state wage-relief programmes out of direct evidence unless asked", () => {
+    const benefit = "근로자퇴직급여 보장법 제15조(퇴직급여 산정) 퇴직금은 계속근로기간 1년에 대하여 30일분 이상의 평균임금으로 한다.";
+    expect(directConditionsSupported(benefit, "직원이 갑자기 무단퇴사해서 연락이 안 됨", "근로계약 해지")).toBe(false);
+    expect(directConditionsSupported(benefit, "퇴사했는데 퇴직금을 못 받았어", "퇴직금 지급")).toBe(true);
+    const relief = "임금채권보장법 제7조의3(체불 임금등 및 생계비 융자) 고용노동부장관은 근로자에게 체불 임금등에 대한 생계비 융자를 할 수 있다.";
+    expect(directConditionsSupported(relief, "회사가 이번 달 월급을 주지 않습니다. 요구할 수 있는 조치를 알고 싶습니다.", "임금 청구")).toBe(false);
+    expect(directConditionsSupported(relief, "회사가 월급을 안 줘서 생계비 융자를 받을 수 있는지 알고 싶어", "생계비 융자")).toBe(true);
+    // A wage rule that merely cites the retirement-benefit statute is not one.
+    expect(directConditionsSupported("근로기준법 제43조의8 임금등(「근로자퇴직급여 보장법」 제2조제5호의 급여는 제외한다)을 지급하여야 한다.",
+      "고의 체불 임금의 손해배상 요건")).toBe(true);
   });
 
   it.each([labor, "거래처가 계약을 위반해서 손해를 입었어", "개인정보 유출로 손해배상을 청구하고 싶어"])(
@@ -124,5 +138,116 @@ describe("source relationship versus the original question", () => {
       { originalQuery: labor, review: (review) => reviews.push(review) });
     expect(reviews[0].articles).toContainEqual({ law: "민법", jo: "제617조", title: loan.title,
       excerpt: loan.excerpt, stage: "issue", adopted: false, reason: "party-or-relationship-mismatch" });
+  });
+
+  it("does not let an employee-status phrase bypass an unrelated contract relationship", () => {
+    const source = `${procurement.excerpt} 근로자에 해당하는지 여부를 검토한다.`;
+    expect(relationshipSupported(source, "직원의 근로자성 확인")).toBe(false);
+    expect(relationshipSupported("대표이사가 근로자에 해당하는지 여부를 판단한다.", "직원의 근로자성 확인")).toBe(true);
+  });
+
+  it("keeps national and local contracting systems distinct without rejecting general civil rules", () => {
+    const national = "국가를 당사자로 하는 계약에 관한 법률에 따른 계약의 해제";
+    const local = "지방자치단체를 당사자로 하는 계약에 관한 법률에 따른 계약의 해제";
+    expect(relationshipSupported(national, "지자체 계약 해제 요건")).toBe(false);
+    expect(relationshipSupported(local, "국가계약 해제 요건")).toBe(false);
+    expect(relationshipSupported(national, "국가계약 해제 요건")).toBe(true);
+    expect(relationshipSupported(national, "국가기관과 체결한 공사계약의 금액 조정")).toBe(true);
+    expect(relationshipSupported(national, "조달 계약 변경 가능 여부")).toBe(false);
+    expect(relationshipSupported(local, "지자체 계약 해제 요건")).toBe(true);
+    expect(relationshipSupported("당사자 일방이 채무를 이행하지 아니한 때에는 계약을 해제할 수 있다.", "지자체 계약 해제 요건")).toBe(true);
+  });
+
+  it("uses the captured replacement provision as a candidate, never as the direct suspension power", () => {
+    const capture = eightCapture.results.find((entry) => entry.category === "식품위생")!;
+    const replacement = capture.candidates.find((entry) => entry.kind === "article" && entry.jo === "제82조")!;
+    const suspension = capture.candidates.find((entry) => entry.kind === "article" && entry.jo === "제75조")!;
+    expect(directConditionsSupported(replacement.text, capture.query, "영업정지 요건")).toBe(false);
+    expect(directConditionsSupported(replacement.text, "영업정지 갈음 과징금 요건", "과징금 요건")).toBe(true);
+    // General sanctions state conditions; the user need not admit a violation.
+    expect(directConditionsSupported(suspension.text, capture.query, "영업정지 요건")).toBe(true);
+    expect(directConditionsSupported(`${suspension.text}\n${replacement.text}`, capture.query, "영업정지 요건")).toBe(true);
+  });
+
+  it("does not use an invented retirement issue to upgrade settlement into ordinary wage evidence", () => {
+    const settlement = "사용자는 근로자가 사망 또는 퇴직한 경우에는 그 지급 사유가 발생한 때부터 14일 이내에 임금, 보상금, 그 밖의 모든 금품을 지급하여야 한다.";
+    expect(directConditionsSupported(settlement, "월급 미지급", "임금 지급")).toBe(false);
+    expect(directConditionsSupported(settlement, "월급 미지급", "퇴직 후 임금 지급")).toBe(false);
+    expect(directConditionsSupported(settlement, "퇴사자 임금 미지급", "임금 지급")).toBe(true);
+    expect(directConditionsSupported("임금은 매월 1회 이상 일정한 기일을 정하여 지급하여야 한다.", "월급 미지급", "임금 지급")).toBe(true);
+  });
+
+  it("does not replace employment termination with an unasked contract rescission remedy", () => {
+    // Official body retained in law-direct-after-2/labor-absence-4.private.json.
+    const rescission = "계약의 성질 또는 당사자의 의사표시에 의하여 일정한 시일 또는 일정한 기간내에 이행하지 아니하면 계약의 목적을 달성할 수 없을 경우에 당사자 일방이 그 시기에 이행하지 아니한 때에는 상대방은 전조의 최고를 하지 아니하고 계약을 해제할 수 있다.";
+    expect(directConditionsSupported(rescission, labor, "계약 위반")).toBe(false);
+    expect(directConditionsSupported(rescission, "근로자가 무단결근하다 퇴사했다", "근로계약 위반")).toBe(false);
+    expect(directConditionsSupported(rescission, "납품 기한이 지나면 계약 목적 달성이 불가능한데 계약 해제 조건은?", "계약 해제")).toBe(true);
+    expect(directConditionsSupported("고용기간의 약정이 없는 때에는 당사자는 언제든지 계약해지의 통고를 할 수 있다.", labor, "근로계약 해지")).toBe(true);
+  });
+
+  it("keeps bidder pre-qualification screening out of the pre-sanction opinion procedure", () => {
+    // Official body retained in law-m-final/procurement-sanction-1 (adopted as direct, later as supporting).
+    const screening = "국가를 당사자로 하는 계약에 관한 법률 시행규칙 제23조의2(입찰참가자격 사전심사 절차) ③ 각 중앙관서의 장 또는 계약담당공무원은 입찰참가자격 사전심사 신청 서류의 내용이 불명확하거나 누락된 서류가 있는 경우에는 3일 이내의 기간을 정하여 보완을 요구할 수 있다.";
+    const sanction = "국가기관과 체결한 물품계약을 제때 이행하지 못했습니다. 입찰참가자격 제한을 받을 수 있는 요건과 처분 전 의견을 낼 수 있는 절차를 알고 싶습니다.";
+    expect(relationshipSupported(screening, sanction)).toBe(false);
+    expect(relationshipSupported(screening, "국가기관 공사 입찰참가자격 사전심사 서류 보완 절차는?")).toBe(true);
+  });
+
+  it("rejects the dismissal, term-conditioned and public-enterprise rules observed as wrong direct evidence", () => {
+    // Official bodies retained in law-m-final3/labor-absence-2 and procurement-sanction-2.
+    const dismissal = "근로기준법 ① 사용자는 근로자를 해고하려면 해고사유와 해고시기를 서면으로 통지하여야 한다. ② 근로자에 대한 해고는 제1항에 따라 서면으로 통지하여야 효력이 있다.";
+    expect(directConditionsSupported(dismissal, labor, "근로계약 해지")).toBe(false);
+    expect(directConditionsSupported(dismissal, "문자로 해고 통보를 받았는데 효력이 있나요?", "해고 서면통지")).toBe(true);
+    const term = "민법 ①고용의 약정기간이 3년을 넘거나 당사자의 일방 또는 제삼자의 종신까지로 된 때에는 각 당사자는 3년을 경과한 후 언제든지 계약해지의 통고를 할 수 있다.";
+    expect(directConditionsSupported(term, labor, "근로계약 해지")).toBe(false);
+    expect(directConditionsSupported(term, "고용 약정기간이 5년인데 3년 지나서 그만둘 수 있나요?", "고용 해지통고")).toBe(true);
+    const enterprise = "공기업ㆍ준정부기관 계약사무규칙 제16조(의견 청취 및 심의 절차) ① 기관장은 제15조에 따라 입찰참가자격을 제한하려면 미리 해당 처분의 상대방 또는 그 대리인에게 의견을 진술할 기회를 주어야 하며";
+    const sanction = "국가기관과 체결한 물품계약을 제때 이행하지 못했습니다. 입찰참가자격 제한을 받을 수 있는 요건과 처분 전 의견을 낼 수 있는 절차를 알고 싶습니다.";
+    expect(relationshipSupported(enterprise, sanction)).toBe(false);
+    expect(relationshipSupported(enterprise, "준정부기관과 계약했는데 입찰참가자격 제한 전 의견 절차는?")).toBe(true);
+    const tender = "국가를 당사자로 하는 계약에 관한 법률 시행규칙 각 중앙관서의 장 또는 계약담당공무원은 영 제12조의 규정에 의한 경쟁입찰참가자격외의 요건을 정하여 입찰참가를 제한하여서는 아니된다.";
+    expect(directConditionsSupported(tender, sanction, "국가기관 입찰자격 제한 요건")).toBe(false);
+  });
+
+  it("keeps captured counterparty demand, tender-condition and confirmation rules out of direct requirement evidence", () => {
+    // Official bodies retained in paced-after/contract-rescission-1 and procurement-sanction-2 and law-direct-after-3.
+    const demand = "①해제권의 행사의 기간을 정하지 아니한 때에는 상대방은 상당한 기간을 정하여 해제권행사여부의 확답을 해제권자에게 최고할 수 있다.\n②전항의 기간내에 해제의 통지를 받지 못한 때에는 해제권은 소멸한다.";
+    const rescission = "물품 공급계약의 납품기한이 지났습니다. 계약을 해제하려면 먼저 상당한 기간을 정해 이행을 요구해야 하나요?";
+    expect(directConditionsSupported(demand, rescission, "계약 해제 요건")).toBe(false);
+    expect(directConditionsSupported(demand, "상대방이 해제권을 행사할지 확답을 요구할 수 있나요?", "해제권 행사여부 확답")).toBe(true);
+    const tender = "각 중앙관서의 장 또는 계약담당공무원은 영, 이 규칙 및 다른 법령에 특별한 규정이 있는 경우외에는 영 제12조의 규정에 의한 경쟁입찰참가자격외의 요건을 정하여 입찰참가를 제한하여서는 아니된다.";
+    const sanction = "국가기관과 체결한 물품계약을 제때 이행하지 못했습니다. 입찰참가자격 제한을 받을 수 있는 요건과 처분 전 의견을 낼 수 있는 절차를 알고 싶습니다.";
+    expect(directConditionsSupported(tender, sanction, "입찰참가자격 제한 요건")).toBe(false);
+    expect(directConditionsSupported(tender, "공고에 법령에 없는 참가자격 요건을 붙여도 되나요?", "입찰참가자격 제한")).toBe(true);
+    const confirmation = "체불 임금등ㆍ사업주 확인서를 발급받으려는 사람은 신청서를 제출해야 한다.";
+    expect(directConditionsSupported(confirmation, "퇴사 후 마지막 달 임금을 받기 위한 절차", "임금 청구 절차")).toBe(false);
+    expect(directConditionsSupported(confirmation, "체불 임금 사업주 확인서 발급 절차", "확인서 발급")).toBe(true);
+  });
+
+  it("does not treat an administrative-investigation objection as the pre-disposition opinion procedure", () => {
+    // Official body retained in paced-final2/procurement-sanction-3.
+    const investigation = "① 조사대상자는 제17조에 따른 사전통지의 내용에 대하여 행정기관의 장에게 의견을 제출할 수 있다.\n② 행정기관의 장은 제1항에 따라 조사대상자가 제출한 의견이 상당한 이유가 있다고 인정하는 경우에는 이를 행정조사에 반영하여야 한다.";
+    const sanction = "국가기관과 체결한 물품계약을 제때 이행하지 못했습니다. 입찰참가자격 제한을 받을 수 있는 요건과 처분 전 의견을 낼 수 있는 절차를 알고 싶습니다.";
+    expect(relationshipSupported(investigation, sanction)).toBe(false);
+    expect(relationshipSupported(investigation, "현장 조사 사전통지에 의견을 낼 수 있나요?")).toBe(true);
+  });
+
+  it("separates definitions and exercise methods from substantive duties and termination grounds", () => {
+    const definition = '이 법에서 사용하는 용어의 뜻은 다음과 같다. "사용자"란 사업주를 말한다.';
+    expect(directConditionsSupported(definition, "사용자 의무", "사용자 의무")).toBe(false);
+    expect(directConditionsSupported(definition, "사용자의 뜻", "사용자 정의")).toBe(true);
+    expect(directConditionsSupported(`${definition} 사용자는 임금을 지급하여야 한다.`, "사용자 의무", "임금 지급 의무")).toBe(true);
+    const exercise = "계약 또는 법률의 규정에 의하여 당사자의 일방이나 쌍방이 해지 또는 해제의 권리가 있는 때에는 그 해지 또는 해제는 상대방에 대한 의사표시로 한다.";
+    expect(directConditionsSupported(exercise, "거래처 계약 불이행", "계약 해제 요건")).toBe(false);
+    expect(directConditionsSupported(exercise, "해제권 행사 방법", "계약 해제 방법")).toBe(true);
+    expect(directConditionsSupported("당사자 일방이 채무를 이행하지 아니한 때에는 상대방은 상당한 기간을 정하여 그 이행을 최고하고 계약을 해제할 수 있다.", "계약 해제 요건")).toBe(true);
+  });
+
+  it("does not turn supporting-only or an empty issue set into matched status", () => {
+    expect(integratedEvidenceStatus(0, 1, true)).toBe("unverified");
+    expect(integratedEvidenceStatus(0, 0, true)).toBe("unverified");
+    expect(integratedEvidenceStatus(1, 2, true)).toBe("partial");
+    expect(integratedEvidenceStatus(1, 1, true)).toBe("matched");
   });
 });

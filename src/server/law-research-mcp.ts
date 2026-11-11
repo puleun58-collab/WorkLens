@@ -153,13 +153,22 @@ async function issueSources(
     if (hit.excerpt) relevance[hit.id] = { ...relevance[hit.id], rank: "unknown" };
   }
   const supplement = [...(chain.enrichment?.supplement?.articles ?? []), ...(lookup?.articles ?? [])];
-  return researchEvidenceSources(chain.text, issueQuery, {
+  const directCoverage = new Set<string>();
+  const requestedIdentities = originalQuery ? parseExplicitIdentities(originalQuery) : [];
+  const adopted = researchEvidenceSources(chain.text, issueQuery, {
     ...chain.enrichment,
     precedents: relevance,
     // Citation is judged on the summaries actually read for this issue, not on term lists alone.
     precedentExcerpts: Object.fromEntries(summaries),
     supplement: { status: supplement.length ? "found" : "none", articles: supplement },
   }, requestTerms, { fallback, originalQuery, review: (review) => {
+    for (const article of review.articles) {
+      if (article.adopted && (!originalQuery || requestedIdentities.some(
+        (identity) => identity.law === article.law && identity.jo === article.jo,
+      ) || directConditionsSupported(`${article.law} ${article.excerpt}`, originalQuery, issueQuery))) {
+        directCoverage.add(`${article.law}\0${article.jo}`);
+      }
+    }
     if (!review.articles.length && !review.precedents.length) return;
     const previous = chain.reviews.get(issueQuery);
     chain.reviews.set(issueQuery, { query: issueQuery,
@@ -167,6 +176,10 @@ async function issueSources(
         .map((article) => [`${article.law}\0${article.jo}\0${article.stage}`, article])).values()],
       precedents: [...new Map([...(previous?.precedents ?? []), ...review.precedents].map((entry) => [entry.id, entry])).values()] });
   } });
+  // A lexical match that the existing direct-scope gate already excludes must
+  // not suppress retrieval of the missing substantive rule. Keep it in the
+  // review/candidate pool for supporting/identity assessment by the final model.
+  return { ...adopted, articles: adopted.articles.filter((article) => directCoverage.has(`${article.law}\0${article.jo}`)) };
 }
 
 async function fullResearch(
@@ -314,14 +327,14 @@ async function fullResearch(
     if (!adopted.articles.length) {
       const lookupQuery = fallback ? questionSubjectTerms(query).join(" ") : issue.query;
       if (lookupQuery) {
-        // A lookup failure degrades to "no lookup", never to a failed request:
+        // A thrown lookup is an incomplete lookup, never a confirmed absence:
         // the chain's own adoption still stands, and the issue status below
-        // falls back to the chain outcome.
+        // reports the failure instead of "none".
         const questionIdentities = parseExplicitIdentities(query);
         lookup = await lookupIssue(lookupQuery, shownArticles, sources, expired,
           [...new Set([...lawNamesInQuery(query), ...questionTerms(query).filter(isLawName)])], questionTerms(query),
           questionIdentities.length ? questionIdentities : undefined)
-          .catch(() => undefined);
+          .catch(() => ({ status: "failed" as const, articles: [], precedents: [] }));
         if (lookup?.status === "found") adopted = await issueSources(issue.query, known, lookup, sources, summaries, requestTerms, fallback, query);
       }
     }
@@ -515,8 +528,9 @@ async function fullResearch(
   const candidates = [...candidateMap.values()].sort((a, b) => Number(Boolean(a.partial)) - Number(Boolean(b.partial)));
   let selections: ResearchAdoptionVerdict[] = [];
   let verification: "verified" | "unavailable" = "verified";
+  let evaluated: ReadonlyMap<string, ResearchAdoptionVerdict["window"]> | undefined;
   if (candidates.length) {
-    try { selections = await verifyResearchAdoption(query, issues, candidates, context); }
+    try { selections = await verifyResearchAdoption(query, issues, candidates, { ...context, onAdoptionCoverage: visible => { evaluated = new Map(visible.map(({ id, window }) => [id, window])); } }); }
     catch (error) {
       if (context.signal?.aborted) throw error;
       verification = "unavailable";
@@ -555,10 +569,10 @@ async function fullResearch(
       // a quote may omit the corporate-member role or a numbered condition.
       const fullScope = `${candidate.law ?? ""} ${candidate.text}`;
       const mismatch = proposed && (!relationshipSupported(fullScope, query)
-        || proposed.role === "direct" && !directConditionsSupported(fullScope, query)
+        || proposed.role === "direct" && !directConditionsSupported(fullScope, query, item.issue.query)
         || candidate.kind === "article" && candidate.title?.replace(/\s+/gu, "") === "목적" && !query.includes("목적"));
       const selection = mismatch ? undefined : proposed;
-      const identity = requestedCandidateIds.has(candidate.id)
+      const identity = !candidate.partial && requestedCandidateIds.has(candidate.id)
         && (issues.length === 1 || questionTermsRelationLess(item.issue.query) || item.issue.query.includes(candidate.jo!))
         && !identityKeys.has(`${candidate.law}\0${candidate.jo}`);
       const accepted = Boolean(selection) || identity;
@@ -567,11 +581,12 @@ async function fullResearch(
         : mismatch ? "원질문의 당사자·법률관계 또는 질문 범위와 맞지 않아 근거로 채택하지 않았습니다."
         : selection?.reason ?? (candidate.partial ? "일부 원문만 확보되어 직접·보충 관련성을 확정하지 않았습니다."
         : verification === "unavailable" ? "원문은 확보했으나 관련성 검증을 완료하지 못해 추가 확인이 필요합니다."
+        : evaluated && !evaluated.has(candidate.id) ? "관련성 검증의 원문 예산에 포함되지 않아 확인하지 못했습니다."
         : "원질문과 이 쟁점을 뒷받침하는 직접·보충 관련성이 확인되지 않았습니다.");
       if (candidate.kind === "article" && candidate.law && candidate.jo) {
         review.articles.push({ law: candidate.law, jo: candidate.jo, title: candidate.title,
           excerpt: candidate.text, effectiveDate: candidate.effectiveDate, stage: candidate.stage,
-          adopted: accepted, role, quote: selection?.quote ?? (identity ? candidate.text : undefined), reason, window: selection?.window });
+          adopted: accepted, role, quote: selection?.quote ?? (identity ? candidate.text : undefined), reason, window: evaluated?.get(candidate.id) });
         if (accepted) {
           if (!adopted.articles.some((article) => article.law === candidate.law && article.jo === candidate.jo)) {
             adopted.articles.push({ law: candidate.law, jo: candidate.jo });
@@ -588,13 +603,13 @@ async function fullResearch(
       } else if (candidate.precedentId) {
         review.precedents.push({ id: candidate.precedentId, key: candidate.decisionKey, domain: "precedent", title: candidate.title, body: candidate.body,
           date: candidate.date, caseNumber: candidate.caseNumber, excerpt: candidate.text, partial: candidate.partial,
-          adopted: accepted, role: selection?.role, quote: selection?.quote, reason, window: selection?.window });
+          adopted: accepted, role: selection?.role, quote: selection?.quote, reason, window: evaluated?.get(candidate.id) });
         if (accepted && !adopted.precedents.includes(candidate.precedentId)) adopted.precedents.push(candidate.precedentId);
       } else if (candidate.decisionId && candidate.decisionKey && candidate.domain) {
         (review.decisions ??= []).push({ key: candidate.decisionKey, domain: candidate.domain, id: candidate.decisionId,
           title: candidate.title, body: candidate.body, date: candidate.date, caseNumber: candidate.caseNumber,
           excerpt: candidate.text, partial: candidate.partial, source: candidate.source,
-          adopted: accepted, role: selection?.role, quote: selection?.quote, reason, window: selection?.window });
+          adopted: accepted, role: selection?.role, quote: selection?.quote, reason, window: evaluated?.get(candidate.id) });
         if (accepted) {
           const refs = adopted.decisions ??= [];
           if (!refs.includes(candidate.decisionKey)) refs.push(candidate.decisionKey);
