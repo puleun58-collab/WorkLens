@@ -4,6 +4,7 @@ import { unconfirmedPlanMetrics } from "@/lib/ax/guide";
 import { applyCurrentFacts, currentFactAssessment, currentFactMessages, CURRENT_FACT_RESPONSE_SCHEMA, resolveCurrentFacts } from "@/lib/ax/current-facts";
 import type { AxGrounding } from "@/lib/ax/grounding-schema";
 import { validateAxSemantics } from "@/lib/ax/semantic";
+import { classifyJsonValidateFailure, observed, providerErrorBodySignals, userNumberRetention, userNumbers, zodIssueSummary, type ProviderErrorBodySignals } from "@/lib/ax/observation";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { AiApiRequest, AiApiResult } from "@/lib/ai/api";
@@ -65,8 +66,11 @@ interface GroqAttemptBudget {
   rejection?: ProviderErrorMetadata & { status: number };
   semantic?: { categories: string[]; corrected: boolean };
   /** AX-only structural diagnostics; never include task text, provider content or keys. */
-  axStages?: Array<Record<string, string | number | boolean | undefined>>;
+  axStages?: AxStageEntry[];
+  /** AX-only size signals of the latest provider error body, read while that body is parsed anyway. */
+  axErrorBody?: ProviderErrorBodySignals;
 }
+type AxStageEntry = Record<string, string | number | boolean | undefined>;
 
 /** Only the request boundary logs outcomes, after every retry and validation has finished. */
 async function observeGroq<T>(
@@ -386,11 +390,18 @@ export async function runGroqAi(
   const operation: GroqOperation = request.kind === "claims" ? request.request.operation : request.kind;
   return observeGroq({ ...context, operation }, request.kind, async (budget) => {
     if (request.kind === "ax-diagnosis") budget.axStages = [];
-    const axStage = (stage: string, diagnosis?: Extract<AiApiResult, { kind: "ax-diagnosis" }>["diagnosis"], reason?: string) => {
+    // Observation only: counts of user-supplied numbers that survive in each answer, never the values.
+    const axNumbers = request.kind === "ax-diagnosis" ? observed(() => userNumbers(request)) ?? [] : [];
+    const axStage = (stage: string, diagnosis?: Extract<AiApiResult, { kind: "ax-diagnosis" }>["diagnosis"], reason?: string, extra?: AxStageEntry) => {
       budget.axStages?.push({ stage, attempt: budget.attempt, reason,
         ...(diagnosis ? { steps: diagnosis.asIs.steps.length, stepAssessments: diagnosis.stepAssessments.length,
-          toBe: diagnosis.toBe.length, risks: diagnosis.risks.length, technicalChecks: diagnosis.technicalChecks.length } : {}) });
+          toBe: diagnosis.toBe.length, risks: diagnosis.risks.length, technicalChecks: diagnosis.technicalChecks.length,
+          ...observed(() => userNumberRetention(diagnosis, axNumbers)) } : {}), ...extra });
     };
+    // Why an answer was refused is recorded as a fixed reason plus schema paths; the refusal itself is unchanged.
+    const parseFailed = (stage: string) => (reason: string, error?: unknown) => axStage(stage, undefined, reason, observed(() => zodIssueSummary(error)));
+    const violationFields = (found: { category: string; field: string }[]) =>
+      [...new Set(found.map(violation => `${violation.field.replace(/\[\d+\]/g, "")}:${violation.category}`))].join(",");
     let grounding: AxGrounding | undefined;
     if (request.kind === "ax-diagnosis") {
       // An extraction that is malformed, or that found no current procedure in a written description, is
@@ -403,7 +414,8 @@ export async function runGroqAi(
           const candidate = resolveCurrentFacts(request, JSON.parse(extracted.choices[0].message.content));
           if (copiesAttachment(candidate, request.attachmentSummary)) throw new Error("첨부 원문 저장 제한");
           if (coverage(candidate) > coverage(grounding)) grounding = candidate;
-        } catch {
+        } catch (error) {
+          parseFailed("current-facts-parse-failed")(error instanceof SyntaxError ? "json-parse" : zodIssueSummary(error) ? "schema" : "rejected", error);
           if (attempt === 1 && !grounding) throw new ApiError("INVALID_PROVIDER_OUTPUT", "현재 업무 근거를 원문과 대조하지 못했습니다. 기존 진단은 유지됩니다.", 502);
         }
         axStage("current-facts", undefined, grounding?.facts.some(fact => fact.field === "steps") ? "grounded-steps" : "no-grounded-steps");
@@ -422,7 +434,7 @@ export async function runGroqAi(
     }
     const raw = await complete(specification.messages, specification.schema, specification.schemaName, specification.maxTokens,
       { ...context, operation }, budget);
-    const parsed = parseResult(request, raw.choices[0].message.content);
+    const parsed = parseResult(request, raw.choices[0].message.content, parseFailed("initial-parse-failed"));
     if (parsed.kind === "ax-diagnosis") axStage("initial-parsed", parsed.diagnosis);
     if (parsed.kind === "ax-diagnosis" && grounding?.conflicts.length && parsed.diagnosis.technicalChecks.length >= 10) throw new ApiError("INVALID_PROVIDER_OUTPUT", "상충 정보와 필수 기술 조건을 모두 보존할 수 없습니다.", 502);
     const result = parsed.kind === "ax-diagnosis" && grounding ? { ...parsed, diagnosis: applyCurrentFacts(parsed.diagnosis, grounding) } : parsed;
@@ -470,7 +482,7 @@ export async function runGroqAi(
         axStage("focused-applied", diagnosis);
         return { ...value, diagnosis };
       } catch (error) {
-        axStage("focused-failed", value.diagnosis, error instanceof ApiError ? error.code : "format-error");
+        axStage("focused-failed", value.diagnosis, error instanceof ApiError ? error.code : "format-error", observed(() => zodIssueSummary(error)));
         return value;
       }
     };
@@ -483,6 +495,7 @@ export async function runGroqAi(
     }
     if (!violations.length && result.diagnosis.stepAssessments.length) return completeGaps(result);
     if (violations.length) budget.semantic = { categories: [...new Set(violations.map(violation => violation.category))], corrected: false };
+    if (violations.length) axStage("semantic-violations", undefined, violationFields(violations));
     if (budget.attempt < budget.maxAttempts) {
       axStage("whole-correction-start", result.diagnosis, violations.length ? "semantic-violation" : missing.join(","));
       const correction = [
@@ -493,7 +506,7 @@ export async function runGroqAi(
       const corrected = await (async () => {
         try {
           const correctedRaw = await complete(messages, specification.schema, specification.schemaName, specification.maxTokens, { ...context, operation }, budget);
-          const parsedCorrection = parseResult(request, correctedRaw.choices[0].message.content);
+          const parsedCorrection = parseResult(request, correctedRaw.choices[0].message.content, parseFailed("whole-correction-parse-failed"));
           if (parsedCorrection.kind !== "ax-diagnosis") return undefined;
           axStage("whole-correction-parsed", parsedCorrection.diagnosis);
           if (grounding?.conflicts.length && parsedCorrection.diagnosis.technicalChecks.length >= 10) return undefined;
@@ -511,6 +524,7 @@ export async function runGroqAi(
           if (budget.semantic) budget.semantic.corrected = true;
           return completeGaps(corrected);
         }
+        axStage("whole-correction-violations", undefined, violationFields(correctedViolations));
         if (violations.length) violations = correctedViolations;
       }
     }
@@ -550,11 +564,14 @@ function requestSpecification(request: AiApiRequest): {
   }
 }
 
-function parseResult(request: AiApiRequest, content: string): AiApiResult {
+function parseResult(request: AiApiRequest, content: string,
+  /** Observation hook for AX diagnosis refusals; it cannot change the outcome. */
+  onInvalid?: (reason: "json-parse" | "schema" | "attachment-copy", error?: unknown) => void): AiApiResult {
   let payload: unknown;
   try {
     payload = JSON.parse(content);
   } catch {
+    onInvalid?.("json-parse");
     throw new ApiError("INVALID_PROVIDER_OUTPUT", "AI 응답 형식이 올바르지 않습니다.", 502);
   }
   switch (request.kind) {
@@ -567,7 +584,10 @@ function parseResult(request: AiApiRequest, content: string): AiApiResult {
         payload = rest;
       }
       const parsed = axDiagnosisOutputSchema.safeParse(payload);
-      if (!parsed.success || copiesAttachment(parsed.data, request.attachmentSummary)) throw new ApiError("INVALID_PROVIDER_OUTPUT", "AI 응답 형식이 올바르지 않습니다.", 502);
+      if (!parsed.success || copiesAttachment(parsed.data, request.attachmentSummary)) {
+        onInvalid?.(parsed.success ? "attachment-copy" : "schema", parsed.error);
+        throw new ApiError("INVALID_PROVIDER_OUTPUT", "AI 응답 형식이 올바르지 않습니다.", 502);
+      }
       return { kind: "ax-diagnosis", diagnosis: parsed.data };
     }
     case "ax-plan": {
@@ -668,9 +688,10 @@ async function complete(
     throwIfAborted(context.signal);
     if (budget.attempt >= budget.maxAttempts) throw budget.failure;
     budget.attempt += 1;
-    const axCall = budget.axStages ? { stage: schemaName, attempt: budget.attempt, status: "started",
-      promptTokens: undefined as number | undefined, completionTokens: undefined as number | undefined } : undefined;
+    const axCall: AxStageEntry | undefined = budget.axStages ? { stage: schemaName, attempt: budget.attempt, status: "started",
+      promptTokens: undefined, completionTokens: undefined, maxCompletionTokens: maxTokens } : undefined;
     if (axCall) budget.axStages!.push(axCall);
+    budget.axErrorBody = undefined;
     budget.usage = undefined;
     budget.rejection = undefined;
     const controller = new AbortController();
@@ -720,6 +741,8 @@ async function complete(
         }
       }
       const failure = await providerError(response, budget);
+      // Observation only: was the refused JSON cut off at the completion budget, or complete but invalid?
+      if (axCall) observeJsonValidateFailure(axCall, budget, maxTokens);
       throwIfAborted(context.signal);
       throw failure;
     } catch (error) {
@@ -747,6 +770,13 @@ async function complete(
     }
   }
   throw budget.failure;
+}
+
+/** Adds the rejection's size signals and class to the call's log entry; the rejection is handled as before. */
+function observeJsonValidateFailure(axCall: AxStageEntry, budget: GroqAttemptBudget, maxTokens: number): void {
+  if (budget.rejection?.providerCode !== "json_validate_failed") return;
+  Object.assign(axCall, { providerCode: "json_validate_failed", ...budget.axErrorBody,
+    ...classifyJsonValidateFailure(budget.axErrorBody?.completionTokens, maxTokens) });
 }
 
 const groqUsageSchema = z.object({
@@ -823,6 +853,7 @@ async function providerErrorMetadata(response: Response, budget: GroqAttemptBudg
   try {
     const payload: unknown = JSON.parse(await response.text());
     if (payload && typeof payload === "object" && "usage" in payload) accumulateUsage(budget, payload.usage);
+    if (budget.axStages) budget.axErrorBody = observed(() => providerErrorBodySignals(payload));
     const parsed = groqErrorSchema.safeParse(payload);
     if (!parsed.success) return { providerRequestId };
     const providerCode = parsed.data.error.code === undefined ? undefined : String(parsed.data.error.code).slice(0, 120);
