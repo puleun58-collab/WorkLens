@@ -75,6 +75,9 @@ export function currentFactAssessment(grounding: AxGrounding): Pick<AxDiagnosis,
   return { asIs, informationSufficiency: core < 2 ? "needs-check" : complete ? "sufficient" : "partial" };
 }
 
+/** The server's required checks and the model's checks exceed the ten-item contract; none may be dropped to fit. */
+export class RequiredChecksOverflowError extends Error {}
+
 export function applyCurrentFacts<T extends Pick<AxDiagnosis, "asIs" | "informationSufficiency" | "technicalChecks" | "followUpQuestions" | "stepAssessments">>(diagnosis: T, grounding: AxGrounding): T & { grounding: AxGrounding } {
   const assessment = currentFactAssessment(grounding);
   const conflicts = grounding.conflicts.length ? [{
@@ -89,7 +92,7 @@ export function applyCurrentFacts<T extends Pick<AxDiagnosis, "asIs" | "informat
       note: "등록 정보에 현재 사용하는 시스템과 자료 접근 방식이 없어 자동화 단계가 읽고 쓸 대상과 권한을 먼저 확인해야 합니다." }] : [];
   const added = [...conflicts, ...unstatedSystem];
   const technicalChecks = [...added, ...diagnosis.technicalChecks.filter(check => !added.some(entry => entry.topic === check.topic))];
-  if (technicalChecks.length > 10) throw new Error("필수 확인 조건을 생략할 수 없습니다");
+  if (technicalChecks.length > 10) throw new RequiredChecksOverflowError("필수 확인 조건을 생략할 수 없습니다");
   return { ...diagnosis, ...assessment, grounding, technicalChecks,
     followUpQuestions: [...conflicts.map(conflict => `${conflict.topic} — 현재 기준을 확인해 주세요.`),
       ...unstatedSystem.map(() => "현재 이 업무에서 사용하는 시스템·사이트와 자료를 가져오는 방식을 알려주세요."), ...diagnosis.followUpQuestions].slice(0, 3),

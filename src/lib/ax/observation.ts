@@ -170,3 +170,82 @@ export function userNumberRetention(diagnosis: AxDiagnosisOutput, numbers: UserN
     uGroups: USER_NUMBER_GROUPS.filter(name => groups.has(name)).map(name => `${name}:${groups.get(name)!.retained}/${groups.get(name)!.total}`).join(","),
   };
 }
+
+/**
+ * Official user number metrics (stage 3 PR-2). The PR-1 counters above keep their meaning; these are added.
+ * - Primary   — positioned reflection rate = uPositionedOk / uPositioned.
+ * - Auxiliary — overall preservation rate  = uPreserved / uTotal.
+ * - Auxiliary — evaluated share            = uPositioned / uTotal.
+ * Both denominators come from the request alone (`userNumberTargets`), before any answer exists, so a failed
+ * or number-free answer can only lower a numerator. A zero denominator is "not applicable", never 0% or 100%.
+ */
+export type UserNumberNa = "no-user-numbers" | "no-positioned-numbers" | "measurement-error";
+
+/** Evaluation targets fixed from the request. `numbers` is undefined when U itself could not be measured. */
+export function userNumberTargets(numbers: UserNumber[] | undefined): { uTotal?: number; uPositioned?: number; uNa?: UserNumberNa } {
+  if (!numbers) return { uNa: "measurement-error" };
+  const uPositioned = numbers.filter(number => number.group !== "other").length;
+  const uNa: UserNumberNa | undefined = !numbers.length ? "no-user-numbers" : !uPositioned ? "no-positioned-numbers" : undefined;
+  return { uTotal: numbers.length, uPositioned, ...(uNa ? { uNa } : {}) };
+}
+
+/** Why a positioned number was not reflected. One category per number: the first that applies in this order. */
+export const USER_NUMBER_FAILURES = ["context", "unit", "elsewhere", "absent"] as const;
+export type UserNumberFailure = typeof USER_NUMBER_FAILURES[number];
+
+export interface UserNumberMetric {
+  /** Positioned numbers written at their designated position with the same unit, in a text the Semantic Guard accepts. */
+  uPositionedOk: number;
+  /** Numbers of U written with the same unit in any model-written narrative text the Semantic Guard accepts. */
+  uPreserved: number;
+  /** `category:count` of positioned numbers that were not reflected; absent when every one was. */
+  uFailures?: string;
+}
+
+/**
+ * Judges one answer against the targets. `fields` are the answer's narrative texts by field path and
+ * `violatedFields` the paths the Semantic Guard refused (both from semantic.ts, so meaning is judged by the
+ * existing contract). A number counts only as number+unit; the AS-IS is server-quoted and never counts.
+ * - context:   at the position, but in a refused text (e.g. restated as a prediction) or, for a goal, without "사용자 목표"
+ * - unit:      the same figure stands at the position with a different unit
+ * - elsewhere: preserved in another field only, which is not a success of the primary metric
+ * - absent:    preserved nowhere
+ */
+export function userNumberMetric(diagnosis: AxDiagnosisOutput, numbers: UserNumber[], fields: [string, string][], violatedFields: ReadonlySet<string>): UserNumberMetric {
+  const repetition = new Set(diagnosis.factors.flatMap((factor, index) => factor.key === "repetition" ? [`factors[${index}].rationale`] : []));
+  const atPosition = (group: UserNumberGroup, path: string) => group === "runs" || group === "cycle" ? repetition.has(path)
+    : group === "minutes" ? /^poc\.(?:evaluation|inputs)\[\d+\]$/.test(path) : group === "goal" ? /^poc\.success\[\d+\]$/.test(path) : false;
+  const texts = fields.filter(([path]) => !path.startsWith("asIs.")).map(([path, text]) => ({ path, text, tokens: userNumberTokens(text), accepted: !violatedFields.has(path) }));
+  const failures = new Map<UserNumberFailure, number>();
+  let uPositionedOk = 0, uPreserved = 0;
+  for (const number of numbers) {
+    const holding = texts.filter(entry => number.accepted.some(token => entry.tokens.has(token)));
+    const preserved = holding.some(entry => entry.accepted);
+    if (preserved) uPreserved += 1;
+    if (number.group === "other") continue;
+    const placed = holding.filter(entry => atPosition(number.group, entry.path));
+    if (placed.some(entry => entry.accepted && (number.group !== "goal" || entry.text.includes("사용자 목표")))) { uPositionedOk += 1; continue; }
+    const figures = number.accepted.map(token => `${token.split("|")[0]}|`);
+    const otherUnit = texts.some(entry => atPosition(number.group, entry.path) && [...entry.tokens].some(token => figures.some(figure => token.startsWith(figure))));
+    const failure: UserNumberFailure = placed.length ? "context" : otherUnit ? "unit" : preserved ? "elsewhere" : "absent";
+    failures.set(failure, (failures.get(failure) ?? 0) + 1);
+  }
+  const uFailures = USER_NUMBER_FAILURES.filter(name => failures.has(name)).map(name => `${name}:${failures.get(name)}`).join(",");
+  return { uPositionedOk, uPreserved, ...(uFailures ? { uFailures } : {}) };
+}
+
+/** Per-request counts: targets from the request, numerators from its final answer (absent when none was returned). */
+export interface UserNumberRequestCounts { uTotal: number; uPositioned: number; uPositionedOk?: number; uPreserved?: number }
+
+/**
+ * Sums requests and derives the three rates in percent (one decimal). A request without a returned answer
+ * keeps its denominators and adds nothing to the numerators. `null` is N/A (zero denominator).
+ */
+export function userNumberRates(requests: UserNumberRequestCounts[]) {
+  const sum = (pick: (request: UserNumberRequestCounts) => number | undefined) => requests.reduce((total, request) => total + (pick(request) ?? 0), 0);
+  const uTotal = sum(request => request.uTotal), uPositioned = sum(request => request.uPositioned);
+  const uPositionedOk = sum(request => request.uPositionedOk), uPreserved = sum(request => request.uPreserved);
+  const percent = (numerator: number, denominator: number) => denominator > 0 ? Math.round(numerator / denominator * 1000) / 10 : null;
+  return { uTotal, uPositioned, uPositionedOk, uPreserved,
+    positionedReflectionRate: percent(uPositionedOk, uPositioned), preservationRate: percent(uPreserved, uTotal), evaluatedShare: percent(uPositioned, uTotal) };
+}
