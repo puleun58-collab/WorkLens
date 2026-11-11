@@ -22,7 +22,7 @@ const PREDICTION = /절감|감소|단축|향상|개선|줄어들|늘어날|높�
 const token = (value: string, unit: string) => `${Number(value)}|${unit}`;
 
 /** Only narrative fields are inspected; scores, enums and other structural values are excluded. */
-function narrativeFields(diagnosis: AxDiagnosisOutput): [string, string][] {
+export function narrativeFields(diagnosis: AxDiagnosisOutput): [string, string][] {
   const fields: [string, string][] = [];
   const text = (field: string, value: string) => { fields.push([field, value]); };
   const list = (field: string, values: string[]) => values.forEach((value, index) => text(`${field}[${index}]`, value));

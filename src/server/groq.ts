@@ -1,10 +1,10 @@
 import { axDiagnosisGapMessages, axDiagnosisGapSchema, axMessages, AX_DIAGNOSIS_GAP_RESPONSE_SCHEMA, AX_DIAGNOSIS_RESPONSE_SCHEMA, AX_PLAN_RESPONSE_SCHEMA, copiesAttachment } from "@/lib/ax/prompt";
-import { axDiagnosisOutputSchema, axPlanSchema } from "@/lib/ax/schema";
+import { axDiagnosisOutputSchema, axDiagnosisShape, axPlanSchema } from "@/lib/ax/schema";
 import { unconfirmedPlanMetrics } from "@/lib/ax/guide";
-import { applyCurrentFacts, currentFactAssessment, currentFactMessages, CURRENT_FACT_RESPONSE_SCHEMA, resolveCurrentFacts } from "@/lib/ax/current-facts";
+import { applyCurrentFacts, currentFactAssessment, currentFactMessages, CURRENT_FACT_RESPONSE_SCHEMA, RequiredChecksOverflowError, resolveCurrentFacts } from "@/lib/ax/current-facts";
 import type { AxGrounding } from "@/lib/ax/grounding-schema";
-import { validateAxSemantics } from "@/lib/ax/semantic";
-import { classifyJsonValidateFailure, observed, providerErrorBodySignals, userNumberRetention, userNumbers, zodIssueSummary, type ProviderErrorBodySignals } from "@/lib/ax/observation";
+import { narrativeFields, validateAxSemantics } from "@/lib/ax/semantic";
+import { classifyJsonValidateFailure, observed, providerErrorBodySignals, userNumberMetric, userNumberRetention, userNumbers, userNumberTargets, zodIssueSummary, type ProviderErrorBodySignals } from "@/lib/ax/observation";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { AiApiRequest, AiApiResult } from "@/lib/ai/api";
@@ -391,13 +391,21 @@ export async function runGroqAi(
   return observeGroq({ ...context, operation }, request.kind, async (budget) => {
     if (request.kind === "ax-diagnosis") budget.axStages = [];
     // Observation only: counts of user-supplied numbers that survive in each answer, never the values.
-    const axNumbers = request.kind === "ax-diagnosis" ? observed(() => userNumbers(request)) ?? [] : [];
+    const axRequest = request.kind === "ax-diagnosis" ? request : undefined;
+    const measuredNumbers = axRequest ? observed(() => userNumbers(axRequest)) : undefined;
+    const axNumbers = measuredNumbers ?? [];
     const axStage = (stage: string, diagnosis?: Extract<AiApiResult, { kind: "ax-diagnosis" }>["diagnosis"], reason?: string, extra?: AxStageEntry) => {
       budget.axStages?.push({ stage, attempt: budget.attempt, reason,
         ...(diagnosis ? { steps: diagnosis.asIs.steps.length, stepAssessments: diagnosis.stepAssessments.length,
           toBe: diagnosis.toBe.length, risks: diagnosis.risks.length, technicalChecks: diagnosis.technicalChecks.length,
-          ...observed(() => userNumberRetention(diagnosis, axNumbers)) } : {}), ...extra });
+          ...observed(() => userNumberRetention(diagnosis, axNumbers)),
+          // Official metric numerators; a number in a text the Semantic Guard refuses kept neither meaning nor context.
+          ...(axRequest && axNumbers.length ? observed(() => userNumberMetric(diagnosis, axNumbers, narrativeFields(diagnosis),
+            new Set(validateAxSemantics(diagnosis, axRequest).map(violation => violation.field)))) : {}) } : {}), ...extra });
     };
+    // The evaluation targets (both denominators) are fixed from the request before any answer exists,
+    // so a failed or number-free answer cannot remove a number from them.
+    if (axRequest) budget.axStages?.push({ stage: "user-number-targets", attempt: budget.attempt, ...userNumberTargets(measuredNumbers) });
     // Why an answer was refused is recorded as a fixed reason plus schema paths; the refusal itself is unchanged.
     const parseFailed = (stage: string) => (reason: string, error?: unknown) => axStage(stage, undefined, reason, observed(() => zodIssueSummary(error)));
     const violationFields = (found: { category: string; field: string }[]) =>
@@ -409,7 +417,20 @@ export async function runGroqAi(
       // missing fact is never guessed. Two malformed answers keep the stored diagnosis unchanged.
       const coverage = (value: typeof grounding) => new Set(value?.facts.map(fact => fact.field)).size;
       for (let attempt = 0; attempt < 2; attempt++) {
-        const extracted = await complete(currentFactMessages(request), CURRENT_FACT_RESPONSE_SCHEMA, "worklens_ax_current_facts", 4_000, { ...context, operation: "ax-current-facts" }, budget);
+        let extracted: GroqCompletion;
+        try {
+          extracted = await complete(currentFactMessages(request), CURRENT_FACT_RESPONSE_SCHEMA, "worklens_ax_current_facts", 4_000, { ...context, operation: "ax-current-facts" }, budget);
+        } catch (error) {
+          // The repeat call only widens facts the first answer already verified against the input. When it comes
+          // back malformed, those facts are kept, exactly as when its 200 body fails to parse below. A first-call
+          // failure and every provider failure (rate limit, auth, timeout, outage, cancel) end the diagnosis as before.
+          const malformed = error instanceof ApiError && (error.code === "INVALID_PROVIDER_OUTPUT"
+            || (error.code === "AI_PROVIDER_REJECTED" && budget.rejection?.providerCode === "json_validate_failed"));
+          if (!grounding || !malformed) throw error;
+          axStage("current-facts-call-failed", undefined, error.code === "AI_PROVIDER_REJECTED" ? "json-validate-failed" : "invalid-output");
+          budget.failure = new ApiError("INVALID_PROVIDER_OUTPUT", "AI 응답 형식이 올바르지 않습니다.", 502);
+          break;
+        }
         try {
           const candidate = resolveCurrentFacts(request, JSON.parse(extracted.choices[0].message.content));
           if (copiesAttachment(candidate, request.attachmentSummary)) throw new Error("첨부 원문 저장 제한");
@@ -434,10 +455,25 @@ export async function runGroqAi(
     }
     const raw = await complete(specification.messages, specification.schema, specification.schemaName, specification.maxTokens,
       { ...context, operation }, budget);
-    const parsed = parseResult(request, raw.choices[0].message.content, parseFailed("initial-parse-failed"));
+    // asIs and informationSufficiency are decided by the server from verified quotes. They are set before the
+    // answer is validated, so a malformed value that would be discarded anyway cannot refuse the whole answer.
+    // Every other field is the model's and is validated unchanged.
+    const serverFields = (stage: string): ServerConfirmedFields | undefined => grounding ? { values: currentFactAssessment(grounding),
+      onRefused: (fields, error) => axStage(stage, undefined, fields, observed(() => zodIssueSummary(error))) } : undefined;
+    // More required checks than the ten-item contract holds is a refused answer, never a dropped check or a 500.
+    const applyFacts = (diagnosis: Extract<AiApiResult, { kind: "ax-diagnosis" }>["diagnosis"], verified: AxGrounding) => {
+      try {
+        return applyCurrentFacts(diagnosis, verified);
+      } catch (error) {
+        if (!(error instanceof RequiredChecksOverflowError)) throw error;
+        axStage("required-checks-overflow", diagnosis);
+        throw new ApiError("INVALID_PROVIDER_OUTPUT", "상충 정보와 필수 기술 조건을 모두 보존할 수 없습니다.", 502);
+      }
+    };
+    const parsed = parseResult(request, raw.choices[0].message.content, parseFailed("initial-parse-failed"), serverFields("initial-server-fields-replaced"));
     if (parsed.kind === "ax-diagnosis") axStage("initial-parsed", parsed.diagnosis);
     if (parsed.kind === "ax-diagnosis" && grounding?.conflicts.length && parsed.diagnosis.technicalChecks.length >= 10) throw new ApiError("INVALID_PROVIDER_OUTPUT", "상충 정보와 필수 기술 조건을 모두 보존할 수 없습니다.", 502);
-    const result = parsed.kind === "ax-diagnosis" && grounding ? { ...parsed, diagnosis: applyCurrentFacts(parsed.diagnosis, grounding) } : parsed;
+    const result = parsed.kind === "ax-diagnosis" && grounding ? { ...parsed, diagnosis: applyFacts(parsed.diagnosis, grounding) } : parsed;
     if (result.kind === "ax-diagnosis") axStage("current-facts-applied", result.diagnosis);
     if (request.kind === "ax-plan" && result.kind === "ax-plan") {
       const contextText = [request.task.description, ...Object.values(request.task.details)].join("\n");
@@ -506,11 +542,11 @@ export async function runGroqAi(
       const corrected = await (async () => {
         try {
           const correctedRaw = await complete(messages, specification.schema, specification.schemaName, specification.maxTokens, { ...context, operation }, budget);
-          const parsedCorrection = parseResult(request, correctedRaw.choices[0].message.content, parseFailed("whole-correction-parse-failed"));
+          const parsedCorrection = parseResult(request, correctedRaw.choices[0].message.content, parseFailed("whole-correction-parse-failed"), serverFields("whole-correction-server-fields-replaced"));
           if (parsedCorrection.kind !== "ax-diagnosis") return undefined;
           axStage("whole-correction-parsed", parsedCorrection.diagnosis);
           if (grounding?.conflicts.length && parsedCorrection.diagnosis.technicalChecks.length >= 10) return undefined;
-          return grounding ? { ...parsedCorrection, diagnosis: applyCurrentFacts(parsedCorrection.diagnosis, grounding) } : parsedCorrection;
+          return grounding ? { ...parsedCorrection, diagnosis: applyFacts(parsedCorrection.diagnosis, grounding) } : parsedCorrection;
         } catch (error) {
           // A failed correction of a merely incomplete answer keeps the valid first answer.
           if (violations.length) throw error;
@@ -564,9 +600,19 @@ function requestSpecification(request: AiApiRequest): {
   }
 }
 
+/** The two diagnosis fields the server replaces with verified values whenever current facts were extracted. */
+const serverOwnedSchema = z.object({ asIs: axDiagnosisShape.asIs, informationSufficiency: axDiagnosisShape.informationSufficiency });
+interface ServerConfirmedFields {
+  values: z.infer<typeof serverOwnedSchema>;
+  /** Observation hook: which of the model's own values for these fields would have been refused. */
+  onRefused: (fields: string, error: unknown) => void;
+}
+
 function parseResult(request: AiApiRequest, content: string,
   /** Observation hook for AX diagnosis refusals; it cannot change the outcome. */
-  onInvalid?: (reason: "json-parse" | "schema" | "attachment-copy", error?: unknown) => void): AiApiResult {
+  onInvalid?: (reason: "json-parse" | "schema" | "attachment-copy", error?: unknown) => void,
+  /** AX diagnosis only: values the server has already verified for the fields it owns. */
+  server?: ServerConfirmedFields): AiApiResult {
   let payload: unknown;
   try {
     payload = JSON.parse(content);
@@ -583,8 +629,16 @@ function parseResult(request: AiApiRequest, content: string,
         delete rest.decisionPoints;
         payload = rest;
       }
+      // The attachment check keeps covering what the model itself wrote, including the values replaced here.
+      let modelWritten: unknown;
+      if (server && payload && typeof payload === "object" && !Array.isArray(payload)) {
+        const refused = serverOwnedSchema.safeParse(payload);
+        if (!refused.success) server.onRefused([...new Set(refused.error.issues.map(issue => String(issue.path[0])))].sort().join(","), refused.error);
+        modelWritten = { asIs: (payload as { asIs?: unknown }).asIs, informationSufficiency: (payload as { informationSufficiency?: unknown }).informationSufficiency };
+        payload = { ...payload, ...server.values };
+      }
       const parsed = axDiagnosisOutputSchema.safeParse(payload);
-      if (!parsed.success || copiesAttachment(parsed.data, request.attachmentSummary)) {
+      if (!parsed.success || copiesAttachment(modelWritten ? { ...parsed.data, ...modelWritten } : parsed.data, request.attachmentSummary)) {
         onInvalid?.(parsed.success ? "attachment-copy" : "schema", parsed.error);
         throw new ApiError("INVALID_PROVIDER_OUTPUT", "AI 응답 형식이 올바르지 않습니다.", 502);
       }
