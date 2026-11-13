@@ -2520,6 +2520,44 @@ function applyHitlToModel(
   };
 }
 
+/** P1: an explicit production action establishes a step→artifact relation; word
+ * similarity alone does not. Keep this local to prompt rendering and leave HITL,
+ * stored plans and policy scopes unchanged. Unknown relations need manual review. */
+function excludedOutputConflicts(model: AgentInstructionModel, options: PromptOptions): Array<{ step: string; output: string }> {
+  const excluded = model.hitlDetails?.excluded ?? [];
+  if (!excluded.length) return [];
+  const d = options.diagnosis;
+  const registered = unique(d?.asIs?.outputs ?? []);
+  const removed = new Set([
+    ...excluded.map(item => item.name),
+    ...(model.hitlDetails?.deferred.map(item => item.name) ?? []),
+    ...(model.hitlDetails?.validatedExcludedStepNames ?? []),
+  ].map(normalizedStepText));
+  const producers = unique([
+    ...model.steps.filter(step => step.scope !== "future" && step.scope !== "verify").map(step => step.step),
+    ...model.classified.filter(item => item.sources.includes("plan.implementation") && ["implement", "after-check"].includes(item.scope)).map(item => item.original ?? item.text),
+  ]);
+  const produces = (step: string, output: string): boolean => {
+    // Only explicit artifact creation counts, never review/calculation/retention
+    // mentioning the same artifact. Split coordinated artifacts, not fuzzy names.
+    const action = /(?:파일\s*)?(?:생성|작성|출력|내보내기)(?:한다|합니다|하기)?[.。]?$/u.exec(step.trim());
+    if (!action || /금지|않|제외|보류/u.test(step)) return false;
+    const targets = step.slice(0, action.index).trim().split(/(?:와|과)\s+|\s+및\s+|[·,]/u);
+    const outputWords = ` ${scopeWords(output.replace(/\([^)]*\)/gu, "")).join(" ")} `;
+    return targets.some(target => {
+      const words = scopeWords(target.replace(/(?:을|를)$/u, "").trim());
+      return words.length > 0 && outputWords.endsWith(` ${words.join(" ")} `);
+    });
+  };
+  return excluded.flatMap(item => registered
+    .filter(output => produces(item.name, output)
+      && !producers.some(step => !removed.has(normalizedStepText(step)) && produces(step, output)))
+    .map(output => ({ step: item.name, output })));
+}
+
+const DRAFT_IMPLEMENTATION_RULE = "미확정 항목이 있어도 확정된 요구사항은 정상 구현하고, 허용 범위에서 구현 가능한 부분과 산출물은 격리된 초안으로 작성하여 '승인 전 임시 자료'로 표시하세요. 미확정 값·정책을 임의로 확정하지 말고 해당 부분은 '확인·승인 대기'로 구분하세요. 미확정 항목에 의존하는 초안은 담당자 승인 전에는 사용자에게 대외 공개·제공하거나 실제 운영에 반영·배포하지 마세요. 이 제공 제한은 검증용 초안 파일·내부 산출물 생성을 금지하지 않으며, 미확정 사항과 무관한 테스트·빌드·격리 검증은 진행하세요. 이 지시문의 고정·모델 생성 문구에 있는 '작성하지 마세요'·'구현을 중단하세요'·미확정으로 인한 구현 보류와 충돌하면 이 초안 작성 원칙이 우선합니다. 단, HITL 보류·제외, 담당자 판단 유지, Level·Gate 제한과 보안·권한·데이터 삭제 등 위험한 실제 실행의 승인 게이트는 그대로 유지하며 우회하지 마세요.";
+const PERSISTENCE_IMPLEMENTATION_RULE = "업무상 저장·재조회가 필수인 경우 저장 방식 선택 미확정만으로 저장·재조회 구현을 보류하지 마세요. 기존 프로젝트의 저장소를 우선 재사용하고, 확정된 저장 방식·데이터 계약이 있으면 그 계약을 따르세요. 기존 저장소나 확정된 방식이 없으면 실행 환경에 맞는 격리된 로컬 영속 저장소(SQLite 또는 파일 기반 저장)를 기술 기본값 후보로 구현·검증하세요. 데이터 저장·조회·수정 후 저장, 새로고침 또는 재실행 후 데이터 유지, 잘못된 입력·저장 실패 처리를 구현하고 기존 데이터와의 호환성을 유지하세요. 메모리 저장·하드코딩 결과는 실제 영속 저장 기능이 아닙니다. 배포 환경에서 영속성이 보장되지 않으면 운영용으로 확정하거나 운영 적합성을 PASS로 보고하지 마세요. 저장 시스템·권한 정책은 확인·승인 대기로 남기고, 새로운 외부 DB·클라우드 서비스·계정을 자동 생성하지 마세요. 이 기본값은 저장 방식 선택에만 적용하며 HITL 보류·제외, 보안·권한·삭제·운영 실행의 승인 조건을 해제하지 않습니다.";
+
 /** One coding-agent instruction for any supported tool; the model is computed once.
  * 실행형 6개 영역 구조 (구현 목표 / 구현 범위 / 기능별 요구사항 / 예외 및 유지 조건 /
  * 구현 순서 및 검증 / 결과 보고). 같은 의미의 설명은 한 영역에서 한 번만 출력한다:
@@ -2821,6 +2859,7 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
     ...demotedPocCriteria,
   ];
   const hitl = model.hitlDetails;
+  const outputConflicts = excludedOutputConflicts(model, options);
   // 고정 결정 지점·범용 규칙 (지시문 생성 시점의 출력용; 저장 원문은 고치지 않는다).
   const decisionPoints = model.decisionPoints ?? [];
   const stateNames = confirmedStateNames(decisionPoints);
@@ -2835,6 +2874,16 @@ export function buildAllInOnePrompt(rawPlan: AxPlan | undefined, _tool: AxToolId
   const pendingRules = pendingGenericRules(genericRules);
   const applicabilityPendingRules = applicabilityPendingGenericRules(genericRules);
   const duplicateRuleConflicts = duplicateGenericRuleConflicts(genericRules);
+  const canDraft = work.length > 0 && gate !== "blocked" && !!profile;
+  const hasUnknowns = undecidedIds.length > 0 || pendingRules.length > 0 || applicabilityPendingRules.length > 0
+    || undeterminedOutputs.length > 0 || model.conditions.confirm.length > 0
+    || work.some(step => model.methods[steps.indexOf(step)] === "confirm");
+  const draftRule = canDraft && hasUnknowns ? DRAFT_IMPLEMENTATION_RULE : "";
+  const persistenceRequired = canDraft && /저장/u.test([
+    options.context, ...(d?.asIs?.steps ?? []), ...(d?.asIs?.outputs ?? []),
+    ...(d?.poc?.inScope ?? []), ...(d?.stepAssessments.map(step => `${step.step} ${step.note}`) ?? []),
+    ...confirmedRules.map(rule => rule.detail),
+  ].join("\n"));
   // 사용자가 직접 입력한 블록은 D4 치환(applyStateDefinition) 대상에서 제외한다.
   // 치환하면 "정상·오류·확인 필요" 같은 D4 정의 행 자체가 다시 바뀌어 상태가 중복된다.
   const userBlocks: string[] = [];
@@ -2891,7 +2940,8 @@ ${stateList ? `\n결과 상태 목록: ${stateList} — 지시문 전체에서 �
     unlinked.length ? `### 적용 단계 확인 필요 제안\n\n${bullets(unlinked)}` : "",
     hitl && (hitl.deferred.length > 0 || hitl.excluded.length > 0 || hitl.supplements.length > 0) ? `### 사람 검토 반영\n\n${[
       hitl.deferred.length > 0 ? `보류된 작업 (현재 구현하지 않음):\n${unique(hitl.deferred.map(x => `- ${x.name} — 보류${x.reason ? `: ${x.reason}` : ""}${x.resumeCondition ? `\n  - 재개 조건: ${x.resumeCondition}` : ""}`))}\n위 작업은 현재 구현 범위에서 제외됩니다. 재개 조건이 충족되어도 자동으로 재개하지 말고 담당자에게 확인하세요.` : "",
-      hitl.excluded.length > 0 ? `제외된 작업 (현재 구현 범위에서 제외):\n${unique(hitl.excluded.map(x => `- ${x.name} — 현재 구현 범위에서 제외. 관련 기능을 구현하지 않습니다.`))}\n위 작업은 업무 배경 설명에 언급되더라도 구현 목표·필수 기능·필수 산출물·완료 조건이 아닙니다.` : "",
+      hitl.excluded.length > 0 ? `제외된 작업 (현재 구현 범위에서 제외):\n${unique(hitl.excluded.map(x => `- ${x.name} — 현재 구현 범위에서 제외. 관련 기능을 구현하지 않습니다.`))}\n${outputConflicts.length ? "위 제외 단계는 자동 복구하지 않습니다. 등록 출력과 충돌하는 항목은 아래 확인·승인 대기로 구분하며 필수 출력 요구를 임의로 삭제하지 않습니다." : "위 작업은 업무 배경 설명에 언급되더라도 구현 목표·필수 기능·필수 산출물·완료 조건이 아닙니다."}` : "",
+      outputConflicts.length ? `등록된 출력과 충돌 (확인·승인 대기):\n${bullets(outputConflicts.map(item => `제외 단계 '${item.step}' → 등록 필수 출력 '${item.output}' — 제외 시 해당 산출물이 만들어지지 않습니다.`))}\n제외 단계 복구나 필수 산출물 삭제 중 어느 쪽도 임의로 확정하지 말고 사용자 결정을 요청하세요. 충돌과 무관한 허용 범위의 구현 초안 작성은 계속 진행하세요.` : "",
       hitl.supplements.length > 0 ? `보완 요구사항·검증 기준:\n${unique(hitl.supplements.map(x => `- ${x.name}\n  - 보완 내용: ${x.content}`))}\n위 보완 내용은 원본 범위에 추가하여 관련 구현·검증 기준에 반영하세요. 단, 담당자 유지·제외·보류 범위를 넘어서는 부분은 구현하지 말고 사유를 보고하세요. 확인되지 않은 API·권한·DB를 임의로 추가하지 마세요.` : "",
     ].filter(Boolean).join("\n\n")}` : "",
   );
@@ -2953,6 +3003,8 @@ ${stateList ? `\n결과 상태 목록: ${stateList} — 지시문 전체에서 �
       ...(finalOutputs.length ? [`업무 전체 산출물 (공통 출력): ${finalOutputs.join("; ")}`] : []),
       ...(asIsReferenceOutputs.length ? [`기존 업무 산출물 (참고 — 최종 구현 목표 아님): ${asIsReferenceOutputs.join("; ")}`] : []),
     ])}\n\n실제 입력 자료의 형식과 필수 필드를 확인하고 파싱·검증한 뒤 처리하세요. 확인 전에는 항목명·경로·값을 하드코딩하지 마세요. 계산·판정이 있으면 확인된 계산식·입력·순서·반올림·누락 처리 기준만 사용하고, 정의되지 않은 기준은 해당 처리만 보류해 '확인 필요'로 보고하세요. 원본 추적이 필요한 업무라면 결과에서 원본 출처·처리 단계·오류 위치·담당자 확인 결과를 확인할 수 있게 유지하세요.` : "",
+    persistenceRequired ? `### 저장·재조회 구현 원칙\n\n${PERSISTENCE_IMPLEMENTATION_RULE}` : "",
+    draftRule ? `미확정 항목의 구현 보류 문구는 아래 '초안 작성과 승인 경계' 원칙에 따라 적용하세요.${persistenceRequired ? " 저장 방식 선택만 미확정인 경우에는 '저장·재조회 구현 원칙'이 우선합니다." : ""}` : "",
     verifyGroups.size ? `### 방식별 검증 기준\n\n${bullets([...verifyGroups].map(([text, group]) => `${group.labels.join(" / ")} (${group.stepNames.join(", ")}): ${text}`))}` : "",
     work.length ? ioBlocks : "",
     review.length ? `### 검토·검증 작업\n\n${bullets(review.map(s => `${s.step} — ${shortMethod(s)}${(s.note ?? "").trim() ? ` (진단 메모: ${collapse(s.note)})` : ""}`))}\n\n샘플과 업무 규칙으로 확인한 결과를 보고하는 범위입니다. ${gate === "blocked" ? "운영 기능·자동 실행 코드·스캐폴딩을" : "운영 기능이나 자동 실행 코드를"} 만들지 마세요.` : "",
@@ -3038,6 +3090,8 @@ ${stateList ? `\n결과 상태 목록: ${stateList} — 지시문 전체에서 �
   // 뜻이며, 무조건 즉시 구현으로 바꾸지 않는다.
   section("구현 순서 및 검증",
     "구분 — A. 구현 전 확인 작업: 기존 정책과 실제 접근 권한에서 허용되는 읽기·분석·검증 작업(저장소 구조·기존 코드 확인, 실제 입력 자료·파일 형식 확인, 확정된 계산식·업무 규칙 확인, 기존 API·인증 설정의 존재 여부 확인, 출력 템플릿·매핑 규칙 확인, 업무 단계별 실제 의존관계 확인, 기존 테스트·설정·실행 환경 확인)은 확인 후 구현 상태에서도 수행할 수 있습니다. 권한이 없는 데이터·외부 시스템에 접근하거나 인증을 우회해서는 안 됩니다. B. 조건 충족 후 구현 작업: 기존 Level·Gate가 해당 구현을 허용하고, HITL 제외·보류 대상이 아니며, 필수 입력 자료·규칙·권한과 처리 방식에 필요한 확정 근거, 실제 의존조건, 필요한 담당자 확인·승인 조건이 모두 확인된 경우에만 실제 기능을 구현합니다. C. 구현 보류 작업: 필수 조건 미확인, HITL 보류, Gate 차단, 권한 거부 등의 사유로 구현할 수 없는 작업은 구현하지 않고 보류 사유·확인 대상·재개 조건을 보고합니다. 해당 기능의 실제 구현은 필수 처리 방식과 선행조건이 확인될 때까지 보류합니다. 다만 확인 작업 허용은 구현 권한 부여가 아닙니다. 실제 자료가 부족하면 임의 값을 만들어 구현 완료로 처리하지 말고 부족 사항을 구체적으로 보고하세요. 정책상 구현이 금지된 작업은 자료가 충분해도 그대로 보류합니다.",
+    draftRule ? `### 초안 작성과 승인 경계\n\n${draftRule}` : "",
+    persistenceRequired ? `저장 방식 미확정의 예외: 위 '저장·재조회 구현 원칙'을 따르세요. 저장 기술 선택만 미확정이면 격리된 영속 저장 구현·검증을 진행하고, 권한·운영 정책까지 확정된 것으로 표시하지 마세요.` : "",
     numbered([
       "대상 저장소·기존 구현 확인: 저장소 지침(AGENTS.md 등)과 현재 branch·미커밋 변경을 확인하고, 프로젝트 구조·실행 환경·테스트·빌드 명령을 파악하세요. 이 업무가 웹앱인지 CLI·스크립트·파일 자동화인지 확인하고 해당 환경의 기존 구현을 재사용하세요. 확인한 사실과 추정을 구분해 기록하고, 추정은 '확인 필요'로 남기세요.",
       "실제 입력 파일·자료·설정 확인: 실제 샘플로 입력 형식·필수 항목을 확인하세요. 실제 샘플로 형식을 확인하기 전에는 항목명·경로·값을 하드코딩하지 마세요.",
@@ -3060,6 +3114,7 @@ ${stateList ? `\n결과 상태 목록: ${stateList} — 지시문 전체에서 �
       "6. 배포한 경우 배포된 주소에서 같은 실제 입력 자료로 다시 확인한다.",
     ])}` : "",
     decisionPoints.length ? `### 미확정 항목 처리\n\n${[
+      ...(draftRule ? ["미확정 항목이 있어도 위 '초안 작성과 승인 경계' 원칙에 따라 구현 가능한 초안과 내부 산출물은 작성하고, 미확정 부분의 운영 실행·공개만 확인·승인 대기로 구분하세요."] : []),
       d5State
         ? `미확정 규칙에 해당하는 행만 '${d5State}'로 보내고 사유에 해당 D번호를 표시한다. 나머지 행은 확정된 규칙대로 처리한다. 확정 규칙으로 판정할 수 있는 행까지 '${d5State}'로 보내는 구현은 완료가 아니다.`
         : d5StateInvalid
